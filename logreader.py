@@ -3,8 +3,10 @@ import os
 import argparse
 from termcolor import colored
 
+#TODO: Add num of errors to bottom of row if not limited
 #TODO: Add custom pattern-match (Future: Add several patterns in list)
 #TODO: Split printing into functions
+#TODO: Fix small bug with limiter cutting off end of context
 
 #TODO: Implement argparse file-name in
 #TODO: Implement argsparse context-num
@@ -27,7 +29,7 @@ def main():
     limit_output_failed = 0
     limit_output_fatal = 0
     
-    general_limit = 2
+    general_limit = 0
     
     if(general_limit != 0):
         limit_output = general_limit
