@@ -1,6 +1,5 @@
 *.txt
 *.log
-*.har
 __pycache__/
 *.py[cod]
 *$py.class
