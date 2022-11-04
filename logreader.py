@@ -3,7 +3,6 @@ import os
 import argparse
 from termcolor import colored
 
-#TODO: Add printed limit statement num of errors
 #TODO: Add custom pattern-match (Future: Add several patterns in list)
 #TODO: Split printing into functions
 
@@ -19,7 +18,7 @@ def main():
     filename = "infile.txt"
     printcolor_gen = "blue"
     
-    display_separator = False
+    display_separator = True
     write_to_file = True
     
     limit_output = 0
@@ -28,7 +27,7 @@ def main():
     limit_output_failed = 0
     limit_output_fatal = 0
     
-    general_limit = 5
+    general_limit = 2
     
     if(general_limit != 0):
         limit_output = general_limit
@@ -187,6 +186,7 @@ def main():
         else:
             print(x)
         if has_limit and (err_count == limit_output):
+            print("\nLimited, showing " + str(limit_output) + " out of " + str(err_num) + " elements.")
             break
     
     err_count = 0
@@ -201,6 +201,7 @@ def main():
             else:
                 w.write(x + "\n")
             if has_limit and (err_count == limit_output):
+                w.write("\nLimited, showing " + str(limit_output) + " out of " + str(err_num) + " elements.\n")
                 break
 
     print()
@@ -218,6 +219,7 @@ def main():
         
         err_count += 1
         if has_limit_gen and (err_count == limit_output_gen):
+            print("\nLimited, showing " + str(limit_output_gen) + " out of " + str(len(errgen_msg_arr)) + " elements.")
             break
     
     err_count = 0
@@ -230,6 +232,7 @@ def main():
             
             err_count += 1
             if has_limit_gen and (err_count == limit_output_gen):
+                w.write("\nLimited, showing " + str(limit_output_gen) + " out of " + str(len(errgen_msg_arr)) + " elements.\n")
                 break
     
     print()
@@ -248,6 +251,7 @@ def main():
         
         err_count += 1
         if has_limit_wargen and (err_count == limit_output_wargen):
+            print("\nLimited, showing " + str(limit_output_wargen) + " out of " + str(len(war_msg_arr)) + " elements.")
             break
     
     err_count = 0
@@ -260,6 +264,7 @@ def main():
             
             err_count += 1
             if has_limit_wargen and (err_count == limit_output_wargen):
+                w.write("\nLimited, showing " + str(limit_output_wargen) + " out of " + str(len(war_msg_arr)) + " elements.\n")
                 break
 
     print()
@@ -277,6 +282,7 @@ def main():
         
         err_count += 1
         if has_limit_failed and (err_count == limit_output_failed):
+            print("\nLimited, showing " + str(limit_output_failed) + " out of " + str(len(failgen_msg_arr)) + " elements.")
             break
 
     err_count = 0
@@ -289,6 +295,7 @@ def main():
             
             err_count += 1
             if has_limit_failed and (err_count == limit_output_failed):
+                w.write("\nLimited, showing " + str(limit_output_failed) + " out of " + str(len(failgen_msg_arr)) + " elements.\n")
                 break
 
 
@@ -307,6 +314,7 @@ def main():
         
         err_count += 1
         if has_limit_fatal and (err_count == limit_output_fatal):
+            print("\nLimited, showing " + str(limit_output_fatal) + " out of " + str(len(fatalgen_msg_arr)) + " elements.")
             break
 
     err_count = 0
@@ -319,6 +327,7 @@ def main():
             
             err_count += 1
             if has_limit_fatal and (err_count == limit_output_fatal):
+                w.write("\nLimited, showing " + str(limit_output_fatal) + " out of " + str(len(fatalgen_msg_arr)) + " elements.")
                 break
 
 
