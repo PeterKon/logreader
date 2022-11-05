@@ -1,17 +1,12 @@
 import re
 import os
-import argparse
 from termcolor import colored
 
 #TODO: Add num of errors to bottom of row if not limited
 #TODO: Add custom pattern-match (Future: Add several patterns in list)
 #TODO: Split printing into functions
 #TODO: Fix small bug with limiter cutting off end of context
-
-#TODO: Implement argparse file-name in
-#TODO: Implement argsparse context-num
-#TODO: Implement argparse custom pattern in (future: list of args)
-#TODO: Implement argparse error-limits in
+#TODO: Add PySimpleGui integration
 
 #Log analysis project
 def main():
