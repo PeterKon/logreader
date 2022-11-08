@@ -7,6 +7,8 @@ from termcolor import colored
 #TODO: Split printing into functions
 #TODO: Fix small bug with limiter cutting off end of context
 #TODO: Add PySimpleGui integration
+#TODO: Add context for general errors as well
+#TODO: Single color of word on "Error:"-messages (And maybe color for ---> arrow)
 
 #Log analysis project
 def main():
