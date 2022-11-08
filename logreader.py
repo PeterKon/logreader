@@ -2,7 +2,6 @@ import re
 import os
 from termcolor import colored
 
-#TODO: Add num of errors to bottom of row if not limited
 #TODO: Add custom pattern-match (Future: Add several patterns in list)
 #TODO: Split printing into functions
 #TODO: Fix small bug with limiter cutting off end of context
@@ -26,7 +25,7 @@ def main():
     limit_output_failed = 0
     limit_output_fatal = 0
     
-    general_limit = 0
+    general_limit = 23
     
     if(general_limit != 0):
         limit_output = general_limit
@@ -178,6 +177,7 @@ def main():
     print("Errors contained:                              |")
     print("------------------------------------------------")
     err_count = 0
+    broken = False
     for i, x in enumerate(err_msg_arr):
         if "error:" in err_msg_arr[i].lower():
             print(colored(x, 'red', attrs=["bold"]))
@@ -186,9 +186,13 @@ def main():
             print(x)
         if has_limit and (err_count == limit_output):
             print("\nLimited, showing " + str(limit_output) + " out of " + str(err_num) + " elements.")
+            broken = True
             break
+    if not broken:
+        print("\nPrinted all " + str(err_num) + " elements.")
     
     err_count = 0
+    broken = False
     if write_to_file:
         w.write("------------------------------------------------\n")
         w.write("Errors contained:                              |\n")
@@ -201,13 +205,16 @@ def main():
                 w.write(x + "\n")
             if has_limit and (err_count == limit_output):
                 w.write("\nLimited, showing " + str(limit_output) + " out of " + str(err_num) + " elements.\n")
+                broken = True
                 break
-
+        if not broken:
+            w.write("\nPrinted all " + str(err_num) + " elements.\n")
     print()
     print("------------------------------------------------")
     print("Generic errors contained:                      |")
     print("------------------------------------------------")
     err_count = 0
+    broken = False
     for x in errgen_msg_arr:
         
         pattern = re.compile(err_gen, re.IGNORECASE)        
@@ -219,9 +226,13 @@ def main():
         err_count += 1
         if has_limit_gen and (err_count == limit_output_gen):
             print("\nLimited, showing " + str(limit_output_gen) + " out of " + str(len(errgen_msg_arr)) + " elements.")
+            broken = True
             break
+    if not broken:
+        print("\nPrinted all " + str(len(errgen_msg_arr)) + " elements.")
     
     err_count = 0
+    broken = False
     if write_to_file:
         w.write("\n------------------------------------------------\n")
         w.write("Generic errors contained:                      |\n")
@@ -232,13 +243,17 @@ def main():
             err_count += 1
             if has_limit_gen and (err_count == limit_output_gen):
                 w.write("\nLimited, showing " + str(limit_output_gen) + " out of " + str(len(errgen_msg_arr)) + " elements.\n")
+                broken = True
                 break
-    
+        if not broken:
+            w.write("\nPrinted all " + str(len(errgen_msg_arr)) + " elements.\n")
+            
     print()
     print("------------------------------------------------")
     print("Warnings contained:                            |")
     print("------------------------------------------------")
     err_count = 0
+    broken = False
     for x in war_msg_arr:
         
         #Using regex to split the string apart then color the appropriate error-word
@@ -251,9 +266,13 @@ def main():
         err_count += 1
         if has_limit_wargen and (err_count == limit_output_wargen):
             print("\nLimited, showing " + str(limit_output_wargen) + " out of " + str(len(war_msg_arr)) + " elements.")
+            broken = True
             break
+    if not broken:
+        print("\nPrinted all " + str(len(war_msg_arr)) + " elements.")
     
     err_count = 0
+    broken = False
     if write_to_file:
         w.write("\n------------------------------------------------\n")
         w.write("Warnings contained:                            |\n")
@@ -264,13 +283,17 @@ def main():
             err_count += 1
             if has_limit_wargen and (err_count == limit_output_wargen):
                 w.write("\nLimited, showing " + str(limit_output_wargen) + " out of " + str(len(war_msg_arr)) + " elements.\n")
+                broken = True
                 break
+    if not broken:
+        w.write("\nPrinted all " + str(len(war_msg_arr)) + " elements.\n")
 
     print()
     print("------------------------------------------------")
     print("Generic failures contained:                    |")
     print("------------------------------------------------")
     err_count = 0
+    broken = False
     for x in failgen_msg_arr:
     
         pattern = re.compile(fail_gen, re.IGNORECASE)        
@@ -282,9 +305,13 @@ def main():
         err_count += 1
         if has_limit_failed and (err_count == limit_output_failed):
             print("\nLimited, showing " + str(limit_output_failed) + " out of " + str(len(failgen_msg_arr)) + " elements.")
+            broken = True
             break
+    if not broken:
+        print("\nPrinted all " + str(len(failgen_msg_arr)) + " elements.")
 
     err_count = 0
+    broken = False
     if write_to_file:
         w.write("\n------------------------------------------------\n")
         w.write("Generic failures contained:                    |\n")
@@ -295,14 +322,17 @@ def main():
             err_count += 1
             if has_limit_failed and (err_count == limit_output_failed):
                 w.write("\nLimited, showing " + str(limit_output_failed) + " out of " + str(len(failgen_msg_arr)) + " elements.\n")
+                broken = True
                 break
-
+    if not broken:
+        w.write("\nPrinted all " + str(len(failgen_msg_arr)) + " elements.\n")
 
     print()
     print("------------------------------------------------")
     print("Generic fatals contained:                      |")
     print("------------------------------------------------")
     err_count = 0
+    broken = False
     for x in fatalgen_msg_arr:
         
         pattern = re.compile(fatal_gen, re.IGNORECASE)        
@@ -314,9 +344,13 @@ def main():
         err_count += 1
         if has_limit_fatal and (err_count == limit_output_fatal):
             print("\nLimited, showing " + str(limit_output_fatal) + " out of " + str(len(fatalgen_msg_arr)) + " elements.")
+            broken = True
             break
+    if not broken:
+        print("\nPrinted all " + str(len(fatalgen_msg_arr)) + " elements.")
 
     err_count = 0
+    broken = False
     if write_to_file:
         w.write("\n------------------------------------------------\n")
         w.write("Generic fatals contained:                      |\n")
@@ -327,7 +361,10 @@ def main():
             err_count += 1
             if has_limit_fatal and (err_count == limit_output_fatal):
                 w.write("\nLimited, showing " + str(limit_output_fatal) + " out of " + str(len(fatalgen_msg_arr)) + " elements.")
+                broken = True
                 break
+        if not broken:
+            w.write("\nPrinted all " + str(len(fatalgen_msg_arr)) + " elements.")
 
 
     f.close()
