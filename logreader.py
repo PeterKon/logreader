@@ -1,19 +1,19 @@
 import re
 import os
 from termcolor import colored
+import PySimpleGUI as sg
 
 #TODO: Add custom pattern-match (Future: Add several patterns in list)
 #TODO: Split printing into functions
 #TODO: Fix small bug with limiter cutting off end of context
-#TODO: Add PySimpleGui integration
 #TODO: Add context for general errors as well
 #TODO: Single color of word on "Error:"-messages (And maybe color for ---> arrow)
+#TODO: Expand PySimpleGui integration
 
 #Log analysis project
 def main():
     
     context = 3
-    filename = "infile.txt"
     printcolor_gen = "blue"
     
     display_separator = True
@@ -26,6 +26,23 @@ def main():
     limit_output_fatal = 0
     
     general_limit = 23
+    
+    version = "Logreader v0.12"
+    
+    #PySimpleGUI file-select
+    sg.theme("SystemDefault")
+    layout = [[sg.T("")], [sg.Text("Choose a logfile: "), sg.Input(key="-IN2-" ,change_submits=True), sg.FileBrowse(key="-IN-")],[sg.Button("Submit")]]
+    
+    window = sg.Window(version, layout, size=(600,135))
+    
+    while True:
+        event, values = window.read()
+        print(values["-IN2-"])
+        if event == sg.WIN_CLOSED or event=="Exit":
+            break
+        elif event == "Submit":
+            filename = values["-IN-"]
+            break
     
     if(general_limit != 0):
         limit_output = general_limit
@@ -147,7 +164,7 @@ def main():
 
 
     #Print results
-    print("\nLOGREADER v0.12\n")
+    print("\n" + version + "\n")
     print("Number of errors in this file:           " + str(err_num))
     print("Number of generic errors in this file:   " + str(len(errgen_msg_arr)))
     print("Number of warnings in this file:         " + str(len(war_msg_arr)))
@@ -160,7 +177,7 @@ def main():
     
     #Write to file
     if write_to_file:
-        w.write("\nLOGREADER v0.12\n")
+        w.write("\n" + version + "\n\n")
         w.write("Number of errors in this file:           " + str(err_num) + "\n")
         w.write("Number of generic errors in this file:   " + str(len(errgen_msg_arr)) + "\n")
         w.write("Number of warnings in this file:         " + str(len(war_msg_arr)) + "\n")

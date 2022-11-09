@@ -2,7 +2,7 @@
 Simple python-script I use to analyze log-files to quickly extract the commonly relevant error-messages. The script prints the results to terminal and by default outputs to file `outfile.txt`.
 
 ## Usage
-Renaming the file to be analyzed to `infile.txt` and running the script with `python logreader.py`
+Running the script with `python logreader.py` and selecting the logfile to be analyzed.
 
 Inside the code, you can change the following variables to adjust the output:
 
