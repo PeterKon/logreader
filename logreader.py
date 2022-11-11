@@ -25,8 +25,6 @@ def main():
     display_separator = True
     write_to_file = True
     
-    print(write_to_file)
-    
     limit_output = 0
     limit_output_gen = 0
     limit_output_wargen = 0
@@ -75,8 +73,6 @@ def main():
     ]
     
     window = sg.Window(version, layout, size=(350,300))
-    
-    print(write_to_file)
 
     while True:
         event, values = window.read()
@@ -101,10 +97,6 @@ def main():
         elif event == '-INPUT2-' and len(values['-INPUT2-']) and values['-INPUT2-'][-1] not in ('0123456789'):
             window['-INPUT2-'].update(values['-INPUT2-'][:-1])
     window.close()
-    
-    write_to_file = bool(write_to_file)
-    
-    print(write_to_file)
     
     if(general_limit != 0):
         limit_output = general_limit
