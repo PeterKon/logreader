@@ -9,6 +9,7 @@ import PySimpleGUI as sg
 #TODO: Add context for general errors as well
 #TODO: Single color of word on "Error:"-messages (And maybe color for ---> arrow)
 #TODO: Expand PySimpleGui integration
+#TODO: Flip default values of display_separator and write_to_file in sg
 
 #Log analysis project
 
@@ -32,12 +33,11 @@ def main():
     limit_output_failed = 0
     limit_output_fatal = 0
     
-    general_limit = 5
+    general_limit = 0
     
     version = "Logreader v0.12"
     
     #PySimpleGUI file-select
-    sg.theme("SystemDefault")
     layout = [[sg.T("")], 
         [sg.Text("Choose a logfile: "), 
             sg.Input(key="-IN2-" ,
@@ -48,24 +48,35 @@ def main():
     window = sg.Window(version, layout, size=(600,135))    
     while True:
         event, values = window.read()
-        print(values["-IN2-"])
         if event == sg.WIN_CLOSED or event=="Exit":
             break
         elif event == "Submit":
             filename = values["-IN-"]
             break
     
-    #PySimpleGUI values select
-    #Try demo_input_validation
-    layout = [[sg.Text('\nChoose values')],
-              [sg.Text('Display separator     Off'),
-               sg.Button(image_data=toggle_btn_off, key='-TOGGLE-GRAPHIC-', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
-               sg.Text('On')],
-              [sg.Text('General limit: '), sg.Input('0', enable_events=True,  key='-INPUT-', s=5)],
-              [sg.Button("Submit")]
-               ]
     
-    window = sg.Window('Toggle Button Simple Graphic', layout, size=(600,600))
+    #PySimpleGUI values select  
+    def_toggle_size = (19,1)
+    def_box_size = (19,1)
+    
+    left_col = [
+        [sg.Text('')],
+        [sg.Text('Choose values for the log analysis:')],
+        [sg.Text(('Display separator'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_off, key='-TOGGLE-GRAPHIC-', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Text('On')],
+        [sg.Text(('Write to file'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_off, key='-TOGGLE-GRAPHIC2-', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Text('On')],
+        [sg.Text(('Output error limit:'), size = def_box_size), sg.Input('0', enable_events=True,  key='-INPUT-', s=3)],
+        [sg.Text(('Context around errors:'), size = def_box_size), sg.Input('3', enable_events=True,  key='-INPUT2-', s=3)],
+        [sg.Text('')],
+        [sg.Button("Submit")]
+    ]
+    
+    layout = [[sg.Column(left_col)]]
+    
+    window = sg.Window(version, layout, size=(350,300))
 
     while True:
         event, values = window.read()
@@ -75,13 +86,22 @@ def main():
             window['-TOGGLE-GRAPHIC-'].metadata = not window['-TOGGLE-GRAPHIC-'].metadata
             window['-TOGGLE-GRAPHIC-'].update(image_data=toggle_btn_on if window['-TOGGLE-GRAPHIC-'].metadata else toggle_btn_off)
             display_separator = window['-TOGGLE-GRAPHIC-'].metadata
+        elif event == '-TOGGLE-GRAPHIC2-':
+            window['-TOGGLE-GRAPHIC2-'].metadata = not window['-TOGGLE-GRAPHIC2-'].metadata
+            window['-TOGGLE-GRAPHIC2-'].update(image_data=toggle_btn_on if window['-TOGGLE-GRAPHIC2-'].metadata else toggle_btn_off)
+            write_to_file = window['-TOGGLE-GRAPHIC-'].metadata
         elif event == "Submit":
             display_separator = window['-TOGGLE-GRAPHIC-'].metadata
+            write_to_file = window['-TOGGLE-GRAPHIC2-'].metadata
             general_limit = int(values['-INPUT-'])
+            context = int(values['-INPUT2-'])
             break
         elif event == '-INPUT-' and len(values['-INPUT-']) and values['-INPUT-'][-1] not in ('0123456789'):
             # delete last char from input
             window['-INPUT-'].update(values['-INPUT-'][:-1])
+        elif event == '-INPUT2-' and len(values['-INPUT2-']) and values['-INPUT2-'][-1] not in ('0123456789'):
+            # delete last char from input
+            window['-INPUT2-'].update(values['-INPUT2-'][:-1])
     window.close()
     
     if(general_limit != 0):
