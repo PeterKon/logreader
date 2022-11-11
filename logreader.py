@@ -59,7 +59,7 @@ def main():
     def_toggle_size = (19,1)
     def_box_size = (19,1)
     
-    left_col = [
+    layout = [
         [sg.Text('')],
         [sg.Text('Choose values for the log analysis:')],
         [sg.Text(('Display separator'), size = def_toggle_size), sg.Text('Off'),
@@ -73,8 +73,6 @@ def main():
         [sg.Text('')],
         [sg.Button("Submit")]
     ]
-    
-    layout = [[sg.Column(left_col)]]
     
     window = sg.Window(version, layout, size=(350,300))
 
@@ -97,10 +95,8 @@ def main():
             context = int(values['-INPUT2-'])
             break
         elif event == '-INPUT-' and len(values['-INPUT-']) and values['-INPUT-'][-1] not in ('0123456789'):
-            # delete last char from input
             window['-INPUT-'].update(values['-INPUT-'][:-1])
         elif event == '-INPUT2-' and len(values['-INPUT2-']) and values['-INPUT2-'][-1] not in ('0123456789'):
-            # delete last char from input
             window['-INPUT2-'].update(values['-INPUT2-'][:-1])
     window.close()
     
