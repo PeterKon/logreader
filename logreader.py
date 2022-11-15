@@ -8,8 +8,7 @@ import PySimpleGUI as sg
 #TODO: Fix small bug with limiter cutting off end of context
 #TODO: Add context for general errors as well
 #TODO: Single color of word on "Error:"-messages (And maybe color for ---> arrow)
-#TODO: Expand PySimpleGui integration
-#TODO: Flip default values of display_separator and write_to_file in sg
+#TODO: Expand PySimpleGui integration 
 
 #Log analysis project
 
@@ -53,7 +52,7 @@ def main():
             break
     
     
-    #PySimpleGUI values select  
+    #PySimpleGUI value-select  
     def_toggle_size = (19,1)
     def_box_size = (19,1)
     
@@ -61,13 +60,13 @@ def main():
         [sg.Text('')],
         [sg.Text('Choose values:')],
         [sg.Text(('Display separator'), size = def_toggle_size), sg.Text('Off'),
-            sg.Button(image_data=toggle_btn_off, key='-TOGGLE-GRAPHIC-', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Button(image_data=toggle_btn_on, key='SEPARATOR', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=True),
             sg.Text('On')],
         [sg.Text(('Write to file'), size = def_toggle_size), sg.Text('Off'),
-            sg.Button(image_data=toggle_btn_off, key='-TOGGLE-GRAPHIC2-', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Button(image_data=toggle_btn_on, key='FILEWRITE', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=True),
             sg.Text('On')],
-        [sg.Text(('Output error limit:'), size = def_box_size), sg.Input('0', enable_events=True,  key='-INPUT-', s=3)],
-        [sg.Text(('Context around errors:'), size = def_box_size), sg.Input('3', enable_events=True,  key='-INPUT2-', s=3)],
+        [sg.Text(('Output error limit:'), size = def_box_size), sg.Input('0', enable_events=True,  key='ERRIN', s=3)],
+        [sg.Text(('Context around errors:'), size = def_box_size), sg.Input('3', enable_events=True,  key='CONTIN', s=3)],
         [sg.Text('')],
         [sg.Button("Submit")]
     ]
@@ -78,24 +77,24 @@ def main():
         event, values = window.read()
         if event in (sg.WIN_CLOSED, 'Exit'):
             break
-        elif event == '-TOGGLE-GRAPHIC-':
-            window['-TOGGLE-GRAPHIC-'].metadata = not window['-TOGGLE-GRAPHIC-'].metadata
-            window['-TOGGLE-GRAPHIC-'].update(image_data=toggle_btn_on if window['-TOGGLE-GRAPHIC-'].metadata else toggle_btn_off)
-            display_separator = window['-TOGGLE-GRAPHIC-'].metadata
-        elif event == '-TOGGLE-GRAPHIC2-':
-            window['-TOGGLE-GRAPHIC2-'].metadata = not window['-TOGGLE-GRAPHIC2-'].metadata
-            window['-TOGGLE-GRAPHIC2-'].update(image_data=toggle_btn_on if window['-TOGGLE-GRAPHIC2-'].metadata else toggle_btn_off)
-            write_to_file = window['-TOGGLE-GRAPHIC-'].metadata
+        elif event == 'SEPARATOR':
+            window['SEPARATOR'].metadata = not window['SEPARATOR'].metadata
+            window['SEPARATOR'].update(image_data=toggle_btn_on if window['SEPARATOR'].metadata else toggle_btn_off)
+            display_separator = window['SEPARATOR'].metadata
+        elif event == 'FILEWRITE':
+            window['FILEWRITE'].metadata = not window['FILEWRITE'].metadata
+            window['FILEWRITE'].update(image_data=toggle_btn_on if window['FILEWRITE'].metadata else toggle_btn_off)
+            write_to_file = window['FILEWRITE'].metadata
         elif event == "Submit":
-            display_separator = window['-TOGGLE-GRAPHIC-'].metadata
-            write_to_file = window['-TOGGLE-GRAPHIC2-'].metadata
-            general_limit = int(values['-INPUT-'])
-            context = int(values['-INPUT2-'])
+            display_separator = window['SEPARATOR'].metadata
+            write_to_file = window['FILEWRITE'].metadata
+            general_limit = int(values['ERRIN'])
+            context = int(values['CONTIN'])
             break
-        elif event == '-INPUT-' and len(values['-INPUT-']) and values['-INPUT-'][-1] not in ('0123456789'):
-            window['-INPUT-'].update(values['-INPUT-'][:-1])
-        elif event == '-INPUT2-' and len(values['-INPUT2-']) and values['-INPUT2-'][-1] not in ('0123456789'):
-            window['-INPUT2-'].update(values['-INPUT2-'][:-1])
+        elif event == 'ERRIN' and len(values['ERRIN']) and values['ERRIN'][-1] not in ('0123456789'):
+            window['ERRIN'].update(values['ERRIN'][:-1])
+        elif event == 'CONTIN' and len(values['CONTIN']) and values['CONTIN'][-1] not in ('0123456789'):
+            window['CONTIN'].update(values['CONTIN'][:-1])
     window.close()
     
     if(general_limit != 0):
