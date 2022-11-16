@@ -18,10 +18,14 @@ def name(name):
     dots = NAME_SIZE-len(name)-2
     return sg.Text(name + ' ' + '•'*dots, size=(NAME_SIZE,1), justification='r',pad=(0,0), font='Courier 10')
     
-def printFromArray(arrIn, msg, limit, has_limit):
+def printFromArray(arrIn, msg, limit, has_limit, gen_line):
 
     err_count = 0
     broken = False
+    print()
+    print("------------------------------------------------")
+    print(gen_line)
+    print("------------------------------------------------") 
     for x in arrIn:
         
         pattern = re.compile(msg, re.IGNORECASE)        
@@ -43,7 +47,7 @@ def writeFromArray(w, arrIn, limit, has_limit, gen_line):
     err_count = 0
     broken = False
     w.write("\n------------------------------------------------\n")
-    w.write(gen_line)
+    w.write(gen_line + "\n")
     w.write("------------------------------------------------\n")
     for x in arrIn:        
         w.write(x + "\n")
@@ -256,6 +260,7 @@ def main():
     
     #Print results
     print("\n" + version + "\n")
+    print("Filename:\n" + filename + "\n")
     print("Number of errors in this file:           " + str(err_num))
     print("Number of generic errors in this file:   " + str(len(errgen_msg_arr)))
     print("Number of warnings in this file:         " + str(len(war_msg_arr)))
@@ -269,6 +274,7 @@ def main():
     #Write to file
     if write_to_file:
         w.write("\n" + version + "\n\n")
+        w.write("Filename:\n" + filename + "\n\n")
         w.write("Number of errors in this file:           " + str(err_num) + "\n")
         w.write("Number of generic errors in this file:   " + str(len(errgen_msg_arr)) + "\n")
         w.write("Number of warnings in this file:         " + str(len(war_msg_arr)) + "\n")
@@ -317,55 +323,31 @@ def main():
                 break
         if not broken:
             w.write("\nPrinted all " + str(err_num) + " elements.\n")
-            
-    print()
-    print("------------------------------------------------")
-    print("Generic errors contained:                      |")
-    print("------------------------------------------------")    
-    printFromArray(errgen_msg_arr, err_gen, limit_output_gen, has_limit_gen)
     
-    generr_line = "Generic errors contained:                      |\n"
+    
+    generr_line = "Generic errors contained:                      |"
+    printFromArray(errgen_msg_arr, err_gen, limit_output_gen, has_limit_gen, generr_line)
     if(write_to_file):
         writeFromArray(w, errgen_msg_arr, limit_output_gen, has_limit_gen, generr_line)
-            
-    print()
-    print("------------------------------------------------")
-    print("Warnings contained:                            |")
-    print("------------------------------------------------")
     
-    printFromArray(war_msg_arr, war_msg1, limit_output_wargen, has_limit_wargen)
-        
-    generr_line = "Warnings contained:                            |\n"
+    generr_line = "Warnings contained:                            |"
+    printFromArray(war_msg_arr, war_msg1, limit_output_wargen, has_limit_wargen, generr_line)    
     if(write_to_file):
         writeFromArray(w, war_msg_arr, limit_output_wargen, has_limit_wargen, generr_line)
-
-    print()
-    print("------------------------------------------------")
-    print("Generic failures contained:                    |")
-    print("------------------------------------------------")
-    
-    printFromArray(failgen_msg_arr, fail_gen, limit_output_failed, has_limit_failed)
-        
-    generr_line = "Generic failures contained:                    |\n"
+            
+    generr_line = "Generic failures contained:                    |"
+    printFromArray(failgen_msg_arr, fail_gen, limit_output_failed, has_limit_failed, generr_line)
     if(write_to_file):
         writeFromArray(w, failgen_msg_arr, limit_output_failed, has_limit_failed, generr_line)
-
-    print()
-    print("------------------------------------------------")
-    print("Generic fatals contained:                      |")
-    print("------------------------------------------------")
-    
-    printFromArray(fatalgen_msg_arr, fatal_gen, limit_output_fatal, has_limit_fatal)
-        
-    generr_line = "Generic fatals contained:                      |\n"
+            
+    generr_line = "Generic fatals contained:                      |"
+    printFromArray(fatalgen_msg_arr, fatal_gen, limit_output_fatal, has_limit_fatal, generr_line)
     if(write_to_file):
         writeFromArray(w, fatalgen_msg_arr, limit_output_fatal, has_limit_fatal, generr_line)
 
-
     f.close()
     if write_to_file:
-        w.close()
-    
+        w.close()    
 
 if __name__ == "__main__":
 
