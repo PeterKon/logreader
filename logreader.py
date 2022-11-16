@@ -3,15 +3,14 @@ import os
 from termcolor import colored
 import PySimpleGUI as sg
 
-#TODO: Add custom pattern-match (Future: Add several patterns in list)
 #TODO: Fix small bug with limiter cutting off end of context
 #TODO: Add context for general errors as well
 #TODO: Single color of word on "Error:"-messages (And maybe color for ---> arrow)
 #TODO: Expand PySimpleGui integration 
+#TODO: Add custom pattern-list with several patterns
+#TODO: Add support for several files in at once
 
 #Log analysis project
-
-printcolor_gen = "blue"
 
 def name(name):
 
@@ -22,23 +21,26 @@ def printFromArray(arrIn, msg, limit, has_limit, gen_line):
 
     err_count = 0
     broken = False
+    
     print()
     print("------------------------------------------------")
     print(gen_line)
     print("------------------------------------------------") 
+    
     for x in arrIn:
         
         pattern = re.compile(msg, re.IGNORECASE)        
         warres = re.split(pattern, x, 1)
         warresword = re.findall(pattern, x)
         
-        print(warres[0] + colored(warresword[0], printcolor_gen, attrs=["bold"]) + warres[1])
-        
+        print(warres[0] + colored(warresword[0], "blue", attrs=["bold"]) + warres[1])        
         err_count += 1
+        
         if has_limit and (err_count == limit):
             print("\nLimited, showing " + str(limit) + " out of " + str(len(arrIn)) + " elements.")
             broken = True
             break
+            
     if not broken:
         print("\nPrinted all " + str(len(arrIn)) + " elements.")
         
@@ -46,17 +48,21 @@ def writeFromArray(w, arrIn, limit, has_limit, gen_line):
     
     err_count = 0
     broken = False
+    
     w.write("\n------------------------------------------------\n")
     w.write(gen_line + "\n")
     w.write("------------------------------------------------\n")
-    for x in arrIn:        
-        w.write(x + "\n")
-            
+    
+    for x in arrIn:
+    
+        w.write(x + "\n")            
         err_count += 1
+        
         if has_limit and (err_count == limit):
             w.write("\nLimited, showing " + str(limit) + " out of " + str(len(arrIn)) + " elements.\n")
             broken = True
             break
+            
     if not broken:
         w.write("\nPrinted all " + str(len(arrIn)) + " elements.\n")
 
@@ -77,11 +83,25 @@ def main():
     
     version = "Logreader v0.12"
     
+    #Types of strings we are looking for (errors, warnings, failed, fatal)
+    err_msg_arr = []
+    errgen_msg_arr = []
+    failgen_msg_arr = []
+    fatalgen_msg_arr = []
+    war_msg_arr = []
+    cust_arr = []
+    
+    err_msg1 = "error:"    
+    err_gen = "error"
+    fail_gen = "failed"
+    fatal_gen = "fatal"
+    war_msg1 = "warning:"
+    cust_pattern = ""
+    
     #PySimpleGUI file-select
     layout = [[sg.T("")], 
         [sg.Text("Choose a logfile: "), 
-            sg.Input(key="-IN2-" ,
-            change_submits=True), 
+            sg.Input(key="-IN2-" , change_submits=True), 
             sg.FileBrowse(key="-IN-")],
         [sg.Button("Submit")]]
     
@@ -111,10 +131,12 @@ def main():
         [sg.Text(('Output error limit:'), size = def_box_size), sg.Input('0', enable_events=True,  key='ERRIN', s=3)],
         [sg.Text(('Context around errors:'), size = def_box_size), sg.Input('3', enable_events=True,  key='CONTIN', s=3)],
         [sg.Text('')],
+        [sg.Text(('Custom pattern:'), size = def_box_size), sg.Input(key='CUSTOMIN', s=19)],
+        [sg.Text('')],
         [sg.Button("Submit")]
     ]
     
-    window = sg.Window(version, layout, size=(350,300))
+    window = sg.Window(version, layout, size=(350,330))
 
     while True:
         event, values = window.read()
@@ -128,17 +150,22 @@ def main():
             window['FILEWRITE'].metadata = not window['FILEWRITE'].metadata
             window['FILEWRITE'].update(image_data=toggle_btn_on if window['FILEWRITE'].metadata else toggle_btn_off)
             write_to_file = window['FILEWRITE'].metadata
+        elif event == 'CUSTOMIN':
+            cust_pattern = values['CUSTOMIN']
         elif event == "Submit":
             display_separator = window['SEPARATOR'].metadata
             write_to_file = window['FILEWRITE'].metadata
             general_limit = int(values['ERRIN'])
             context = int(values['CONTIN'])
+            cust_pattern = values['CUSTOMIN']
             break
         elif event == 'ERRIN' and len(values['ERRIN']) and values['ERRIN'][-1] not in ('0123456789'):
             window['ERRIN'].update(values['ERRIN'][:-1])
         elif event == 'CONTIN' and len(values['CONTIN']) and values['CONTIN'][-1] not in ('0123456789'):
             window['CONTIN'].update(values['CONTIN'][:-1])
     window.close()
+    
+    custIsInitiated = (cust_pattern != "")
     
     if(general_limit != 0):
         limit_output = general_limit
@@ -170,24 +197,7 @@ def main():
                 space_string += " "
         
         logoutput[x] = str(x + 1) + space_string + "-> " + logoutput[x]
-
-    #Types of strings we are looking for (errors, warnings, failed, fatal)
-    err_msg1 = "error:"
-    err_msg_arr = []
-
-    err_gen = "error"
-    errgen_msg_arr = []
-
-    fail_gen = "failed"
-    failgen_msg_arr = []
-
-    fatal_gen = "fatal"
-    fatalgen_msg_arr = []
-
-    war_msg1 = "warning:"
-    war_msg_arr = []
-
-
+    
     #Appending the error-strings to the appropriate array, and adding context
     err_num = 0
     for x in range(len(logoutput)):
@@ -225,6 +235,9 @@ def main():
             failgen_msg_arr.append(logoutput[x])
         if (fatal_gen in logoutput[x].lower()):
             fatalgen_msg_arr.append(logoutput[x])
+        if custIsInitiated:
+            if (cust_pattern.lower() in logoutput[x].lower()):
+                cust_arr.append(logoutput[x])
 
     #Checking for spaces that we dont need (places where separating errors do not make sense)        
     if display_separator:
@@ -266,6 +279,10 @@ def main():
     print("Number of warnings in this file:         " + str(len(war_msg_arr)))
     print("Number of generic failures in this file: " + str(len(failgen_msg_arr)))
     print("Number of generic fatals in this file:   " + str(len(fatalgen_msg_arr)))
+    if custIsInitiated:
+        print()
+        print("Custom pattern: " + cust_pattern)
+        print("Hits on pattern:                         " + str(len(cust_arr)))
     print()
     print("Printed with context of:                 " + str(context))
     print("Lines in file:                           " + str(len(logoutput)))
@@ -280,6 +297,9 @@ def main():
         w.write("Number of warnings in this file:         " + str(len(war_msg_arr)) + "\n")
         w.write("Number of generic failures in this file: " + str(len(failgen_msg_arr)) + "\n")
         w.write("Number of generic fatals in this file:   " + str(len(fatalgen_msg_arr)) + "\n")
+        if custIsInitiated:
+            w.write("\nCustom pattern: " + cust_pattern + "\n")
+            w.write("Hits on pattern:                         " + str(len(cust_arr)) + "\n")
         w.write("\n")
         w.write("Printed with context of:                 " + str(context) + "\n")
         w.write("Lines in file:                           " + str(len(logoutput)) + "\n")
@@ -344,7 +364,13 @@ def main():
     printFromArray(fatalgen_msg_arr, fatal_gen, limit_output_fatal, has_limit_fatal, generr_line)
     if(write_to_file):
         writeFromArray(w, fatalgen_msg_arr, limit_output_fatal, has_limit_fatal, generr_line)
-
+        
+    if custIsInitiated:
+        generr_line = "Pattern searched: " + cust_pattern
+        printFromArray(cust_arr, cust_pattern, limit_output_gen, has_limit_gen, generr_line)
+        if(write_to_file):
+            writeFromArray(w, cust_arr, limit_output_gen, has_limit_gen, generr_line)
+        
     f.close()
     if write_to_file:
         w.close()    
