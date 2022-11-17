@@ -9,7 +9,7 @@ Running the script with `python logreader.py` and selecting the logfile to be an
 `general_limit`:       Optional. Overrides the specific limits and sets a general limit of outputted errors. (Default: No limit)  
 `context`:             Optional. The number of error-messages written above and below the output error-messages. (Default: 3)  
 
-You can also optionally enter from one to three entries for `custom pattern` which returns case insensitive hits on the pattern.
+You can also optionally enter one to three entries for `custom pattern` which returns case insensitive hits on the pattern.
 
 Inside the code, you can change the following variables to adjust the output:
 

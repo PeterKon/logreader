@@ -3,7 +3,6 @@ import os
 from termcolor import colored
 import PySimpleGUI as sg
 
-#TODO: Fix small bug with limiter cutting off end of context
 #TODO: Add context for general errors as well
 #TODO: Single color of word on "Error:"-messages (And maybe color for ---> arrow)
 #TODO: Add support for several files in at once
@@ -364,6 +363,15 @@ def main():
         else:
             print(x)
         if has_limit and (err_count == limit_output):
+            
+            #Print rest of context after error
+            for h in range(context + 1):
+                if(((h + i) + 1) < len(err_msg_arr)):
+                    if "error:" in err_msg_arr[(h + i) + 1].lower():
+                        break
+                    else:
+                        print(err_msg_arr[(h + i) + 1])
+            
             print("\nLimited, showing " + str(limit_output) + " out of " + str(err_num) + " elements.")
             broken = True
             break
@@ -383,6 +391,15 @@ def main():
             else:
                 w.write(x + "\n")
             if has_limit and (err_count == limit_output):
+                
+                #Write rest of context after error
+                for h in range(context + 1):
+                    if(((h + i) + 1) < len(err_msg_arr)):
+                        if "error:" in err_msg_arr[(h + i) + 1].lower():
+                            break
+                        else:
+                            w.write("\n" + err_msg_arr[(h + i) + 1])
+                
                 w.write("\nLimited, showing " + str(limit_output) + " out of " + str(err_num) + " elements.\n")
                 broken = True
                 break
