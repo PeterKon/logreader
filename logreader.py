@@ -6,7 +6,6 @@ import PySimpleGUI as sg
 #TODO: Fix small bug with limiter cutting off end of context
 #TODO: Add context for general errors as well
 #TODO: Single color of word on "Error:"-messages (And maybe color for ---> arrow)
-#TODO: Add two more custom patterns
 #TODO: Add support for several files in at once
 #TODO: Figure out packing to exe
 
@@ -90,6 +89,8 @@ def main():
     fatalgen_msg_arr = []
     war_msg_arr = []
     cust_arr = []
+    cust_arr2 = []
+    cust_arr3 = []
     
     err_msg1 = "error:"    
     err_gen = "error"
@@ -97,6 +98,8 @@ def main():
     fatal_gen = "fatal"
     war_msg1 = "warning:"
     cust_pattern = ""
+    cust_pattern2 = ""
+    cust_pattern3 = ""
     
     #PySimpleGUI file-select
     layout = [[sg.T("")], 
@@ -112,7 +115,7 @@ def main():
             break
         elif event == "Submit":
             filename = values["-IN-"]
-            break    
+            break
     
     #PySimpleGUI value-select  
     def_toggle_size = (19,1)
@@ -134,15 +137,17 @@ def main():
             sg.Input(enable_events=True,  key='CONTIN', s=3),
             sg.Text("Default = 3")],
         [sg.Text('')],
-        [sg.Text(('Custom pattern:'), size = def_box_size), sg.Input(key='CUSTOMIN', s=19)],
+        [sg.Text(('Custom pattern 1:'), size = def_box_size), sg.Input(key='CUSTOMIN', s=19)],
+        [sg.Text(('Custom pattern 2:'), size = def_box_size), sg.Input(key='CUSTOMIN2', s=19)],
+        [sg.Text(('Custom pattern 3:'), size = def_box_size), sg.Input(key='CUSTOMIN3', s=19)],
         [sg.Text('')],
         [sg.Button("Submit")]
     ]
     
     window.close()    
-    window = sg.Window(version, layout, size=(350,330))
+    window = sg.Window(version, layout, size=(350,390))
     while True:
-        event, values = window.read()        
+        event, values = window.read()
         if event in (sg.WIN_CLOSED, 'Exit'):
             break
         elif event == 'SEPARATOR':
@@ -155,10 +160,16 @@ def main():
             write_to_file = window['FILEWRITE'].metadata
         elif event == 'CUSTOMIN':
             cust_pattern = values['CUSTOMIN']
-        elif event == "Submit":        
+        elif event == 'CUSTOMIN2':
+            cust_pattern2 = values['CUSTOMIN2']
+        elif event == 'CUSTOMIN3':
+            cust_pattern3 = values['CUSTOMIN3']
+        elif event == "Submit":
             display_separator = window['SEPARATOR'].metadata
             write_to_file = window['FILEWRITE'].metadata
             cust_pattern = values['CUSTOMIN']
+            cust_pattern2 = values['CUSTOMIN2']
+            cust_pattern3 = values['CUSTOMIN3']
             
             if values['ERRIN'] != '':
                 general_limit = int(values['ERRIN'])
@@ -174,6 +185,12 @@ def main():
     window.close()
     
     custIsInitiated = (cust_pattern != "")
+    custIsInitiated2 = (cust_pattern2 != "")
+    custIsInitiated3 = (cust_pattern3 != "")
+    
+    print(cust_pattern)
+    print(cust_pattern2)
+    print(cust_pattern3)
     
     if(general_limit != 0):
         limit_output = general_limit
@@ -246,6 +263,12 @@ def main():
         if custIsInitiated:
             if (cust_pattern.lower() in logoutput[x].lower()):
                 cust_arr.append(logoutput[x])
+        if custIsInitiated2:
+            if (cust_pattern2.lower() in logoutput[x].lower()):
+                cust_arr2.append(logoutput[x])
+        if custIsInitiated3:
+            if (cust_pattern3.lower() in logoutput[x].lower()):
+                cust_arr3.append(logoutput[x])
 
     #Checking for spaces that we dont need (places where separating errors do not make sense)        
     if display_separator:
@@ -291,6 +314,14 @@ def main():
         print()
         print("Custom pattern: " + cust_pattern)
         print("Hits on pattern:                         " + str(len(cust_arr)))
+    if custIsInitiated2:
+        print()
+        print("Custom pattern: " + cust_pattern2)
+        print("Hits on pattern:                         " + str(len(cust_arr2)))
+    if custIsInitiated3:
+        print()
+        print("Custom pattern: " + cust_pattern3)
+        print("Hits on pattern:                         " + str(len(cust_arr3)))
     print()
     print("Printed with context of:                 " + str(context))
     print("Lines in file:                           " + str(len(logoutput)))
@@ -308,6 +339,12 @@ def main():
         if custIsInitiated:
             w.write("\nCustom pattern: " + cust_pattern + "\n")
             w.write("Hits on pattern:                         " + str(len(cust_arr)) + "\n")
+        if custIsInitiated2:
+            w.write("\nCustom pattern: " + cust_pattern2 + "\n")
+            w.write("Hits on pattern:                         " + str(len(cust_arr2)) + "\n")
+        if custIsInitiated3:
+            w.write("\nCustom pattern: " + cust_pattern3 + "\n")
+            w.write("Hits on pattern:                         " + str(len(cust_arr3)) + "\n")
         w.write("\n")
         w.write("Printed with context of:                 " + str(context) + "\n")
         w.write("Lines in file:                           " + str(len(logoutput)) + "\n")
@@ -378,6 +415,18 @@ def main():
         printFromArray(cust_arr, cust_pattern, limit_output_gen, has_limit_gen, generr_line)
         if(write_to_file):
             writeFromArray(w, cust_arr, limit_output_gen, has_limit_gen, generr_line)
+            
+    if custIsInitiated2:
+        generr_line = "Pattern searched: " + cust_pattern2
+        printFromArray(cust_arr2, cust_pattern2, limit_output_gen, has_limit_gen, generr_line)
+        if(write_to_file):
+            writeFromArray(w, cust_arr2, limit_output_gen, has_limit_gen, generr_line)
+            
+    if custIsInitiated3:
+        generr_line = "Pattern searched: " + cust_pattern3
+        printFromArray(cust_arr3, cust_pattern3, limit_output_gen, has_limit_gen, generr_line)
+        if(write_to_file):
+            writeFromArray(w, cust_arr3, limit_output_gen, has_limit_gen, generr_line)
         
     f.close()
     if write_to_file:
