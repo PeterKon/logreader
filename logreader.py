@@ -6,9 +6,9 @@ import PySimpleGUI as sg
 #TODO: Fix small bug with limiter cutting off end of context
 #TODO: Add context for general errors as well
 #TODO: Single color of word on "Error:"-messages (And maybe color for ---> arrow)
-#TODO: Expand PySimpleGui integration 
-#TODO: Add custom pattern-list with several patterns
+#TODO: Add two more custom patterns
 #TODO: Add support for several files in at once
+#TODO: Figure out packing to exe
 
 #Log analysis project
 
@@ -105,15 +105,14 @@ def main():
             sg.FileBrowse(key="-IN-")],
         [sg.Button("Submit")]]
     
-    window = sg.Window(version, layout, size=(535,115))    
+    window = sg.Window(version, layout, size=(535,115))
     while True:
         event, values = window.read()
         if event == sg.WIN_CLOSED or event=="Exit":
             break
         elif event == "Submit":
             filename = values["-IN-"]
-            break
-    
+            break    
     
     #PySimpleGUI value-select  
     def_toggle_size = (19,1)
@@ -121,25 +120,29 @@ def main():
     
     layout = [
         [sg.Text('')],
-        [sg.Text('Choose values:')],
+        [sg.Text(('- Choose values -'))],
         [sg.Text(('Display separator'), size = def_toggle_size), sg.Text('Off'),
             sg.Button(image_data=toggle_btn_on, key='SEPARATOR', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=True),
             sg.Text('On')],
         [sg.Text(('Write to file'), size = def_toggle_size), sg.Text('Off'),
             sg.Button(image_data=toggle_btn_on, key='FILEWRITE', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=True),
             sg.Text('On')],
-        [sg.Text(('Output error limit:'), size = def_box_size), sg.Input('0', enable_events=True,  key='ERRIN', s=3)],
-        [sg.Text(('Context around errors:'), size = def_box_size), sg.Input('3', enable_events=True,  key='CONTIN', s=3)],
+        [sg.Text(('Output error limit:'), size = def_box_size), 
+            sg.Input(enable_events=True,  key='ERRIN', s=3),
+            sg.Text("Default = Unlimited")],
+        [sg.Text(('Context around errors:'), size = def_box_size), 
+            sg.Input(enable_events=True,  key='CONTIN', s=3),
+            sg.Text("Default = 3")],
         [sg.Text('')],
         [sg.Text(('Custom pattern:'), size = def_box_size), sg.Input(key='CUSTOMIN', s=19)],
         [sg.Text('')],
         [sg.Button("Submit")]
     ]
     
+    window.close()    
     window = sg.Window(version, layout, size=(350,330))
-
     while True:
-        event, values = window.read()
+        event, values = window.read()        
         if event in (sg.WIN_CLOSED, 'Exit'):
             break
         elif event == 'SEPARATOR':
@@ -152,12 +155,17 @@ def main():
             write_to_file = window['FILEWRITE'].metadata
         elif event == 'CUSTOMIN':
             cust_pattern = values['CUSTOMIN']
-        elif event == "Submit":
+        elif event == "Submit":        
             display_separator = window['SEPARATOR'].metadata
             write_to_file = window['FILEWRITE'].metadata
-            general_limit = int(values['ERRIN'])
-            context = int(values['CONTIN'])
             cust_pattern = values['CUSTOMIN']
+            
+            if values['ERRIN'] != '':
+                general_limit = int(values['ERRIN'])
+                
+            if values['CONTIN'] != '':
+                context = int(values['CONTIN'])
+                
             break
         elif event == 'ERRIN' and len(values['ERRIN']) and values['ERRIN'][-1] not in ('0123456789'):
             window['ERRIN'].update(values['ERRIN'][:-1])
