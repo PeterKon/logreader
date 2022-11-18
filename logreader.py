@@ -4,9 +4,9 @@ from termcolor import colored
 import PySimpleGUI as sg
 
 #TODO: Add context for general errors as well
-#TODO: Single color of word on "Error:"-messages (And maybe color for ---> arrow)
 #TODO: Add support for several files in at once
 #TODO: Figure out packing to exe
+#TODO: Explore PySimpleGUI print to window
 
 #Log analysis project
 
@@ -27,11 +27,20 @@ def printFromArray(arrIn, msg, limit, has_limit, gen_line):
     
     for x in arrIn:
         
-        pattern = re.compile(msg, re.IGNORECASE)        
+        #Split error-line into three parts. warres[0] is what comes before the pattern, then
+        #the pattern itself warresword[0] followed by warres[1].
+        pattern = re.compile(re.escape(msg), re.IGNORECASE)        
         warres = re.split(pattern, x, 1)
         warresword = re.findall(pattern, x)
         
-        print(warres[0] + colored(warresword[0], "blue", attrs=["bold"]) + warres[1])        
+        #The start of the pattern, warres[0] gets split into two parts, one first_split[1] is
+        #the start. The line num followed by arrow, in the form exaple 3374   ->. first_split[2] is
+        #the last part of warres[0], which is what comes after 3374   ->
+        first_split = re.split(r'([0-9]+ *->)', warres[0], 1)
+        
+        #Recombine and print elements in color
+        print(colored(first_split[1], "blue", attrs=["bold"]) + first_split[2] + colored(warresword[0], "red", attrs=["bold"]) + warres[1])
+        
         err_count += 1
         
         if has_limit and (err_count == limit):
@@ -187,10 +196,6 @@ def main():
     custIsInitiated2 = (cust_pattern2 != "")
     custIsInitiated3 = (cust_pattern3 != "")
     
-    print(cust_pattern)
-    print(cust_pattern2)
-    print(cust_pattern3)
-    
     if(general_limit != 0):
         limit_output = general_limit
         limit_output_gen = general_limit
@@ -300,7 +305,7 @@ def main():
         for x in range(len(err_msg_arr)):
             if(err_msg_arr[x] == " "):
                 err_msg_arr[x] = "-------->"
-    
+                
     #Print results
     print("\n" + version + "\n")
     print("Filename:\n" + filename + "\n")
@@ -358,7 +363,16 @@ def main():
     broken = False
     for i, x in enumerate(err_msg_arr):
         if "error:" in err_msg_arr[i].lower():
-            print(colored(x, 'red', attrs=["bold"]))
+            
+            pattern = re.compile("error:", re.IGNORECASE)        
+            warres = re.split(pattern, x, 1)
+            warresword = re.findall(pattern, x)
+            
+            first_split = re.split(r'([0-9]+ *->)', warres[0], 1)
+        
+            #Recombine and print elements in color
+            print(colored(first_split[1], "blue", attrs=["bold"]) + colored(first_split[2], 'green') + colored(warresword[0], "red") + colored(warres[1], 'green'))
+            
             err_count += 1
         else:
             print(x)
@@ -404,8 +418,7 @@ def main():
                 broken = True
                 break
         if not broken:
-            w.write("\nPrinted all " + str(err_num) + " elements.\n")
-    
+            w.write("\nPrinted all " + str(err_num) + " elements.\n")    
     
     generr_line = "Generic errors contained:                      |"
     printFromArray(errgen_msg_arr, err_gen, limit_output_gen, has_limit_gen, generr_line)
