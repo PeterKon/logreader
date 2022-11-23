@@ -3,10 +3,12 @@ import os
 from termcolor import colored
 import PySimpleGUI as sg
 
+#TODO: Fix 2 bugs when infile.txt 2 errlim cont 3 top bottom
+#TODO: Move context to functions
 #TODO: Add context for general errors as well
 #TODO: Add support for several files in at once
-#TODO: Figure out packing to exe
-#TODO: Explore PySimpleGUI print to window
+#TODO: Fix "limited" print when showing "error:"
+#TODO: Migrate to different GUI
 
 #Log analysis project
 
@@ -44,7 +46,10 @@ def printFromArray(arrIn, msg, limit, has_limit, gen_line):
         err_count += 1
         
         if has_limit and (err_count == limit):
-            print("\nLimited, showing " + str(limit) + " out of " + str(len(arrIn)) + " elements.")
+            if(str(limit) == str(len(arrIn))):
+                print("\nPrinted all " + str(len(arrIn)) + " elements.")
+            else:
+                print("\nLimited, showing " + str(limit) + " out of " + str(len(arrIn)) + " elements.")
             broken = True
             break
             
@@ -64,14 +69,69 @@ def writeFromArray(w, arrIn, limit, has_limit, gen_line):
     
         w.write(x + "\n")            
         err_count += 1
-        
         if has_limit and (err_count == limit):
-            w.write("\nLimited, showing " + str(limit) + " out of " + str(len(arrIn)) + " elements.\n")
+            if(str(limit) == str(len(arrIn))):
+                w.write("\nPrinted all " + str(len(arrIn)) + " elements.\n")
+            else:
+                w.write("\nLimited, showing " + str(limit) + " out of " + str(len(arrIn)) + " elements.\n")
             broken = True
             break
             
     if not broken:
         w.write("\nPrinted all " + str(len(arrIn)) + " elements.\n")
+
+def addContextBefore(context_num, logoutput, in_arr, x):
+
+    cont_num = context_num
+    for z in range(context_num):
+        if (cont_num >= 0):
+            if(x - cont_num) >= 0:
+                if(logoutput[x - cont_num] not in in_arr):
+                    in_arr.append(logoutput[x - cont_num])
+            cont_num += -1
+
+def addContextAfter(context_num, logoutput, in_arr, x, msg, display_separator):
+
+    for c in range(context_num):
+        if((x + (c + 1)) > (len(logoutput) - 1)) or (msg in logoutput[x + (c + 1)].lower()):
+            break
+        in_arr.append(logoutput[x + (c + 1)])
+            
+    if display_separator:
+        in_arr.append(" ")
+
+def contextFixer(display_separator, in_arr):
+
+    if display_separator:
+
+        for x in range(len(in_arr)):
+            
+            res = in_arr[x].split()
+            if not res:
+                if(((x - 1) >= 0) and ((x + 1) < len(in_arr))):
+                    
+                    #Regex to find first number in string from first element in comp.
+                    #This part of the code might be unnecessarily complicated and a simple
+                    #row-comparison might suffice, but it works.
+                    comp1 = in_arr[x - 1].split()
+                    comp1_res = re.search('[0-9]+', comp1[0]).group()
+                    
+                    comp2 = in_arr[x + 1].split()
+                    comp2_res = re.search('[0-9]+', comp2[0]).group()
+                    
+                    if(int(comp1_res) == (int(comp2_res) - 1)):
+                        in_arr[x] = "remove"
+
+        v = len(in_arr) - 1
+        for x in range(len(in_arr)):
+            
+            if(in_arr[v] == "remove"):
+                in_arr.pop(v)
+            v += -1
+            
+        for x in range(len(in_arr)):
+            if(in_arr[x] == " "):
+                in_arr[x] = "-------->"
 
 def main():
     
@@ -231,29 +291,12 @@ def main():
     err_num = 0
     for x in range(len(logoutput)):
 
-        if (err_msg1 in logoutput[x].lower()):        
+        if (err_msg1 in logoutput[x].lower()):
             
-            #Add context before the error-message
-            cont_num = context
-            for z in range(context):
-                if (cont_num > 0):
-                    if(x - cont_num) > 0:
-                        if(logoutput[x - cont_num] not in err_msg_arr):
-                            err_msg_arr.append(logoutput[x - cont_num])
-                    cont_num += -1
-
-            #Add the error-message
+            addContextBefore(context, logoutput, err_msg_arr, x)
             err_msg_arr.append(logoutput[x])
             err_num +=1
-            
-            #Add context after the error-message
-            for c in range(context):
-                if((x + (c + 1)) > (len(logoutput) - 1)) or ("error:" in logoutput[x + (c + 1)].lower()):
-                    break
-                err_msg_arr.append(logoutput[x + (c + 1)])
-            
-            if display_separator:
-                err_msg_arr.append(" ")
+            addContextAfter(context, logoutput, err_msg_arr, x, "error:", display_separator)
         
         #Add the generic messages
         if (war_msg1 in logoutput[x].lower()):
@@ -275,36 +318,7 @@ def main():
                 cust_arr3.append(logoutput[x])
 
     #Checking for spaces that we dont need (places where separating errors do not make sense)        
-    if display_separator:
-
-        for x in range(len(err_msg_arr)):
-            
-            res = err_msg_arr[x].split()
-            if not res:
-                if(((x - 1) >= 0) and ((x + 1) < len(err_msg_arr))):
-                    
-                    #Regex to find first number in string from first element in comp.
-                    #This part of the code might be unnecessarily complicated and a simple
-                    #row-comparison might suffice, but it works.
-                    comp1 = err_msg_arr[x - 1].split()
-                    comp1_res = re.search('[0-9]+', comp1[0]).group()
-                    
-                    comp2 = err_msg_arr[x + 1].split()
-                    comp2_res = re.search('[0-9]+', comp2[0]).group()
-                    
-                    if(int(comp1_res) == (int(comp2_res) - 1)):
-                        err_msg_arr[x] = "remove"
-
-        v = len(err_msg_arr) - 1
-        for x in range(len(err_msg_arr)):
-            
-            if(err_msg_arr[v] == "remove"):
-                err_msg_arr.pop(v)
-            v += -1
-            
-        for x in range(len(err_msg_arr)):
-            if(err_msg_arr[x] == " "):
-                err_msg_arr[x] = "-------->"
+    contextFixer(display_separator, err_msg_arr)
                 
     #Print results
     print("\n" + version + "\n")
@@ -371,11 +385,17 @@ def main():
             first_split = re.split(r'([0-9]+ *->)', warres[0], 1)
         
             #Recombine and print elements in color
-            print(colored(first_split[1], "blue", attrs=["bold"]) + colored(first_split[2], 'green') + colored(warresword[0], "red") + colored(warres[1], 'green'))
+            print(colored(first_split[1], "red", attrs=["bold"]) + colored(first_split[2], 'green') + colored(warresword[0], "red") + colored(warres[1], 'green'))
             
             err_count += 1
         else:
-            print(x)
+            #Colors the linenum-arrow
+            first_split = re.split(r'([0-9]+ *->)', x, 1)            
+            if(first_split[0] == "-------->"):
+                print(x)
+            else:
+                print(colored(first_split[1], "blue", attrs=["bold"]) + first_split[2])
+                
         if has_limit and (err_count == limit_output):
             
             #Print rest of context after error
@@ -384,7 +404,11 @@ def main():
                     if "error:" in err_msg_arr[(h + i) + 1].lower():
                         break
                     else:
-                        print(err_msg_arr[(h + i) + 1])
+                        res_split = re.split(r'([0-9]+ *->)', err_msg_arr[(h + i) + 1], 1)
+                        if(res_split[0] == "-------->"):
+                            print(res_split[0])
+                        else:
+                            print(colored(res_split[1], "blue", attrs=["bold"]) + res_split[2])
             
             print("\nLimited, showing " + str(limit_output) + " out of " + str(err_num) + " elements.")
             broken = True
