@@ -359,7 +359,8 @@ def main():
                 addContextAfter(context_generic, logoutput, cust_arr, x, cust_pattern, display_separator)
                 
         if custIsInitiated2:
-            if (cust_pattern2.lower() in logoutput[x].lower()):
+            regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
+            if (cust_pattern2.lower() in regex_comp[2].lower()):
                 
                 addContextBefore(context_generic, logoutput, cust_arr2, x)
                 cust_arr2.append(logoutput[x])
@@ -367,7 +368,8 @@ def main():
                 addContextAfter(context_generic, logoutput, cust_arr2, x, cust_pattern2, display_separator)
                 
         if custIsInitiated3:
-            if (cust_pattern3.lower() in logoutput[x].lower()):
+            regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
+            if (cust_pattern3.lower() in regex_comp[2].lower()):
                 
                 addContextBefore(context_generic, logoutput, cust_arr3, x)
                 cust_arr3.append(logoutput[x])
