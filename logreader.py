@@ -3,39 +3,35 @@ import os
 from termcolor import colored
 import PySimpleGUI as sg
 
-#TODO: Add support for several files in at once
-#TODO: Fix "limited" print when showing "error:" (all elements)
-#TODO: Migrate to different GUI
-#TODO: Add general line_separator
-#TODO: Fix general context in gui and line_sep gen in gui
-#TODO: Fix custom pattern number index oob error
+#Log analysis
 
-#Log analysis project
+#TODO: Migrate to different GUI
+#TODO: Add support for several files in at once
+#TODO: Fix general context in gui and line_sep gen in gui
+#TODO: Fix "limited" print when showing "error:" (all elements)
+#TODO: Add general line_separator
 
 def name(name):
 
     dots = NAME_SIZE-len(name)-2
     return sg.Text(name + ' ' + '•'*dots, size=(NAME_SIZE,1), justification='r',pad=(0,0), font='Courier 10')
 
-def newPrintFromArray(arrIn, msg, limit, has_limit, context, gen_line, err_num):
+def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
 
     print("------------------------------------------------")
     print(gen_line)
-    #print("Errors contained:                              |")
     print("------------------------------------------------")
     err_count = 0
     broken = False
     for i, x in enumerate(arrIn):
-        if msg in arrIn[i].lower():
-            
-            pattern = re.compile(re.escape(msg), re.IGNORECASE)        
-            warres = re.split(pattern, x, 1)
-            warresword = re.findall(pattern, x)            
-            first_split = re.split(r'([0-9]+ *->)', warres[0], 1)
+        regex_comp = re.split(r'([0-9]+ *->)', arrIn[i], 1)
+        if not (arrIn[i] == "-------->") and (msg in regex_comp[2].lower()):
         
-            #Recombine and print elements in color
-            print(colored(first_split[1], "red", attrs=["bold"]) + colored(first_split[2], 'green') + colored(warresword[0], "red") + colored(warres[1], 'green'))
+            pattern = re.compile(re.escape(msg), re.IGNORECASE)
+            warresword = re.findall(pattern, regex_comp[2])
+            rest_res = re.split(pattern, regex_comp[2], 1)
             
+            print(colored(regex_comp[1], "red", attrs=["bold"]) + colored(rest_res[0], 'green') + colored(warresword[0], "red") + colored(rest_res[1], 'green'))            
             err_count += 1
         else:
             #Colors the linenum-arrow
@@ -67,7 +63,7 @@ def newPrintFromArray(arrIn, msg, limit, has_limit, context, gen_line, err_num):
         insert_msg = "Printed all " + str(err_num) + " elements.\n"
         print(colored(insert_msg, "blue", attrs=["bold"]))
 
-def newWriteFromArray(w, arrIn, limit, has_limit, gen_line, msg, err_num, context, write_to_file):
+def writeArrayResults(w, arrIn, limit, has_limit, gen_line, msg, err_num, context, write_to_file):
 
     err_count = 0
     broken = False
@@ -355,8 +351,8 @@ def main():
             addContextAfter(context_generic, logoutput, fatalgen_msg_arr, x, fatal_gen, display_separator)
             
         if custIsInitiated:
-            if (cust_pattern.lower() in logoutput[x].lower()):
-                
+            regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
+            if (cust_pattern.lower() in regex_comp[2].lower()):
                 addContextBefore(context_generic, logoutput, cust_arr, x)
                 cust_arr.append(logoutput[x])
                 cust_arr_num +=1
@@ -443,39 +439,39 @@ def main():
     os.system('color')
     
     generr_line = "Errors contained:                              |"
-    newPrintFromArray(err_msg_arr, err_msg1, limit_output, has_limit, context, generr_line, err_num)    
-    newWriteFromArray(w, err_msg_arr, limit_output, has_limit, generr_line, err_msg1, err_num, context, write_to_file)
+    printArrayResults(err_msg_arr, err_msg1, limit_output, has_limit, context, generr_line, err_num)    
+    writeArrayResults(w, err_msg_arr, limit_output, has_limit, generr_line, err_msg1, err_num, context, write_to_file)
     
     generr_line = "Generic errors contained:                      |"
-    newPrintFromArray(errgen_msg_arr, err_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, err_gen_num)
-    newWriteFromArray(w, errgen_msg_arr, limit_output_gen, has_limit_gen, generr_line, err_gen, err_gen_num, context_generic, write_to_file)
+    printArrayResults(errgen_msg_arr, err_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, err_gen_num)
+    writeArrayResults(w, errgen_msg_arr, limit_output_gen, has_limit_gen, generr_line, err_gen, err_gen_num, context_generic, write_to_file)
     
     generr_line = "Warnings contained:                            |"
-    newPrintFromArray(war_msg_arr, war_msg1, limit_output_wargen, has_limit_wargen, context_generic, generr_line, war_gen_num)
-    newWriteFromArray(w, war_msg_arr, limit_output_wargen, has_limit_wargen, generr_line, war_msg1, war_gen_num, context_generic, write_to_file)
+    printArrayResults(war_msg_arr, war_msg1, limit_output_wargen, has_limit_wargen, context_generic, generr_line, war_gen_num)
+    writeArrayResults(w, war_msg_arr, limit_output_wargen, has_limit_wargen, generr_line, war_msg1, war_gen_num, context_generic, write_to_file)
             
     generr_line = "Generic failures contained:                    |"
-    newPrintFromArray(failgen_msg_arr, fail_gen, limit_output_failed, has_limit_failed, context_generic, generr_line, fail_gen_num)
-    newWriteFromArray(w, failgen_msg_arr, limit_output_failed, has_limit_failed, generr_line, fail_gen, fail_gen_num, context_generic, write_to_file)
+    printArrayResults(failgen_msg_arr, fail_gen, limit_output_failed, has_limit_failed, context_generic, generr_line, fail_gen_num)
+    writeArrayResults(w, failgen_msg_arr, limit_output_failed, has_limit_failed, generr_line, fail_gen, fail_gen_num, context_generic, write_to_file)
             
     generr_line = "Generic fatals contained:                      |"
-    newPrintFromArray(fatalgen_msg_arr, fatal_gen, limit_output_fatal, has_limit_fatal, context_generic, generr_line, fatal_gen_num)
-    newWriteFromArray(w, fatalgen_msg_arr, limit_output_fatal, has_limit_fatal, generr_line, fatal_gen, fatal_gen_num, context_generic, write_to_file)
+    printArrayResults(fatalgen_msg_arr, fatal_gen, limit_output_fatal, has_limit_fatal, context_generic, generr_line, fatal_gen_num)
+    writeArrayResults(w, fatalgen_msg_arr, limit_output_fatal, has_limit_fatal, generr_line, fatal_gen, fatal_gen_num, context_generic, write_to_file)
         
     if custIsInitiated:
         generr_line = "Pattern searched: " + cust_pattern
-        newPrintFromArray(cust_arr, cust_pattern, limit_output_gen, has_limit_gen, context_generic, generr_line, cust_arr_num)
-        newWriteFromArray(w, cust_arr, limit_output_gen, has_limit_gen, generr_line, cust_pattern, cust_arr_num, context_generic, write_to_file)
+        printArrayResults(cust_arr, cust_pattern, limit_output_gen, has_limit_gen, context_generic, generr_line, cust_arr_num)
+        writeArrayResults(w, cust_arr, limit_output_gen, has_limit_gen, generr_line, cust_pattern, cust_arr_num, context_generic, write_to_file)
             
     if custIsInitiated2:
         generr_line = "Pattern searched: " + cust_pattern2
-        newPrintFromArray(cust_arr2, cust_pattern2, limit_output_gen, has_limit_gen, context_generic, generr_line, cust_arr_num2)
-        newWriteFromArray(w, cust_arr2, limit_output_gen, has_limit_gen, generr_line, cust_pattern2, cust_arr_num2, context_generic, write_to_file)
+        printArrayResults(cust_arr2, cust_pattern2, limit_output_gen, has_limit_gen, context_generic, generr_line, cust_arr_num2)
+        writeArrayResults(w, cust_arr2, limit_output_gen, has_limit_gen, generr_line, cust_pattern2, cust_arr_num2, context_generic, write_to_file)
             
     if custIsInitiated3:
         generr_line = "Pattern searched: " + cust_pattern3
-        newPrintFromArray(cust_arr3, cust_pattern3, limit_output_gen, has_limit_gen, context_generic, generr_line, cust_arr_num3)
-        newWriteFromArray(w, cust_arr3, limit_output_gen, has_limit_gen, generr_line, cust_pattern3, cust_arr_num3, context_generic, write_to_file)
+        printArrayResults(cust_arr3, cust_pattern3, limit_output_gen, has_limit_gen, context_generic, generr_line, cust_arr_num3)
+        writeArrayResults(w, cust_arr3, limit_output_gen, has_limit_gen, generr_line, cust_pattern3, cust_arr_num3, context_generic, write_to_file)
         
     f.close()
     if write_to_file:
