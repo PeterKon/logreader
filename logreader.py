@@ -73,7 +73,7 @@ def writeArrayResults(w, arrIn, limit, has_limit, gen_line, msg, err_num, contex
     
     if write_to_file:
         w.write("------------------------------------------------\n")
-        w.write(gen_line + "\n")                              |\n")
+        w.write(gen_line + "\n")
         w.write("------------------------------------------------\n")
         for i, x in enumerate(arrIn):
             if msg in arrIn[i].lower():
