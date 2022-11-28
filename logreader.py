@@ -24,7 +24,12 @@ def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
     for i, x in enumerate(arrIn):
         regex_comp = re.split(r'([0-9]+ *->)', arrIn[i], 1)
         if not (arrIn[i] == "-------->") and (msg in regex_comp[2].lower()):
-        
+            
+            #Split into parts and print appropriate words in color. The format is simple:
+            #regex_comp[1] = The start number in form "123  ->"
+            #rest_res[0]   = The string before the "error"-word
+            #warresword[0] = The error-message, retrieved to preserve case
+            #rest_res[1]   = The string after the "error"-word
             pattern = re.compile(re.escape(msg), re.IGNORECASE)
             warresword = re.findall(pattern, regex_comp[2])
             rest_res = re.split(pattern, regex_comp[2], 1)
@@ -68,8 +73,7 @@ def writeArrayResults(w, arrIn, limit, has_limit, gen_line, msg, err_num, contex
     
     if write_to_file:
         w.write("------------------------------------------------\n")
-        w.write(gen_line + "\n")
-        #w.write("Errors contained:                              |\n")
+        w.write(gen_line + "\n")                              |\n")
         w.write("------------------------------------------------\n")
         for i, x in enumerate(arrIn):
             if msg in arrIn[i].lower():
@@ -94,7 +98,8 @@ def writeArrayResults(w, arrIn, limit, has_limit, gen_line, msg, err_num, contex
             w.write("\nPrinted all " + str(err_num) + " elements.\n\n")
 
 def addContextBefore(context_num, logoutput, in_arr, x):
-
+    
+    #Grabs messages before the error-line and adds them to array
     cont_num = context_num
     for z in range(context_num):
         if (cont_num >= 0):
@@ -105,6 +110,7 @@ def addContextBefore(context_num, logoutput, in_arr, x):
 
 def addContextAfter(context_num, logoutput, in_arr, x, msg, display_separator):
 
+    #Grabs messages after the error-line and adds them to array
     for c in range(context_num):
         if((x + (c + 1)) > (len(logoutput) - 1)) or (msg in logoutput[x + (c + 1)].lower()):
             break
@@ -115,6 +121,9 @@ def addContextAfter(context_num, logoutput, in_arr, x, msg, display_separator):
 
 def contextFixer(display_separator, in_arr):
 
+    #This function looks for adjacent lines and checks if they are separated by
+    #a line-separator, and removes the separator for adjacent lines only.
+    #if not res triggers on a line-separator
     if display_separator:
 
         for x in range(len(in_arr)):
@@ -122,10 +131,7 @@ def contextFixer(display_separator, in_arr):
             res = in_arr[x].split()
             if not res:
                 if(((x - 1) >= 0) and ((x + 1) < len(in_arr))):
-                    
-                    #Regex to find first number in string from first element in comp.
-                    #This part of the code might be unnecessarily complicated and a simple
-                    #row-comparison might suffice, but it works.
+                
                     comp1 = in_arr[x - 1].split()
                     comp1_res = re.search('[0-9]+', comp1[0]).group()
                     
@@ -134,7 +140,8 @@ def contextFixer(display_separator, in_arr):
                     
                     if(int(comp1_res) == (int(comp2_res) - 1)):
                         in_arr[x] = "remove"
-
+                        
+        #Iterate backwards and remove unneeded lineseparators.
         v = len(in_arr) - 1
         for x in range(len(in_arr)):
             
@@ -165,7 +172,6 @@ def main():
     
     version = "Logreader v0.12"
     
-    #Types of strings we are looking for (errors, warnings, failed, fatal)
     err_msg_arr = []
     errgen_msg_arr = []
     failgen_msg_arr = []
@@ -302,13 +308,14 @@ def main():
     has_limit_failed = (limit_output_failed != 0)
     has_limit_fatal = (limit_output_fatal != 0)
 
-    #Reading first, then formatting
+    #Reading
     f = open(filename, "r")
     if write_to_file:
         w = open("outfile.txt", "w")
         
     logoutput = f.read().splitlines()
-
+    
+    #Formatting
     for x in range(len(logoutput)):
 
         space_string = ""
@@ -330,7 +337,8 @@ def main():
     cust_arr_num2 = 0
     cust_arr_num3 = 0
     for x in range(len(logoutput)):
-
+        
+        #Add errors in format "error:"
         if (err_msg1 in logoutput[x].lower()):
             
             addContextBefore(context, logoutput, err_msg_arr, x)
@@ -338,7 +346,7 @@ def main():
             err_num +=1
             addContextAfter(context, logoutput, err_msg_arr, x, "error:", display_separator)
         
-        #Add the generic messages
+        #Add the other generic messages
         if (war_msg1 in logoutput[x].lower()):
             
             addContextBefore(context_generic, logoutput, war_msg_arr, x)
