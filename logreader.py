@@ -5,11 +5,9 @@ import PySimpleGUI as sg
 
 #Log analysis
 
-#TODO: Migrate to different GUI
-#TODO: Add support for several files in at once
-#TODO: Fix general context in gui and line_sep gen in gui
+#TODO: Migrate to different GUI (maybe)
+#TODO: Add support for several files in at once (maybe)
 #TODO: Fix "limited" print when showing "error:" (all elements)
-#TODO: Add general line_separator
 
 def name(name):
 
@@ -151,9 +149,10 @@ def contextFixer(display_separator, in_arr):
 def main():
     
     context = 3
-    context_generic = 2
+    context_generic = 0
     
     display_separator = True
+    display_separator_general = False
     write_to_file = True
     
     limit_output = 0
@@ -202,8 +201,8 @@ def main():
             break
     
     #PySimpleGUI value-select  
-    def_toggle_size = (19,1)
-    def_box_size = (19,1)
+    def_toggle_size = (21,1)
+    def_box_size = (21,1)
     
     layout = [
         [sg.Text('')],
@@ -225,11 +224,18 @@ def main():
         [sg.Text(('Custom pattern 2:'), size = def_box_size), sg.Input(key='CUSTOMIN2', s=19)],
         [sg.Text(('Custom pattern 3:'), size = def_box_size), sg.Input(key='CUSTOMIN3', s=19)],
         [sg.Text('')],
+        [sg.Text(('Generic display separator'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_off, key='GENSEPARATOR', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Text('On')],
+        [sg.Text(('Generic context:'), size = def_box_size), 
+            sg.Input(enable_events=True,  key='GENCONTIN', s=3),
+            sg.Text("Default = 0")],
+        [sg.Text('')],
         [sg.Button("Submit")]
     ]
     
     window.close()    
-    window = sg.Window(version, layout, size=(350,390))
+    window = sg.Window(version, layout, size=(370,475))
     while True:
         event, values = window.read()
         if event in (sg.WIN_CLOSED, 'Exit'):
@@ -238,6 +244,10 @@ def main():
             window['SEPARATOR'].metadata = not window['SEPARATOR'].metadata
             window['SEPARATOR'].update(image_data=toggle_btn_on if window['SEPARATOR'].metadata else toggle_btn_off)
             display_separator = window['SEPARATOR'].metadata
+        elif event == 'GENSEPARATOR':
+            window['GENSEPARATOR'].metadata = not window['GENSEPARATOR'].metadata
+            window['GENSEPARATOR'].update(image_data=toggle_btn_on if window['GENSEPARATOR'].metadata else toggle_btn_off)
+            display_separator_general = window['GENSEPARATOR'].metadata
         elif event == 'FILEWRITE':
             window['FILEWRITE'].metadata = not window['FILEWRITE'].metadata
             window['FILEWRITE'].update(image_data=toggle_btn_on if window['FILEWRITE'].metadata else toggle_btn_off)
@@ -251,9 +261,13 @@ def main():
         elif event == "Submit":
             display_separator = window['SEPARATOR'].metadata
             write_to_file = window['FILEWRITE'].metadata
+            display_separator_general = window['GENSEPARATOR'].metadata
             cust_pattern = values['CUSTOMIN']
             cust_pattern2 = values['CUSTOMIN2']
             cust_pattern3 = values['CUSTOMIN3']
+            
+            if values['GENCONTIN'] != '':
+                context_generic = int(values['GENCONTIN'])
             
             if values['ERRIN'] != '':
                 general_limit = int(values['ERRIN'])
@@ -262,10 +276,13 @@ def main():
                 context = int(values['CONTIN'])
                 
             break
+            
         elif event == 'ERRIN' and len(values['ERRIN']) and values['ERRIN'][-1] not in ('0123456789'):
             window['ERRIN'].update(values['ERRIN'][:-1])
         elif event == 'CONTIN' and len(values['CONTIN']) and values['CONTIN'][-1] not in ('0123456789'):
             window['CONTIN'].update(values['CONTIN'][:-1])
+        elif event == 'GENCONTIN' and len(values['GENCONTIN']) and values['GENCONTIN'][-1] not in ('0123456789'):
+            window['GENCONTIN'].update(values['GENCONTIN'][:-1])
     window.close()
     
     custIsInitiated = (cust_pattern != "")
@@ -327,28 +344,28 @@ def main():
             addContextBefore(context_generic, logoutput, war_msg_arr, x)
             war_msg_arr.append(logoutput[x])
             war_gen_num +=1
-            addContextAfter(context_generic, logoutput, war_msg_arr, x, war_msg1, display_separator)
+            addContextAfter(context_generic, logoutput, war_msg_arr, x, war_msg1, display_separator_general)
             
         if (err_gen in logoutput[x].lower()) and ("error:" not in logoutput[x].lower()):
         
             addContextBefore(context_generic, logoutput, errgen_msg_arr, x)
             errgen_msg_arr.append(logoutput[x])
             err_gen_num +=1
-            addContextAfter(context_generic, logoutput, errgen_msg_arr, x, err_gen, display_separator)
+            addContextAfter(context_generic, logoutput, errgen_msg_arr, x, err_gen, display_separator_general)
             
         if (fail_gen in logoutput[x].lower()):
             
             addContextBefore(context_generic, logoutput, failgen_msg_arr, x)
             failgen_msg_arr.append(logoutput[x])
             fail_gen_num +=1
-            addContextAfter(context_generic, logoutput, failgen_msg_arr, x, fail_gen, display_separator)
+            addContextAfter(context_generic, logoutput, failgen_msg_arr, x, fail_gen, display_separator_general)
             
         if (fatal_gen in logoutput[x].lower()):
             
             addContextBefore(context_generic, logoutput, fatalgen_msg_arr, x)
             fatalgen_msg_arr.append(logoutput[x])
             fatal_gen_num +=1
-            addContextAfter(context_generic, logoutput, fatalgen_msg_arr, x, fatal_gen, display_separator)
+            addContextAfter(context_generic, logoutput, fatalgen_msg_arr, x, fatal_gen, display_separator_general)
             
         if custIsInitiated:
             regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
@@ -356,7 +373,7 @@ def main():
                 addContextBefore(context_generic, logoutput, cust_arr, x)
                 cust_arr.append(logoutput[x])
                 cust_arr_num +=1
-                addContextAfter(context_generic, logoutput, cust_arr, x, cust_pattern, display_separator)
+                addContextAfter(context_generic, logoutput, cust_arr, x, cust_pattern, display_separator_general)
                 
         if custIsInitiated2:
             regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
@@ -365,7 +382,7 @@ def main():
                 addContextBefore(context_generic, logoutput, cust_arr2, x)
                 cust_arr2.append(logoutput[x])
                 cust_arr_num2 +=1
-                addContextAfter(context_generic, logoutput, cust_arr2, x, cust_pattern2, display_separator)
+                addContextAfter(context_generic, logoutput, cust_arr2, x, cust_pattern2, display_separator_general)
                 
         if custIsInitiated3:
             regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
@@ -374,21 +391,21 @@ def main():
                 addContextBefore(context_generic, logoutput, cust_arr3, x)
                 cust_arr3.append(logoutput[x])
                 cust_arr_num3 +=1
-                addContextAfter(context_generic, logoutput, cust_arr3, x, cust_pattern3, display_separator)
+                addContextAfter(context_generic, logoutput, cust_arr3, x, cust_pattern3, display_separator_general)
                 
 
     #Checking for spaces that we dont need (places where separating errors do not make sense)        
     contextFixer(display_separator, err_msg_arr)
-    contextFixer(display_separator, errgen_msg_arr)
-    contextFixer(display_separator, war_msg_arr)
-    contextFixer(display_separator, failgen_msg_arr)
-    contextFixer(display_separator, fatalgen_msg_arr)
+    contextFixer(display_separator_general, errgen_msg_arr)
+    contextFixer(display_separator_general, war_msg_arr)
+    contextFixer(display_separator_general, failgen_msg_arr)
+    contextFixer(display_separator_general, fatalgen_msg_arr)
     if custIsInitiated:
-        contextFixer(display_separator, cust_arr)
+        contextFixer(display_separator_general, cust_arr)
     if custIsInitiated2:
-        contextFixer(display_separator, cust_arr2)
+        contextFixer(display_separator_general, cust_arr2)
     if custIsInitiated3:
-        contextFixer(display_separator, cust_arr3)
+        contextFixer(display_separator_general, cust_arr3)
     
     #Print results
     print("\n" + version + "\n")
