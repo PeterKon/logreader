@@ -11,8 +11,6 @@ import PySimpleGUI as sg
 #TODO: Fix limit-variables to single var
 #TODO: Implement general error-limit vs "error:" (add GUI)
 #TODO: Optional "invalid", "failure"
-#TODO: Fix bug for "Invalid" vs "invalid" custom pattern
-#TODO: Fix custom pattern limit error when one capital letter
 
 def name(name):
 
