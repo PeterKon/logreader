@@ -8,6 +8,11 @@ import PySimpleGUI as sg
 #TODO: Migrate to different GUI (maybe)
 #TODO: Add support for several files in at once (maybe)
 #TODO: Fix "limited" print when showing "error:" (all elements)
+#TODO: Fix limit-variables to single var
+#TODO: Implement general error-limit vs "error:" (add GUI)
+#TODO: Optional "invalid", "failure"
+#TODO: Fix bug for "Invalid" vs "invalid" custom pattern
+#TODO: Fix custom pattern limit error when one capital letter
 
 def name(name):
 
@@ -23,14 +28,14 @@ def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
     broken = False
     for i, x in enumerate(arrIn):
         regex_comp = re.split(r'([0-9]+ *->)', arrIn[i], 1)
-        if not (arrIn[i] == "-------->") and (msg in regex_comp[2].lower()):
+        if not (arrIn[i] == "-------->") and (msg.lower() in regex_comp[2].lower()):
             
             #Split into parts and print appropriate words in color. The format is simple:
-            #regex_comp[1] = The start number in form "123  ->"
-            #rest_res[0]   = The string before the "error"-word
-            #warresword[0] = The error-message, retrieved to preserve case
-            #rest_res[1]   = The string after the "error"-word
-            pattern = re.compile(re.escape(msg), re.IGNORECASE)
+            #1 - regex_comp[1] = The line-number in form "123  ->"
+            #2 - rest_res[0]   = The string before the "error"-word
+            #3 - warresword[0] = The error-word, retrieved to preserve case (ERROR: vs Error: etc)
+            #4 - rest_res[1]   = The string after the "error"-word
+            pattern = re.compile(re.escape(msg.lower()), re.IGNORECASE)
             warresword = re.findall(pattern, regex_comp[2])
             rest_res = re.split(pattern, regex_comp[2], 1)
             
@@ -49,7 +54,7 @@ def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
             #Print rest of context after error
             for h in range(context):
                 if(((h + i) + 1) < len(arrIn)):
-                    if msg in arrIn[(h + i) + 1].lower():
+                    if msg.lower() in arrIn[(h + i) + 1].lower():
                         break
                     else:
                         res_split = re.split(r'([0-9]+ *->)', arrIn[(h + i) + 1], 1)
@@ -76,7 +81,7 @@ def writeArrayResults(w, arrIn, limit, has_limit, gen_line, msg, err_num, contex
         w.write(gen_line + "\n")
         w.write("------------------------------------------------\n")
         for i, x in enumerate(arrIn):
-            if msg in arrIn[i].lower():
+            if msg.lower() in arrIn[i].lower():
                 w.write(x + "\n")
                 err_count += 1
             else:
@@ -86,7 +91,7 @@ def writeArrayResults(w, arrIn, limit, has_limit, gen_line, msg, err_num, contex
                 #Write rest of context after error
                 for h in range(context):
                     if(((h + i) + 1) < len(arrIn)):
-                        if msg in arrIn[(h + i) + 1].lower():
+                        if msg.lower() in arrIn[(h + i) + 1].lower():
                             break
                         else:
                             w.write(arrIn[(h + i) + 1] + "\n")
