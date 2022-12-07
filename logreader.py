@@ -7,11 +7,12 @@ import PySimpleGUI as sg
 
 #TODO: Migrate to different GUI (maybe)
 #TODO: Add support for several files in at once (maybe)
+#TODO: Move array and vars into a single class for an error-object(maybe)
 #TODO: Fix "limited" print when showing "error:" (all elements)
-#TODO: Fix limit-variables to single var
 #TODO: Implement general error-limit vs "error:" (add GUI)
-#TODO: Optional "invalid", "failure", "illegal", "Exception:" and other current patterns opt
+#TODO: Optional "invalid", "failure", "illegal", "Exception:" to GUI toggle
 #TODO: Fix "Error:" being colored in "error" context
+#TODO: Move array and vars into a single class for an error-object(maybe)
 
 def name(name):
 
@@ -178,11 +179,24 @@ def main():
     
     version = "Logreader v0.12"
     
+    #TODO: Optional "DEBUG", "NOTE:", and other current patterns opt
+    isFailedInitialized = True
+    isFatalInitialized = True
+    isWarningInitialized = False
+    isFailureInitialized = False
+    isIllegalInitialized = False
+    isInvalidInitialized = False
+    isExceptionInitialized = False
+    
     err_msg_arr = []
     errgen_msg_arr = []
     failgen_msg_arr = []
     fatalgen_msg_arr = []
     war_msg_arr = []
+    failure_msg_arr = []
+    illegal_msg_arr = []
+    invalid_msg_arr = []
+    exception_msg_arr = []
     cust_arr = []
     cust_arr2 = []
     cust_arr3 = []
@@ -190,8 +204,12 @@ def main():
     err_msg1 = "error:"    
     err_gen = "error"
     fail_gen = "failed"
+    failure_gen = "failure"
+    illegal_gen = "illegal"
     fatal_gen = "fatal"
     war_msg1 = "warning:"
+    invalid_gen = "invalid"
+    exception_gen = "exception:"
     cust_pattern = ""
     cust_pattern2 = ""
     cust_pattern3 = ""
@@ -216,9 +234,17 @@ def main():
     def_toggle_size = (21,1)
     def_box_size = (21,1)
     
+    #isFailedInitialized = True
+    #isFatalInitialized = True
+    #isWarningInitialized = False
+    #isFailureInitialized = False
+    #isIllegalInitialized = False
+    #isInvalidInitialized = False
+    #isExceptionInitialized = False    
     layout = [
         [sg.Text('')],
-        [sg.Text(('- Choose values -'))],
+        [sg.Text(('CHOOSE VALUES'))],
+        [sg.Text('')],
         [sg.Text(('Display separator'), size = def_toggle_size), sg.Text('Off'),
             sg.Button(image_data=toggle_btn_on, key='SEPARATOR', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=True),
             sg.Text('On')],
@@ -247,7 +273,7 @@ def main():
     ]
     
     window.close()    
-    window = sg.Window(version, layout, size=(370,475))
+    window = sg.Window(version, layout, size=(370,525))
     while True:
         event, values = window.read()
         if event in (sg.WIN_CLOSED, 'Exit'):
@@ -322,7 +348,8 @@ def main():
     logoutput = f.read().splitlines()
     
     #Formatting each line to the format 123xxxx-> where x is spaces and maintaining the same
-    #num of spaces up to 8 digits to make them line up.
+    #num of spaces up to 8 digits to make them line up. 123 being the line-number from 1 to
+    #the end of file
     for x in range(len(logoutput)):
 
         space_string = ""
@@ -339,7 +366,11 @@ def main():
     err_gen_num = 0
     war_gen_num = 0
     fail_gen_num = 0
+    failure_gen_num = 0
+    illegal_gen_num = 0
     fatal_gen_num = 0
+    invalid_gen_num = 0
+    exception_gen_num = 0
     cust_arr_num = 0
     cust_arr_num2 = 0
     cust_arr_num3 = 0
@@ -354,33 +385,60 @@ def main():
             addContextAfter(context, logoutput, err_msg_arr, x, "error:", display_separator)
         
         #Add the other generic messages
-        if (war_msg1 in logoutput[x].lower()):
-            
-            addContextBefore(context_generic, logoutput, war_msg_arr, x)
-            war_msg_arr.append(logoutput[x])
-            war_gen_num +=1
-            addContextAfter(context_generic, logoutput, war_msg_arr, x, war_msg1, display_separator_general)
-            
-        if (err_gen in logoutput[x].lower()) and ("error:" not in logoutput[x].lower()):
+        if (war_msg1 in logoutput[x].lower()):            
+            if(isWarningInitialized):
+                addContextBefore(context_generic, logoutput, war_msg_arr, x)
+                war_msg_arr.append(logoutput[x])
+                war_gen_num +=1
+                addContextAfter(context_generic, logoutput, war_msg_arr, x, war_msg1, display_separator_general)
         
+        if (failure_gen in logoutput[x].lower()):            
+            if(isFailureInitialized):
+                addContextBefore(context_generic, logoutput, failure_msg_arr, x)
+                failure_msg_arr.append(logoutput[x])
+                failure_gen_num +=1
+                addContextAfter(context_generic, logoutput, failure_msg_arr, x, failure_gen, display_separator_general)
+        
+        if (illegal_gen in logoutput[x].lower()):            
+            if(isIllegalInitialized):
+                addContextBefore(context_generic, logoutput, illegal_msg_arr, x)
+                illegal_msg_arr.append(logoutput[x])
+                illegal_gen_num +=1
+                addContextAfter(context_generic, logoutput, illegal_msg_arr, x, illegal_gen, display_separator_general)
+            
+        if (err_gen in logoutput[x].lower()) and ("error:" not in logoutput[x].lower()):        
             addContextBefore(context_generic, logoutput, errgen_msg_arr, x)
             errgen_msg_arr.append(logoutput[x])
             err_gen_num +=1
             addContextAfter(context_generic, logoutput, errgen_msg_arr, x, err_gen, display_separator_general)
             
-        if (fail_gen in logoutput[x].lower()):
-            
-            addContextBefore(context_generic, logoutput, failgen_msg_arr, x)
-            failgen_msg_arr.append(logoutput[x])
-            fail_gen_num +=1
-            addContextAfter(context_generic, logoutput, failgen_msg_arr, x, fail_gen, display_separator_general)
+        if (fail_gen in logoutput[x].lower()):            
+            if(isFailedInitialized):
+                addContextBefore(context_generic, logoutput, failgen_msg_arr, x)
+                failgen_msg_arr.append(logoutput[x])
+                fail_gen_num +=1
+                addContextAfter(context_generic, logoutput, failgen_msg_arr, x, fail_gen, display_separator_general)
             
         if (fatal_gen in logoutput[x].lower()):
-            
-            addContextBefore(context_generic, logoutput, fatalgen_msg_arr, x)
-            fatalgen_msg_arr.append(logoutput[x])
-            fatal_gen_num +=1
-            addContextAfter(context_generic, logoutput, fatalgen_msg_arr, x, fatal_gen, display_separator_general)
+            if(isFatalInitialized):
+                addContextBefore(context_generic, logoutput, fatalgen_msg_arr, x)
+                fatalgen_msg_arr.append(logoutput[x])
+                fatal_gen_num +=1
+                addContextAfter(context_generic, logoutput, fatalgen_msg_arr, x, fatal_gen, display_separator_general)
+        
+        if (invalid_gen in logoutput[x].lower()):
+            if(isInvalidInitialized):
+                addContextBefore(context_generic, logoutput, invalid_msg_arr, x)
+                invalid_msg_arr.append(logoutput[x])
+                invalid_gen_num +=1
+                addContextAfter(context_generic, logoutput, invalid_msg_arr, x, invalid_gen, display_separator_general)
+        
+        if (exception_gen in logoutput[x].lower()):
+            if(isExceptionInitialized):
+                addContextBefore(context_generic, logoutput, exception_msg_arr, x)
+                exception_msg_arr.append(logoutput[x])
+                exception_gen_num +=1
+                addContextAfter(context_generic, logoutput, exception_msg_arr, x, exception_gen, display_separator_general)
             
         if custIsInitiated:
             regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
@@ -392,8 +450,7 @@ def main():
                 
         if custIsInitiated2:
             regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
-            if (cust_pattern2.lower() in regex_comp[2].lower()):
-                
+            if (cust_pattern2.lower() in regex_comp[2].lower()):                
                 addContextBefore(context_generic, logoutput, cust_arr2, x)
                 cust_arr2.append(logoutput[x])
                 cust_arr_num2 +=1
@@ -401,8 +458,7 @@ def main():
                 
         if custIsInitiated3:
             regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
-            if (cust_pattern3.lower() in regex_comp[2].lower()):
-                
+            if (cust_pattern3.lower() in regex_comp[2].lower()):                
                 addContextBefore(context_generic, logoutput, cust_arr3, x)
                 cust_arr3.append(logoutput[x])
                 cust_arr_num3 +=1
@@ -412,9 +468,20 @@ def main():
     #Checking for spaces that we dont need (places where separating errors do not make sense)        
     contextFixer(display_separator, err_msg_arr)
     contextFixer(display_separator_general, errgen_msg_arr)
-    contextFixer(display_separator_general, war_msg_arr)
-    contextFixer(display_separator_general, failgen_msg_arr)
-    contextFixer(display_separator_general, fatalgen_msg_arr)
+    if(isFailureInitialized):
+        contextFixer(display_separator_general, failure_msg_arr)
+    if(isIllegalInitialized):
+        contextFixer(display_separator_general, illegal_msg_arr)
+    if(isWarningInitialized):
+        contextFixer(display_separator_general, war_msg_arr)
+    if(isFailedInitialized):
+        contextFixer(display_separator_general, failgen_msg_arr)
+    if(isFatalInitialized):
+        contextFixer(display_separator_general, fatalgen_msg_arr)
+    if(isInvalidInitialized):
+        contextFixer(display_separator_general, invalid_msg_arr)
+    if(isExceptionInitialized):
+        contextFixer(display_separator_general, exception_msg_arr)
     if custIsInitiated:
         contextFixer(display_separator_general, cust_arr)
     if custIsInitiated2:
@@ -425,11 +492,22 @@ def main():
     #Print results
     print("\n" + version + "\n")
     print("Filename:\n" + filename + "\n")
-    print("Number of errors in this file:           " + str(err_num))
-    print("Number of generic errors in this file:   " + str(err_gen_num))
-    print("Number of warnings in this file:         " + str(war_gen_num))
-    print("Number of generic failures in this file: " + str(fail_gen_num))
-    print("Number of generic fatals in this file:   " + str(fatal_gen_num))
+    print("Number of \"error:\" in this file          " + str(err_num))
+    print("Number of \"error\" in this file           " + str(err_gen_num))
+    if(isWarningInitialized):
+        print("Number of \"warning:\" in this file        " + str(war_gen_num))
+    if(isFailedInitialized):
+        print("Number of \"failed\" in this file          " + str(fail_gen_num))
+    if(isFatalInitialized):
+        print("Number of \"fatal\" in this file           " + str(fatal_gen_num))
+    if(isFailureInitialized):
+        print("Number of \"failure\" in this file         " + str(failure_gen_num))
+    if(isIllegalInitialized):
+        print("Number of \"illegal\" in this file         " + str(illegal_gen_num))
+    if(isInvalidInitialized):
+        print("Number of \"invalid\" in this file         " + str(invalid_gen_num))
+    if(isExceptionInitialized):
+        print("Number of \"exception:\" in this file      " + str(exception_gen_num))
     if custIsInitiated:
         print()
         print("Custom pattern: " + cust_pattern)
@@ -451,11 +529,22 @@ def main():
     if write_to_file:
         w.write("\n" + version + "\n\n")
         w.write("Filename:\n" + filename + "\n\n")
-        w.write("Number of errors in this file:           " + str(err_num) + "\n")
-        w.write("Number of generic errors in this file:   " + str(err_gen_num) + "\n")
-        w.write("Number of warnings in this file:         " + str(war_gen_num) + "\n")
-        w.write("Number of generic failures in this file: " + str(fail_gen_num) + "\n")
-        w.write("Number of generic fatals in this file:   " + str(fatal_gen_num) + "\n")
+        w.write("Number of \"error:\" in this file          " + str(err_num) + "\n")
+        w.write("Number of \"error\" in this file           " + str(err_gen_num) + "\n")
+        if(isWarningInitialized):
+            w.write("Number of \"warning:\" in this file        " + str(war_gen_num) + "\n")
+        if(isFailedInitialized):
+            w.write("Number of \"failed\" in this file          " + str(fail_gen_num) + "\n")
+        if(isFatalInitialized):
+            w.write("Number of \"fatal\" in this file           " + str(fatal_gen_num) + "\n")
+        if(isFailureInitialized):
+            w.write("Number of \"failure\" in this file         " + str(failure_gen_num) + "\n")
+        if(isIllegalInitialized):
+            w.write("Number of \"illegal\" in this file         " + str(illegal_gen_num) + "\n")
+        if(isInvalidInitialized):
+            w.write("Number of \"invalid\" in this file         " + str(invalid_gen_num) + "\n")
+        if(isExceptionInitialized):
+            w.write("Number of \"exception:\" in this file      " + str(exception_gen_num) + "\n")
         if custIsInitiated:
             w.write("\nCustom pattern: " + cust_pattern + "\n")
             w.write("Hits on pattern:                         " + str(cust_arr_num) + "\n")
@@ -472,25 +561,48 @@ def main():
 
     os.system('color')
     
-    generr_line = "Errors contained:                              |"
+    generr_line = "\"error:\" contained:                            |"
     printArrayResults(err_msg_arr, err_msg1, limit_output, has_limit, context, generr_line, err_num)    
     writeArrayResults(w, err_msg_arr, limit_output, has_limit, generr_line, err_msg1, err_num, context, write_to_file)
     
-    generr_line = "Generic errors contained:                      |"
+    generr_line = "\"error\" contained:                             |"
     printArrayResults(errgen_msg_arr, err_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, err_gen_num)
     writeArrayResults(w, errgen_msg_arr, limit_output_gen, has_limit_gen, generr_line, err_gen, err_gen_num, context_generic, write_to_file)
     
-    generr_line = "Warnings contained:                            |"
-    printArrayResults(war_msg_arr, war_msg1, limit_output_wargen, has_limit_wargen, context_generic, generr_line, war_gen_num)
-    writeArrayResults(w, war_msg_arr, limit_output_wargen, has_limit_wargen, generr_line, war_msg1, war_gen_num, context_generic, write_to_file)
-            
-    generr_line = "Generic failures contained:                    |"
-    printArrayResults(failgen_msg_arr, fail_gen, limit_output_failed, has_limit_failed, context_generic, generr_line, fail_gen_num)
-    writeArrayResults(w, failgen_msg_arr, limit_output_failed, has_limit_failed, generr_line, fail_gen, fail_gen_num, context_generic, write_to_file)
-            
-    generr_line = "Generic fatals contained:                      |"
-    printArrayResults(fatalgen_msg_arr, fatal_gen, limit_output_fatal, has_limit_fatal, context_generic, generr_line, fatal_gen_num)
-    writeArrayResults(w, fatalgen_msg_arr, limit_output_fatal, has_limit_fatal, generr_line, fatal_gen, fatal_gen_num, context_generic, write_to_file)
+    if(isWarningInitialized):
+        generr_line = "\"warning:\" contained:                          |"
+        printArrayResults(war_msg_arr, war_msg1, limit_output_wargen, has_limit_wargen, context_generic, generr_line, war_gen_num)
+        writeArrayResults(w, war_msg_arr, limit_output_wargen, has_limit_wargen, generr_line, war_msg1, war_gen_num, context_generic, write_to_file)
+    
+    if(isFailedInitialized):
+        generr_line = "\"failed\" contained:                            |"
+        printArrayResults(failgen_msg_arr, fail_gen, limit_output_failed, has_limit_failed, context_generic, generr_line, fail_gen_num)
+        writeArrayResults(w, failgen_msg_arr, limit_output_failed, has_limit_failed, generr_line, fail_gen, fail_gen_num, context_generic, write_to_file)
+    
+    if(isFatalInitialized):
+        generr_line = "\"fatal\" contained:                             |"
+        printArrayResults(fatalgen_msg_arr, fatal_gen, limit_output_fatal, has_limit_fatal, context_generic, generr_line, fatal_gen_num)
+        writeArrayResults(w, fatalgen_msg_arr, limit_output_fatal, has_limit_fatal, generr_line, fatal_gen, fatal_gen_num, context_generic, write_to_file)
+        
+    if(isFailureInitialized):
+        generr_line = "\"failure\" contained:                           |"
+        printArrayResults(failure_msg_arr, failure_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, failure_gen_num)
+        writeArrayResults(w, failure_msg_arr, limit_output_gen, has_limit_gen, generr_line, failure_gen, failure_gen_num, context_generic, write_to_file)
+    
+    if(isIllegalInitialized):
+        generr_line = "\"illegal\" contained:                           |"
+        printArrayResults(illegal_msg_arr, illegal_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, illegal_gen_num)
+        writeArrayResults(w, illegal_msg_arr, limit_output_gen, has_limit_gen, generr_line, illegal_gen, illegal_gen_num, context_generic, write_to_file)
+    
+    if(isInvalidInitialized):
+        generr_line = "\"invalid\" contained:                           |"
+        printArrayResults(invalid_msg_arr, invalid_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, invalid_gen_num)
+        writeArrayResults(w, invalid_msg_arr, limit_output_gen, has_limit_gen, generr_line, invalid_gen, invalid_gen_num, context_generic, write_to_file)
+        
+    if(isExceptionInitialized):
+        generr_line = "\"exception:\" contained:                        |"
+        printArrayResults(exception_msg_arr, exception_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, exception_gen_num)
+        writeArrayResults(w, exception_msg_arr, limit_output_gen, has_limit_gen, generr_line, exception_gen, exception_gen_num, context_generic, write_to_file)
         
     if custIsInitiated:
         generr_line = "Pattern searched: " + cust_pattern
