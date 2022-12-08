@@ -234,16 +234,9 @@ def main():
     def_toggle_size = (21,1)
     def_box_size = (21,1)
     
-    #isFailedInitialized = True
-    #isFatalInitialized = True
-    #isWarningInitialized = False
-    #isFailureInitialized = False
-    #isIllegalInitialized = False
-    #isInvalidInitialized = False
-    #isExceptionInitialized = False    
-    layout = [
+    leftcol = [
         [sg.Text('')],
-        [sg.Text(('CHOOSE VALUES'))],
+        [sg.Text(('Value Selection -'))],
         [sg.Text('')],
         [sg.Text(('Display separator'), size = def_toggle_size), sg.Text('Off'),
             sg.Button(image_data=toggle_btn_on, key='SEPARATOR', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=True),
@@ -272,8 +265,43 @@ def main():
         [sg.Button("Submit")]
     ]
     
+    rightcol = [
+    
+        [sg.Text('Toggle Patterns -')],
+        [sg.Text('')],
+        [sg.Text('')],
+        [sg.Text(('FAILED'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_on, key='FAILED', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=True),
+            sg.Text('On')],
+        [sg.Text(('FATAL'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_on, key='FATAL', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=True),
+            sg.Text('On')],
+        [sg.Text(('WARNING:'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_off, key='WARNING', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Text('On')],
+        [sg.Text(('FAILURE'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_off, key='FAILURE', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Text('On')],
+        [sg.Text(('ILLEGAL'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_off, key='ILLEGAL', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Text('On')],
+        [sg.Text(('INVALID'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_off, key='INVALID', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Text('On')],
+        [sg.Text(('EXCEPTION:'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_off, key='EXCEPTION', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Text('On')],
+        [sg.Text('')]
+    ]
+    
+    layout = [
+        [sg.Column(leftcol),
+        sg.VSeperator(),
+        sg.Column(rightcol)]
+    ]
+    
     window.close()    
-    window = sg.Window(version, layout, size=(370,525))
+    window = sg.Window(version, layout, size=(730,525))
     while True:
         event, values = window.read()
         if event in (sg.WIN_CLOSED, 'Exit'):
@@ -290,6 +318,34 @@ def main():
             window['FILEWRITE'].metadata = not window['FILEWRITE'].metadata
             window['FILEWRITE'].update(image_data=toggle_btn_on if window['FILEWRITE'].metadata else toggle_btn_off)
             write_to_file = window['FILEWRITE'].metadata
+        elif event == 'FAILED':
+            window['FAILED'].metadata = not window['FAILED'].metadata
+            window['FAILED'].update(image_data=toggle_btn_on if window['FAILED'].metadata else toggle_btn_off)
+            isFailedInitialized = window['FAILED'].metadata
+        elif event == 'FATAL':
+            window['FATAL'].metadata = not window['FATAL'].metadata
+            window['FATAL'].update(image_data=toggle_btn_on if window['FATAL'].metadata else toggle_btn_off)
+            isFatalInitialized = window['FATAL'].metadata
+        elif event == 'WARNING':
+            window['WARNING'].metadata = not window['WARNING'].metadata
+            window['WARNING'].update(image_data=toggle_btn_on if window['WARNING'].metadata else toggle_btn_off)
+            isWarningInitialized = window['WARNING'].metadata
+        elif event == 'FAILURE':
+            window['FAILURE'].metadata = not window['FAILURE'].metadata
+            window['FAILURE'].update(image_data=toggle_btn_on if window['FAILURE'].metadata else toggle_btn_off)
+            isFailureInitialized = window['FAILURE'].metadata
+        elif event == 'ILLEGAL':
+            window['ILLEGAL'].metadata = not window['ILLEGAL'].metadata
+            window['ILLEGAL'].update(image_data=toggle_btn_on if window['ILLEGAL'].metadata else toggle_btn_off)
+            isIllegalInitialized = window['ILLEGAL'].metadata
+        elif event == 'INVALID':
+            window['INVALID'].metadata = not window['INVALID'].metadata
+            window['INVALID'].update(image_data=toggle_btn_on if window['INVALID'].metadata else toggle_btn_off)
+            isInvalidInitialized = window['INVALID'].metadata
+        elif event == 'EXCEPTION':
+            window['EXCEPTION'].metadata = not window['EXCEPTION'].metadata
+            window['EXCEPTION'].update(image_data=toggle_btn_on if window['EXCEPTION'].metadata else toggle_btn_off)
+            isExceptionInitialized = window['EXCEPTION'].metadata
         elif event == 'CUSTOMIN':
             cust_pattern = values['CUSTOMIN']
         elif event == 'CUSTOMIN2':
@@ -303,7 +359,13 @@ def main():
             cust_pattern = values['CUSTOMIN']
             cust_pattern2 = values['CUSTOMIN2']
             cust_pattern3 = values['CUSTOMIN3']
-            
+            isFailedInitialized = window['FAILED'].metadata
+            isFatalInitialized = window['FATAL'].metadata
+            isWarningInitialized = window['WARNING'].metadata
+            isFailureInitialized = window['FAILURE'].metadata
+            isIllegalInitialized = window['ILLEGAL'].metadata
+            isInvalidInitialized = window['INVALID'].metadata
+            isExceptionInitialized = window['EXCEPTION'].metadata
             if values['GENCONTIN'] != '':
                 context_generic = int(values['GENCONTIN'])
             
@@ -569,11 +631,6 @@ def main():
     printArrayResults(errgen_msg_arr, err_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, err_gen_num)
     writeArrayResults(w, errgen_msg_arr, limit_output_gen, has_limit_gen, generr_line, err_gen, err_gen_num, context_generic, write_to_file)
     
-    if(isWarningInitialized):
-        generr_line = "\"warning:\" contained:                          |"
-        printArrayResults(war_msg_arr, war_msg1, limit_output_wargen, has_limit_wargen, context_generic, generr_line, war_gen_num)
-        writeArrayResults(w, war_msg_arr, limit_output_wargen, has_limit_wargen, generr_line, war_msg1, war_gen_num, context_generic, write_to_file)
-    
     if(isFailedInitialized):
         generr_line = "\"failed\" contained:                            |"
         printArrayResults(failgen_msg_arr, fail_gen, limit_output_failed, has_limit_failed, context_generic, generr_line, fail_gen_num)
@@ -583,6 +640,11 @@ def main():
         generr_line = "\"fatal\" contained:                             |"
         printArrayResults(fatalgen_msg_arr, fatal_gen, limit_output_fatal, has_limit_fatal, context_generic, generr_line, fatal_gen_num)
         writeArrayResults(w, fatalgen_msg_arr, limit_output_fatal, has_limit_fatal, generr_line, fatal_gen, fatal_gen_num, context_generic, write_to_file)
+        
+    if(isWarningInitialized):
+        generr_line = "\"warning:\" contained:                          |"
+        printArrayResults(war_msg_arr, war_msg1, limit_output_wargen, has_limit_wargen, context_generic, generr_line, war_gen_num)
+        writeArrayResults(w, war_msg_arr, limit_output_wargen, has_limit_wargen, generr_line, war_msg1, war_gen_num, context_generic, write_to_file)
         
     if(isFailureInitialized):
         generr_line = "\"failure\" contained:                           |"

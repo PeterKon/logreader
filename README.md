@@ -12,4 +12,4 @@ Running the script with `python logreader.py` and selecting the logfile to be an
 `generic_display_separator`:   (True/false) Whether or not to display separators between generic errors.  
 `generic_context`:             Optional. The number of error-messages written above and below generic errors. (Default: 0)  
 
-You can also optionally enter one to three entries for `custom pattern` which returns case insensitive hits on the pattern.
+You can also optionally enter one to three entries for `custom pattern` which returns case insensitive hits on the pattern. There is also a toggle for optional patterns to be searched, only two are enabled by default.
