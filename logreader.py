@@ -10,9 +10,7 @@ import PySimpleGUI as sg
 #TODO: Move array and vars into a single class for an error-object(maybe)
 #TODO: Fix "limited" print when showing "error:" (all elements)
 #TODO: Implement general error-limit vs "error:" (add GUI)
-#TODO: Optional "invalid", "failure", "illegal", "Exception:" to GUI toggle
 #TODO: Fix "Error:" being colored in "error" context
-#TODO: Move array and vars into a single class for an error-object(maybe)
 
 def name(name):
 
@@ -179,7 +177,6 @@ def main():
     
     version = "Logreader v0.12"
     
-    #TODO: Optional "DEBUG", "NOTE:", and other current patterns opt
     isFailedInitialized = True
     isFatalInitialized = True
     isWarningInitialized = False
@@ -266,9 +263,12 @@ def main():
     ]
     
     rightcol = [
-    
+        [sg.Text('')],
         [sg.Text('Toggle Patterns -')],
         [sg.Text('')],
+        [sg.Text(('Toggle All'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_off, key='TOGGLEALL', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Text('On')],
         [sg.Text('')],
         [sg.Text(('FAILED'), size = def_toggle_size), sg.Text('Off'),
             sg.Button(image_data=toggle_btn_on, key='FAILED', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=True),
@@ -290,18 +290,19 @@ def main():
             sg.Text('On')],
         [sg.Text(('EXCEPTION:'), size = def_toggle_size), sg.Text('Off'),
             sg.Button(image_data=toggle_btn_off, key='EXCEPTION', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
-            sg.Text('On')],
-        [sg.Text('')]
+            sg.Text('On')]
     ]
     
+    colSize = (360, 500)
     layout = [
-        [sg.Column(leftcol),
+        [sg.Column(leftcol, size=colSize),
         sg.VSeperator(),
-        sg.Column(rightcol)]
+        sg.Column(rightcol, size=colSize)]
     ]
     
+    toggledOnce = False    
     window.close()    
-    window = sg.Window(version, layout, size=(730,525))
+    window = sg.Window(version, layout, size=(770,525))
     while True:
         event, values = window.read()
         if event in (sg.WIN_CLOSED, 'Exit'):
@@ -318,6 +319,33 @@ def main():
             window['FILEWRITE'].metadata = not window['FILEWRITE'].metadata
             window['FILEWRITE'].update(image_data=toggle_btn_on if window['FILEWRITE'].metadata else toggle_btn_off)
             write_to_file = window['FILEWRITE'].metadata
+        elif event == 'TOGGLEALL':
+            window['TOGGLEALL'].metadata = not window['TOGGLEALL'].metadata
+            window['TOGGLEALL'].update(image_data=toggle_btn_on if window['TOGGLEALL'].metadata else toggle_btn_off)
+            if not(toggledOnce):
+                toggledOnce = True
+            else:
+                window['FAILED'].metadata = not window['FAILED'].metadata
+                window['FAILED'].update(image_data=toggle_btn_on if window['FAILED'].metadata else toggle_btn_off)
+                isFailedInitialized = window['FAILED'].metadata
+                window['FATAL'].metadata = not window['FATAL'].metadata
+                window['FATAL'].update(image_data=toggle_btn_on if window['FATAL'].metadata else toggle_btn_off)
+                isFatalInitialized = window['FATAL'].metadata
+            window['WARNING'].metadata = not window['WARNING'].metadata
+            window['WARNING'].update(image_data=toggle_btn_on if window['WARNING'].metadata else toggle_btn_off)
+            isWarningInitialized = window['WARNING'].metadata
+            window['FAILURE'].metadata = not window['FAILURE'].metadata
+            window['FAILURE'].update(image_data=toggle_btn_on if window['FAILURE'].metadata else toggle_btn_off)
+            isFailureInitialized = window['FAILURE'].metadata
+            window['ILLEGAL'].metadata = not window['ILLEGAL'].metadata
+            window['ILLEGAL'].update(image_data=toggle_btn_on if window['ILLEGAL'].metadata else toggle_btn_off)
+            isIllegalInitialized = window['ILLEGAL'].metadata
+            window['INVALID'].metadata = not window['INVALID'].metadata
+            window['INVALID'].update(image_data=toggle_btn_on if window['INVALID'].metadata else toggle_btn_off)
+            isInvalidInitialized = window['INVALID'].metadata
+            window['EXCEPTION'].metadata = not window['EXCEPTION'].metadata
+            window['EXCEPTION'].update(image_data=toggle_btn_on if window['EXCEPTION'].metadata else toggle_btn_off)
+            isExceptionInitialized = window['EXCEPTION'].metadata
         elif event == 'FAILED':
             window['FAILED'].metadata = not window['FAILED'].metadata
             window['FAILED'].update(image_data=toggle_btn_on if window['FAILED'].metadata else toggle_btn_off)
@@ -554,22 +582,22 @@ def main():
     #Print results
     print("\n" + version + "\n")
     print("Filename:\n" + filename + "\n")
-    print("Number of \"error:\" in this file          " + str(err_num))
-    print("Number of \"error\" in this file           " + str(err_gen_num))
+    print("Number of \"ERROR:\" in this file          " + str(err_num))
+    print("Number of \"ERROR\" in this file           " + str(err_gen_num))
     if(isWarningInitialized):
-        print("Number of \"warning:\" in this file        " + str(war_gen_num))
+        print("Number of \"WARNING:\" in this file        " + str(war_gen_num))
     if(isFailedInitialized):
-        print("Number of \"failed\" in this file          " + str(fail_gen_num))
+        print("Number of \"FAILED\" in this file          " + str(fail_gen_num))
     if(isFatalInitialized):
-        print("Number of \"fatal\" in this file           " + str(fatal_gen_num))
+        print("Number of \"FATAL\" in this file           " + str(fatal_gen_num))
     if(isFailureInitialized):
-        print("Number of \"failure\" in this file         " + str(failure_gen_num))
+        print("Number of \"FAILURE\" in this file         " + str(failure_gen_num))
     if(isIllegalInitialized):
-        print("Number of \"illegal\" in this file         " + str(illegal_gen_num))
+        print("Number of \"ILLEGAL\" in this file         " + str(illegal_gen_num))
     if(isInvalidInitialized):
-        print("Number of \"invalid\" in this file         " + str(invalid_gen_num))
+        print("Number of \"INVALID\" in this file         " + str(invalid_gen_num))
     if(isExceptionInitialized):
-        print("Number of \"exception:\" in this file      " + str(exception_gen_num))
+        print("Number of \"EXCEPTION:\" in this file      " + str(exception_gen_num))
     if custIsInitiated:
         print()
         print("Custom pattern: " + cust_pattern)
@@ -591,22 +619,22 @@ def main():
     if write_to_file:
         w.write("\n" + version + "\n\n")
         w.write("Filename:\n" + filename + "\n\n")
-        w.write("Number of \"error:\" in this file          " + str(err_num) + "\n")
-        w.write("Number of \"error\" in this file           " + str(err_gen_num) + "\n")
+        w.write("Number of \"ERROR:\" in this file          " + str(err_num) + "\n")
+        w.write("Number of \"ERROR\" in this file           " + str(err_gen_num) + "\n")
         if(isWarningInitialized):
-            w.write("Number of \"warning:\" in this file        " + str(war_gen_num) + "\n")
+            w.write("Number of \"WARNING:\" in this file        " + str(war_gen_num) + "\n")
         if(isFailedInitialized):
-            w.write("Number of \"failed\" in this file          " + str(fail_gen_num) + "\n")
+            w.write("Number of \"FAILED\" in this file          " + str(fail_gen_num) + "\n")
         if(isFatalInitialized):
-            w.write("Number of \"fatal\" in this file           " + str(fatal_gen_num) + "\n")
+            w.write("Number of \"FATAL\" in this file           " + str(fatal_gen_num) + "\n")
         if(isFailureInitialized):
-            w.write("Number of \"failure\" in this file         " + str(failure_gen_num) + "\n")
+            w.write("Number of \"FAILURE\" in this file         " + str(failure_gen_num) + "\n")
         if(isIllegalInitialized):
-            w.write("Number of \"illegal\" in this file         " + str(illegal_gen_num) + "\n")
+            w.write("Number of \"ILLEGAL\" in this file         " + str(illegal_gen_num) + "\n")
         if(isInvalidInitialized):
-            w.write("Number of \"invalid\" in this file         " + str(invalid_gen_num) + "\n")
+            w.write("Number of \"INVALID\" in this file         " + str(invalid_gen_num) + "\n")
         if(isExceptionInitialized):
-            w.write("Number of \"exception:\" in this file      " + str(exception_gen_num) + "\n")
+            w.write("Number of \"EXCEPTION:\" in this file      " + str(exception_gen_num) + "\n")
         if custIsInitiated:
             w.write("\nCustom pattern: " + cust_pattern + "\n")
             w.write("Hits on pattern:                         " + str(cust_arr_num) + "\n")
@@ -623,46 +651,46 @@ def main():
 
     os.system('color')
     
-    generr_line = "\"error:\" contained:                            |"
+    generr_line = "\"ERROR:\" contained:                            |"
     printArrayResults(err_msg_arr, err_msg1, limit_output, has_limit, context, generr_line, err_num)    
     writeArrayResults(w, err_msg_arr, limit_output, has_limit, generr_line, err_msg1, err_num, context, write_to_file)
     
-    generr_line = "\"error\" contained:                             |"
+    generr_line = "\"ERROR\" contained:                             |"
     printArrayResults(errgen_msg_arr, err_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, err_gen_num)
     writeArrayResults(w, errgen_msg_arr, limit_output_gen, has_limit_gen, generr_line, err_gen, err_gen_num, context_generic, write_to_file)
     
     if(isFailedInitialized):
-        generr_line = "\"failed\" contained:                            |"
+        generr_line = "\"FAILED\" contained:                            |"
         printArrayResults(failgen_msg_arr, fail_gen, limit_output_failed, has_limit_failed, context_generic, generr_line, fail_gen_num)
         writeArrayResults(w, failgen_msg_arr, limit_output_failed, has_limit_failed, generr_line, fail_gen, fail_gen_num, context_generic, write_to_file)
     
     if(isFatalInitialized):
-        generr_line = "\"fatal\" contained:                             |"
+        generr_line = "\"FATAL\" contained:                             |"
         printArrayResults(fatalgen_msg_arr, fatal_gen, limit_output_fatal, has_limit_fatal, context_generic, generr_line, fatal_gen_num)
         writeArrayResults(w, fatalgen_msg_arr, limit_output_fatal, has_limit_fatal, generr_line, fatal_gen, fatal_gen_num, context_generic, write_to_file)
         
     if(isWarningInitialized):
-        generr_line = "\"warning:\" contained:                          |"
+        generr_line = "\"WARNING:\" contained:                          |"
         printArrayResults(war_msg_arr, war_msg1, limit_output_wargen, has_limit_wargen, context_generic, generr_line, war_gen_num)
         writeArrayResults(w, war_msg_arr, limit_output_wargen, has_limit_wargen, generr_line, war_msg1, war_gen_num, context_generic, write_to_file)
         
     if(isFailureInitialized):
-        generr_line = "\"failure\" contained:                           |"
+        generr_line = "\"FAILURE\" contained:                           |"
         printArrayResults(failure_msg_arr, failure_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, failure_gen_num)
         writeArrayResults(w, failure_msg_arr, limit_output_gen, has_limit_gen, generr_line, failure_gen, failure_gen_num, context_generic, write_to_file)
     
     if(isIllegalInitialized):
-        generr_line = "\"illegal\" contained:                           |"
+        generr_line = "\"ILLEGAL\" contained:                           |"
         printArrayResults(illegal_msg_arr, illegal_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, illegal_gen_num)
         writeArrayResults(w, illegal_msg_arr, limit_output_gen, has_limit_gen, generr_line, illegal_gen, illegal_gen_num, context_generic, write_to_file)
     
     if(isInvalidInitialized):
-        generr_line = "\"invalid\" contained:                           |"
+        generr_line = "\"INVALID\" contained:                           |"
         printArrayResults(invalid_msg_arr, invalid_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, invalid_gen_num)
         writeArrayResults(w, invalid_msg_arr, limit_output_gen, has_limit_gen, generr_line, invalid_gen, invalid_gen_num, context_generic, write_to_file)
         
     if(isExceptionInitialized):
-        generr_line = "\"exception:\" contained:                        |"
+        generr_line = "\"EXCEPTION:\" contained:                        |"
         printArrayResults(exception_msg_arr, exception_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, exception_gen_num)
         writeArrayResults(w, exception_msg_arr, limit_output_gen, has_limit_gen, generr_line, exception_gen, exception_gen_num, context_generic, write_to_file)
         
