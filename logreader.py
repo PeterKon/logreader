@@ -8,9 +8,8 @@ import PySimpleGUI as sg
 #TODO: Migrate to different GUI (maybe)
 #TODO: Add support for several files in at once (maybe)
 #TODO: Move array and vars into a single class for an error-object(maybe)
-#TODO: Fix "limited" print when showing "error:" (all elements)
 #TODO: Implement general error-limit vs "error:" (add GUI)
-#TODO: Fix "Error:" being colored in "error" context
+#TODO: Add critical opt pattern
 
 def name(name):
 
@@ -27,8 +26,11 @@ def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
     err_count = 0
     broken = False
     for i, x in enumerate(arrIn):
-        regex_comp = re.split(r'([0-9]+ *->)', x, 1)
-        if not (arrIn[i] == "-------->") and (msg.lower() in regex_comp[2].lower()):
+    
+        regex_comp = re.split(r'([0-9]+ *->)', x, 1)        
+        isErrorMsg = (msg == "error") and ("error:" in(regex_comp[2].lower()))
+        
+        if not (arrIn[i] == "-------->") and (msg.lower() in regex_comp[2].lower()) and not isErrorMsg:
             
             #Split into parts and print appropriate words in color. The format is simple:
             #1 - regex_comp[1] = The line-number in form "123  ->"
@@ -39,7 +41,7 @@ def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
             warresword = re.findall(pattern, regex_comp[2])
             rest_res = re.split(pattern, regex_comp[2], 1)
             
-            print(colored(regex_comp[1], "red", attrs=["bold"]) + colored(rest_res[0], 'green') + colored(warresword[0], "red") + colored(rest_res[1], 'green'))            
+            print(colored(regex_comp[1], "red", attrs=["bold"]) + colored(rest_res[0], 'green') + colored(warresword[0], "red") + colored(rest_res[1], 'green'))
             err_count += 1
         else:
             #Colors the linenum-arrow
