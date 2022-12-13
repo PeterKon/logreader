@@ -9,14 +9,12 @@ import PySimpleGUI as sg
 #TODO: Add support for several files in at once (maybe)
 #TODO: Move array and vars into a single class for an error-object(maybe)
 #TODO: Implement general error-limit vs "error:" (add GUI)
-#TODO: Add critical opt pattern
+#TODO: Explore if "error:" counts in filewrite for "error" context
 
 def name(name):
 
-    NAME_SIZE = 23
-
-    dots = NAME_SIZE-len(name)-2
-    return sg.Text(name + ' ' + '•'*dots, size=(NAME_SIZE,1), justification='r',pad=(0,0), font='Courier 10')
+    dots = 23-len(name)-2
+    return sg.Text(name + ' ' + '•'*dots, size=(23,1), justification='r',pad=(0,0), font='Courier 10')
 
 def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
 
@@ -192,6 +190,7 @@ def main():
     isIllegalInitialized = False
     isInvalidInitialized = False
     isExceptionInitialized = False
+    isCriticalInitialized = False
     
     err_msg_arr = []
     errgen_msg_arr = []
@@ -202,6 +201,7 @@ def main():
     illegal_msg_arr = []
     invalid_msg_arr = []
     exception_msg_arr = []
+    critical_msg_arr = []
     cust_arr = []
     cust_arr2 = []
     cust_arr3 = []
@@ -215,6 +215,7 @@ def main():
     war_msg1 = "warning:"
     invalid_gen = "invalid"
     exception_gen = "exception:"
+    critical_gen = "critical"
     cust_pattern = ""
     cust_pattern2 = ""
     cust_pattern3 = ""
@@ -267,6 +268,8 @@ def main():
             sg.Input(enable_events=True,  key='GENCONTIN', s=3),
             sg.Text("Default = 0")],
         [sg.Text('')],
+        [sg.Text('')],
+        [sg.Text('')],
         [sg.Button("Submit")]
     ]
     
@@ -298,10 +301,13 @@ def main():
             sg.Text('On')],
         [sg.Text(('EXCEPTION:'), size = def_toggle_size), sg.Text('Off'),
             sg.Button(image_data=toggle_btn_off, key='EXCEPTION', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
+            sg.Text('On')],
+        [sg.Text(('CRITICAL'), size = def_toggle_size), sg.Text('Off'),
+            sg.Button(image_data=toggle_btn_off, key='CRITICAL', button_color=(sg.theme_background_color(), sg.theme_background_color()), border_width=0, metadata=False),
             sg.Text('On')]
     ]
     
-    colSize = (360, 500)
+    colSize = (360, 550)
     layout = [
         [sg.Column(leftcol, size=colSize),
         sg.VSeperator(),
@@ -310,7 +316,7 @@ def main():
     
     toggledOnce = False    
     window.close()    
-    window = sg.Window(version, layout, size=(770,525))
+    window = sg.Window(version, layout, size=(770,575))
     while True:
         event, values = window.read()
         if event in (sg.WIN_CLOSED, 'Exit'):
@@ -354,6 +360,10 @@ def main():
             window['EXCEPTION'].metadata = not window['EXCEPTION'].metadata
             window['EXCEPTION'].update(image_data=toggle_btn_on if window['EXCEPTION'].metadata else toggle_btn_off)
             isExceptionInitialized = window['EXCEPTION'].metadata
+            window['CRITICAL'].metadata = not window['CRITICAL'].metadata
+            window['CRITICAL'].update(image_data=toggle_btn_on if window['CRITICAL'].metadata else toggle_btn_off)
+            isCriticalInitialized = window['CRITICAL'].metadata
+            
         elif event == 'FAILED':
             window['FAILED'].metadata = not window['FAILED'].metadata
             window['FAILED'].update(image_data=toggle_btn_on if window['FAILED'].metadata else toggle_btn_off)
@@ -382,12 +392,18 @@ def main():
             window['EXCEPTION'].metadata = not window['EXCEPTION'].metadata
             window['EXCEPTION'].update(image_data=toggle_btn_on if window['EXCEPTION'].metadata else toggle_btn_off)
             isExceptionInitialized = window['EXCEPTION'].metadata
+        elif event == 'CRITICAL':
+            window['CRITICAL'].metadata = not window['CRITICAL'].metadata
+            window['CRITICAL'].update(image_data=toggle_btn_on if window['CRITICAL'].metadata else toggle_btn_off)
+            isCriticalInitialized = window['CRITICAL'].metadata
+            
         elif event == 'CUSTOMIN':
             cust_pattern = values['CUSTOMIN']
         elif event == 'CUSTOMIN2':
             cust_pattern2 = values['CUSTOMIN2']
         elif event == 'CUSTOMIN3':
             cust_pattern3 = values['CUSTOMIN3']
+            
         elif event == "Submit":
             display_separator = window['SEPARATOR'].metadata
             write_to_file = window['FILEWRITE'].metadata
@@ -402,15 +418,14 @@ def main():
             isIllegalInitialized = window['ILLEGAL'].metadata
             isInvalidInitialized = window['INVALID'].metadata
             isExceptionInitialized = window['EXCEPTION'].metadata
-            if values['GENCONTIN'] != '':
-                context_generic = int(values['GENCONTIN'])
+            isCriticalInitialized = window['CRITICAL'].metadata
             
+            if values['GENCONTIN'] != '':
+                context_generic = int(values['GENCONTIN'])            
             if values['ERRIN'] != '':
-                general_limit = int(values['ERRIN'])
-                
+                general_limit = int(values['ERRIN'])                
             if values['CONTIN'] != '':
-                context = int(values['CONTIN'])
-                
+                context = int(values['CONTIN'])                
             break
             
         elif event == 'ERRIN' and len(values['ERRIN']) and values['ERRIN'][-1] not in ('0123456789'):
@@ -469,6 +484,7 @@ def main():
     fatal_gen_num = 0
     invalid_gen_num = 0
     exception_gen_num = 0
+    critical_gen_num = 0
     cust_arr_num = 0
     cust_arr_num2 = 0
     cust_arr_num3 = 0
@@ -537,6 +553,13 @@ def main():
                 exception_msg_arr.append(logoutput[x])
                 exception_gen_num +=1
                 addContextAfter(context_generic, logoutput, exception_msg_arr, x, exception_gen, display_separator_general)
+                
+        if (critical_gen in logoutput[x].lower()):
+            if(isCriticalInitialized):
+                addContextBefore(context_generic, logoutput, critical_msg_arr, x)
+                critical_msg_arr.append(logoutput[x])
+                critical_gen_num +=1
+                addContextAfter(context_generic, logoutput, critical_msg_arr, x, critical_gen, display_separator_general)
             
         if custIsInitiated:
             regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
@@ -580,6 +603,8 @@ def main():
         contextFixer(display_separator_general, invalid_msg_arr)
     if(isExceptionInitialized):
         contextFixer(display_separator_general, exception_msg_arr)
+    if(isCriticalInitialized):
+        contextFixer(display_separator_general, critical_msg_arr)
     if custIsInitiated:
         contextFixer(display_separator_general, cust_arr)
     if custIsInitiated2:
@@ -606,6 +631,8 @@ def main():
         print("Number of \"INVALID\" in this file         " + str(invalid_gen_num))
     if(isExceptionInitialized):
         print("Number of \"EXCEPTION:\" in this file      " + str(exception_gen_num))
+    if(isCriticalInitialized):
+        print("Number of \"CRITICAL\" in this file        " + str(critical_gen_num))
     if custIsInitiated:
         print()
         print("Custom pattern: " + cust_pattern)
@@ -643,6 +670,8 @@ def main():
             w.write("Number of \"INVALID\" in this file         " + str(invalid_gen_num) + "\n")
         if(isExceptionInitialized):
             w.write("Number of \"EXCEPTION:\" in this file      " + str(exception_gen_num) + "\n")
+        if(isCriticalInitialized):
+            w.write("Number of \"CRITICAL\" in this file        " + str(critical_gen_num) + "\n")
         if custIsInitiated:
             w.write("\nCustom pattern: " + cust_pattern + "\n")
             w.write("Hits on pattern:                         " + str(cust_arr_num) + "\n")
@@ -710,6 +739,12 @@ def main():
         printArrayResults(exception_msg_arr, exception_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, exception_gen_num)
         if write_to_file:
             writeArrayResults(w, exception_msg_arr, limit_output_gen, has_limit_gen, generr_line, exception_gen, exception_gen_num, context_generic)
+    
+    if(isCriticalInitialized):
+        generr_line = "\"CRITICAL\" contained:                          |"
+        printArrayResults(critical_msg_arr, critical_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, critical_gen_num)
+        if write_to_file:
+            writeArrayResults(w, critical_msg_arr, limit_output_gen, has_limit_gen, generr_line, critical_gen, critical_gen_num, context_generic)
         
     if custIsInitiated:
         generr_line = "Pattern searched: " + cust_pattern
