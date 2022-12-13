@@ -27,10 +27,17 @@ def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
     broken = False
     for i, x in enumerate(arrIn):
     
-        regex_comp = re.split(r'([0-9]+ *->)', x, 1)        
-        isErrorMsg = (msg == "error") and ("error:" in(regex_comp[2].lower()))
+        regex_comp = re.split(r'([0-9]+ *->)', x, 1)
+        isMsgArrow = (arrIn[i] == "-------->")
         
-        if not (arrIn[i] == "-------->") and (msg.lower() in regex_comp[2].lower()) and not isErrorMsg:
+        if isMsgArrow:
+            isMsgContained = False
+            isErrorMsg = False
+        else:
+            isMsgContained = (msg.lower() in regex_comp[2].lower())
+            isErrorMsg = (msg == "error") and ("error:" in(regex_comp[2].lower()))
+        
+        if not isMsgArrow and isMsgContained and not isErrorMsg:
             
             #Split into parts and print appropriate words in color. The format is simple:
             #1 - regex_comp[1] = The line-number in form "123  ->"
