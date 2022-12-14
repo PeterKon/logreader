@@ -8,8 +8,8 @@ import PySimpleGUI as sg
 #TODO: Migrate to different GUI (maybe)
 #TODO: Add support for several files in at once (maybe)
 #TODO: Move array and vars into a single class for an error-object(maybe)
-#TODO: Implement general error-limit vs "error:" (add GUI)
-#TODO: Explore if "error:" counts in filewrite for "error" context
+#TODO: Implement general error-limit vs "error:" (add GUI) (or fix class)
+#TODO: Fix general display_separator to be only initialized when has context and remove from GUI
 
 def name(name):
 
@@ -87,7 +87,18 @@ def writeArrayResults(w, arrIn, limit, has_limit, gen_line, msg, err_num, contex
     w.write(gen_line + "\n")
     w.write("------------------------------------------------\n")
     for i, x in enumerate(arrIn):
-        if msg.lower() in arrIn[i].lower():
+        
+        regex_comp = re.split(r'([0-9]+ *->)', x, 1)
+        
+        isMsgArrow = (arrIn[i] == "-------->")
+        if isMsgArrow:
+            isMsgContained = False
+            isErrorMsg = False
+        else:
+            isMsgContained = (msg.lower() in regex_comp[2].lower())
+            isErrorMsg = (msg == "error") and ("error:" in(regex_comp[2].lower()))
+        
+        if not isMsgArrow and isMsgContained and not isErrorMsg:
             w.write(x + "\n")
             err_count += 1
         else:
