@@ -9,8 +9,25 @@ import PySimpleGUI as sg
 #TODO: Add support for several files in at once (maybe)
 #TODO: Move array and vars into a single class for an error-object(maybe)
 #TODO: Implement general error-limit vs "error:" (add GUI) (or fix class)
-#TODO: Fix general display_separator to be only initialized when has context and remove from GUI
+#TODO: Fix general display_separator to be only initialized when has context and remove from GUI for both
+#TODO: Change default filewrite to off
+#TODO: Class inheritance from parent class with vars
+#TODO: Investigate error in custom pattern on browser log (lim non contxt 20 delimiter) (fix: conv to lower)
+#TODO: Add errorobjects to a list and iterate through the list when calling functions
+#TODO: Implement nested search (search from the generated error-lists with custom input)
+#TODO: Catch and handle file-encoding errors (see file encodingtest)
 
+class ErrorObject:
+
+    def __init__(self, isInitialized, messageArray, errorMessage, errorNumber, limit, hasLimit):
+    
+        self.isInitialized = isInitialized
+        self.messageArray = messageArray
+        self.errorMessage = errorMessage
+        self.errorNumber = errorNumber
+        self.limit = limit
+        self.hasLimit = hasLimit
+        
 def name(name):
 
     dots = 23-len(name)-2
@@ -50,7 +67,7 @@ def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
             err_count += 1
         else:
             #Colors the linenum-arrow
-            first_split = re.split(r'([0-9]+ *->)', x, 1)            
+            first_split = re.split(r'([0-9]+ *->)', x, 1)
             if(first_split[0] == "-------->"):
                 print(x)
             else:
@@ -190,11 +207,14 @@ def main():
     limit_output_failed = 0
     limit_output_fatal = 0
     
+    #isInitialized, messageArray, errorMessage, errorNumber, limit, hasLimit
     general_limit = 0
+    failed = ErrorObject(True, [], "failed", 0, general_limit, False)
+    fatal = ErrorObject(True, [], "fatal", 0, general_limit, False)
+    #TODO: apply all fatal vars
     
     version = "Logreader v0.12"
     
-    isFailedInitialized = True
     isFatalInitialized = True
     isWarningInitialized = False
     isFailureInitialized = False
@@ -203,9 +223,21 @@ def main():
     isExceptionInitialized = False
     isCriticalInitialized = False
     
+    err_num = 0
+    err_gen_num = 0
+    war_gen_num = 0
+    failure_gen_num = 0
+    illegal_gen_num = 0
+    fatal_gen_num = 0
+    invalid_gen_num = 0
+    exception_gen_num = 0
+    critical_gen_num = 0
+    cust_arr_num = 0
+    cust_arr_num2 = 0
+    cust_arr_num3 = 0
+    
     err_msg_arr = []
     errgen_msg_arr = []
-    failgen_msg_arr = []
     fatalgen_msg_arr = []
     war_msg_arr = []
     failure_msg_arr = []
@@ -219,7 +251,6 @@ def main():
     
     err_msg1 = "error:"    
     err_gen = "error"
-    fail_gen = "failed"
     failure_gen = "failure"
     illegal_gen = "illegal"
     fatal_gen = "fatal"
@@ -352,7 +383,7 @@ def main():
             else:
                 window['FAILED'].metadata = not window['FAILED'].metadata
                 window['FAILED'].update(image_data=toggle_btn_on if window['FAILED'].metadata else toggle_btn_off)
-                isFailedInitialized = window['FAILED'].metadata
+                failed.isInitialized = window['FAILED'].metadata
                 window['FATAL'].metadata = not window['FATAL'].metadata
                 window['FATAL'].update(image_data=toggle_btn_on if window['FATAL'].metadata else toggle_btn_off)
                 isFatalInitialized = window['FATAL'].metadata
@@ -378,7 +409,7 @@ def main():
         elif event == 'FAILED':
             window['FAILED'].metadata = not window['FAILED'].metadata
             window['FAILED'].update(image_data=toggle_btn_on if window['FAILED'].metadata else toggle_btn_off)
-            isFailedInitialized = window['FAILED'].metadata
+            failed.isInitialized = window['FAILED'].metadata
         elif event == 'FATAL':
             window['FATAL'].metadata = not window['FATAL'].metadata
             window['FATAL'].update(image_data=toggle_btn_on if window['FATAL'].metadata else toggle_btn_off)
@@ -422,7 +453,7 @@ def main():
             cust_pattern = values['CUSTOMIN']
             cust_pattern2 = values['CUSTOMIN2']
             cust_pattern3 = values['CUSTOMIN3']
-            isFailedInitialized = window['FAILED'].metadata
+            failed.isInitialized = window['FAILED'].metadata
             isFatalInitialized = window['FATAL'].metadata
             isWarningInitialized = window['WARNING'].metadata
             isFailureInitialized = window['FAILURE'].metadata
@@ -434,7 +465,9 @@ def main():
             if values['GENCONTIN'] != '':
                 context_generic = int(values['GENCONTIN'])            
             if values['ERRIN'] != '':
-                general_limit = int(values['ERRIN'])                
+                general_limit = int(values['ERRIN'])
+                failed.limit = general_limit
+                failed.hasLimit = (failed.limit != 0)
             if values['CONTIN'] != '':
                 context = int(values['CONTIN'])                
             break
@@ -486,19 +519,6 @@ def main():
         logoutput[x] = str(x + 1) + space_string + "-> " + logoutput[x]
     
     #Appending the error-strings to the appropriate array, and adding context
-    err_num = 0
-    err_gen_num = 0
-    war_gen_num = 0
-    fail_gen_num = 0
-    failure_gen_num = 0
-    illegal_gen_num = 0
-    fatal_gen_num = 0
-    invalid_gen_num = 0
-    exception_gen_num = 0
-    critical_gen_num = 0
-    cust_arr_num = 0
-    cust_arr_num2 = 0
-    cust_arr_num3 = 0
     for x in range(len(logoutput)):
         
         #Add errors in format "error:"
@@ -537,12 +557,12 @@ def main():
             err_gen_num +=1
             addContextAfter(context_generic, logoutput, errgen_msg_arr, x, err_gen, display_separator_general)
             
-        if (fail_gen in logoutput[x].lower()):            
-            if(isFailedInitialized):
-                addContextBefore(context_generic, logoutput, failgen_msg_arr, x)
-                failgen_msg_arr.append(logoutput[x])
-                fail_gen_num +=1
-                addContextAfter(context_generic, logoutput, failgen_msg_arr, x, fail_gen, display_separator_general)
+        if (failed.errorMessage in logoutput[x].lower()):            
+            if(failed.isInitialized):
+                addContextBefore(context_generic, logoutput, failed.messageArray, x)
+                failed.messageArray.append(logoutput[x])
+                failed.errorNumber +=1
+                addContextAfter(context_generic, logoutput, failed.messageArray, x, failed.errorMessage, display_separator_general)
             
         if (fatal_gen in logoutput[x].lower()):
             if(isFatalInitialized):
@@ -606,8 +626,8 @@ def main():
         contextFixer(display_separator_general, illegal_msg_arr)
     if(isWarningInitialized):
         contextFixer(display_separator_general, war_msg_arr)
-    if(isFailedInitialized):
-        contextFixer(display_separator_general, failgen_msg_arr)
+    if(failed.isInitialized):
+        contextFixer(display_separator_general, failed.messageArray)
     if(isFatalInitialized):
         contextFixer(display_separator_general, fatalgen_msg_arr)
     if(isInvalidInitialized):
@@ -630,8 +650,8 @@ def main():
     print("Number of \"ERROR\" in this file           " + str(err_gen_num))
     if(isWarningInitialized):
         print("Number of \"WARNING:\" in this file        " + str(war_gen_num))
-    if(isFailedInitialized):
-        print("Number of \"FAILED\" in this file          " + str(fail_gen_num))
+    if(failed.isInitialized):
+        print("Number of \"FAILED\" in this file          " + str(failed.errorNumber))
     if(isFatalInitialized):
         print("Number of \"FATAL\" in this file           " + str(fatal_gen_num))
     if(isFailureInitialized):
@@ -669,8 +689,8 @@ def main():
         w.write("Number of \"ERROR\" in this file           " + str(err_gen_num) + "\n")
         if(isWarningInitialized):
             w.write("Number of \"WARNING:\" in this file        " + str(war_gen_num) + "\n")
-        if(isFailedInitialized):
-            w.write("Number of \"FAILED\" in this file          " + str(fail_gen_num) + "\n")
+        if(failed.isInitialized):
+            w.write("Number of \"FAILED\" in this file          " + str(failed.errorNumber) + "\n")
         if(isFatalInitialized):
             w.write("Number of \"FATAL\" in this file           " + str(fatal_gen_num) + "\n")
         if(isFailureInitialized):
@@ -709,11 +729,11 @@ def main():
     if write_to_file:
         writeArrayResults(w, errgen_msg_arr, limit_output_gen, has_limit_gen, generr_line, err_gen, err_gen_num, context_generic)
     
-    if(isFailedInitialized):
+    if(failed.isInitialized):
         generr_line = "\"FAILED\" contained:                            |"
-        printArrayResults(failgen_msg_arr, fail_gen, limit_output_failed, has_limit_failed, context_generic, generr_line, fail_gen_num)
+        printArrayResults(failed.messageArray, failed.errorMessage, failed.limit, failed.hasLimit, context_generic, generr_line, failed.errorNumber)
         if write_to_file:
-            writeArrayResults(w, failgen_msg_arr, limit_output_failed, has_limit_failed, generr_line, fail_gen, fail_gen_num, context_generic)
+            writeArrayResults(w, failed.messageArray, failed.limit, failed.hasLimit, generr_line, failed.errorMessage, failed.errorNumber, context_generic)
     
     if(isFatalInitialized):
         generr_line = "\"FATAL\" contained:                             |"
