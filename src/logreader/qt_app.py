@@ -46,7 +46,7 @@ from .theme import THEME_COLORS
 
 COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
 RULE = "─" * 72
-ENTRY_SEPARATOR = RULE
+ENTRY_SEPARATOR = "-------->"
 
 
 class LogreaderWindow(QMainWindow):
@@ -582,7 +582,7 @@ def _render_category(
             config.separate_entries
             and excerpt_index < len(presentation.excerpts) - 1
         ):
-            _insert(cursor, f"{ENTRY_SEPARATOR}\n", "muted")
+            _insert(cursor, f"{ENTRY_SEPARATOR}\n", "body")
 
     limit_message = presentation.limit_message()
     if limit_message is not None:

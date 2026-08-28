@@ -28,7 +28,7 @@ try:
         PATTERN_KEYS,
         TEXT_PATTERN_KEYS,
     )
-    from logreader.qt_app import COLORS, RULE, LogreaderWindow
+    from logreader.qt_app import COLORS, ENTRY_SEPARATOR, RULE, LogreaderWindow
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -439,7 +439,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn("ERROR: second", output)
         self.assertIn("Showing 1 of 2 matches.", output)
 
-    def test_entry_separation_is_optional_and_uses_the_section_rule(self):
+    def test_entry_separation_is_optional_and_uses_a_short_arrow(self):
         self.window.findChild(QSpinBox, "contextSpin").setValue(0)
 
         with tempfile.TemporaryDirectory() as directory:
@@ -467,7 +467,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
         separated_results = (
             "1      -> ERROR: first\n"
-            f"{RULE}\n"
+            f"{ENTRY_SEPARATOR}\n"
             "6      -> ERROR: second"
         )
         self.assertIn(adjacent_results, without_separator)
