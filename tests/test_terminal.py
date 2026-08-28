@@ -14,7 +14,8 @@ class TerminalRendererTests(unittest.TestCase):
     def test_plain_report_contains_summary_sections_and_context(self):
         config = LogreaderConfig(
             context=1,
-            enabled_patterns=("warning",),
+            generic_context=1,
+            enabled_patterns=("error_colon", "warning"),
             custom_patterns=("timeout",),
         )
         analysis = analyze_lines(
@@ -33,7 +34,7 @@ class TerminalRendererTests(unittest.TestCase):
         self.assertIn('"ERROR:" contained:', report)
 
     def test_colored_terminal_report_uses_ansi_sequences(self):
-        config = LogreaderConfig(enabled_patterns=())
+        config = LogreaderConfig(enabled_patterns=("error_colon",))
         analysis = analyze_lines(["ERROR: boom"], config.search_patterns())
         stream = io.StringIO()
 
@@ -44,7 +45,7 @@ class TerminalRendererTests(unittest.TestCase):
 
     @patch("logreader.terminal._stream_supports_color", return_value=True)
     def test_automatic_color_uses_ansi_when_supported(self, supports_color):
-        config = LogreaderConfig(enabled_patterns=())
+        config = LogreaderConfig(enabled_patterns=("error_colon",))
         analysis = analyze_lines(["ERROR: boom"], config.search_patterns())
         stream = io.StringIO()
 
@@ -55,7 +56,7 @@ class TerminalRendererTests(unittest.TestCase):
 
     @patch("logreader.terminal._stream_supports_color", return_value=False)
     def test_automatic_color_falls_back_to_plain_text(self, supports_color):
-        config = LogreaderConfig(enabled_patterns=())
+        config = LogreaderConfig(enabled_patterns=("error_colon",))
         analysis = analyze_lines(["ERROR: boom"], config.search_patterns())
         stream = io.StringIO()
 
@@ -66,7 +67,12 @@ class TerminalRendererTests(unittest.TestCase):
         self.assertIn("ERROR: boom", stream.getvalue())
 
     def test_limit_stops_before_the_next_match_but_keeps_context(self):
-        config = LogreaderConfig(context=1, limit=1, enabled_patterns=())
+        config = LogreaderConfig(
+            context=1,
+            generic_context=1,
+            limit=1,
+            enabled_patterns=("error_colon",),
+        )
         analysis = analyze_lines(
             ["ERROR: first", "context", "ERROR: second"],
             config.search_patterns(),
@@ -80,7 +86,7 @@ class TerminalRendererTests(unittest.TestCase):
         self.assertIn("Limited, showing 1 out of 2 elements.", report)
 
     def test_text_report_is_written_without_color(self):
-        config = LogreaderConfig(enabled_patterns=())
+        config = LogreaderConfig(enabled_patterns=("error_colon",))
         analysis = analyze_lines(["FATAL but disabled", "ERROR: boom"], config.search_patterns())
 
         with tempfile.TemporaryDirectory() as directory:

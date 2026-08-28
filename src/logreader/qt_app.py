@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 from .config import (
     APP_VERSION,
     DEFAULT_ENABLED_PATTERNS,
-    OPTIONAL_PATTERN_KEYS,
+    PATTERN_KEYS,
     PATTERN_PRESETS_BY_KEY,
     LogreaderConfig,
 )
@@ -47,7 +47,7 @@ COLORS = {
     "blue": QColor("#79c0ff"),
 }
 RULE = "─" * 72
-SEPARATOR = "-------->"
+ENTRY_SEPARATOR = RULE
 
 
 class LogreaderWindow(QMainWindow):
@@ -126,31 +126,40 @@ class LogreaderWindow(QMainWindow):
 
         self._context_spin = self._make_spin_box(0, 1_000, 3)
         self._context_spin.setObjectName("contextSpin")
-        layout.addWidget(QLabel("ERROR: context"), 0, 0)
+        context_label = QLabel("Context around entries")
+        context_label.setObjectName("contextLabel")
+        layout.addWidget(context_label, 0, 0)
         layout.addWidget(self._context_spin, 0, 1)
-
-        self._generic_context_spin = self._make_spin_box(0, 1_000, 0)
-        self._generic_context_spin.setObjectName("genericContextSpin")
-        layout.addWidget(QLabel("Other context"), 0, 2)
-        layout.addWidget(self._generic_context_spin, 0, 3)
 
         self._limit_spin = self._make_spin_box(0, 1_000_000, 0)
         self._limit_spin.setObjectName("limitSpin")
         self._limit_spin.setSpecialValueText("Unlimited")
-        layout.addWidget(QLabel("Per-pattern limit"), 0, 4)
-        layout.addWidget(self._limit_spin, 0, 5)
-
-        always_label = QLabel("ERROR: and ERROR are always enabled")
-        always_label.setStyleSheet("color: #6e7781;")
-        layout.addWidget(always_label, 0, 6, 1, 2)
+        limit_label = QLabel("Number of entries - limit")
+        limit_label.setObjectName("limitLabel")
+        layout.addWidget(limit_label, 0, 2)
+        layout.addWidget(self._limit_spin, 0, 3)
 
         pattern_layout = QGridLayout()
-        for index, key in enumerate(OPTIONAL_PATTERN_KEYS):
+        for index, key in enumerate(PATTERN_KEYS):
             checkbox = QCheckBox(PATTERN_PRESETS_BY_KEY[key].label)
             checkbox.setObjectName(f"pattern_{key}")
             checkbox.setChecked(key in DEFAULT_ENABLED_PATTERNS)
             self._pattern_checkboxes[key] = checkbox
             pattern_layout.addWidget(checkbox, index // 4, index % 4)
+
+        self._toggle_all_button = QPushButton("Toggle all")
+        self._toggle_all_button.setObjectName("toggleAllButton")
+        self._toggle_all_button.setToolTip(
+            "Enable every pattern, or disable every pattern when all are enabled."
+        )
+        self._toggle_all_button.clicked.connect(self.toggle_all_patterns)
+        pattern_layout.addWidget(
+            self._toggle_all_button,
+            (len(PATTERN_KEYS) + 3) // 4,
+            0,
+            1,
+            4,
+        )
         layout.addLayout(pattern_layout, 1, 0, 1, 8)
 
         self._custom_pattern = QLineEdit()
@@ -162,6 +171,14 @@ class LogreaderWindow(QMainWindow):
         self._custom_pattern.returnPressed.connect(self.analyze_current)
         layout.addWidget(QLabel("Custom pattern"), 2, 0)
         layout.addWidget(self._custom_pattern, 2, 1, 1, 7)
+
+        self._separate_entries = QCheckBox("Separation of entries")
+        self._separate_entries.setObjectName("separateEntriesCheck")
+        self._separate_entries.setChecked(False)
+        self._separate_entries.setToolTip(
+            "Draw a horizontal rule between non-contiguous result excerpts."
+        )
+        layout.addWidget(self._separate_entries, 3, 0, 1, 8)
         return group
 
     @staticmethod
@@ -175,17 +192,29 @@ class LogreaderWindow(QMainWindow):
         """Build the shared configuration represented by the controls."""
 
         custom_pattern = self._custom_pattern.text().strip()
+        context = self._context_spin.value()
         return LogreaderConfig(
-            context=self._context_spin.value(),
-            generic_context=self._generic_context_spin.value(),
+            context=context,
+            generic_context=context,
             limit=self._limit_spin.value() or None,
             enabled_patterns=tuple(
                 key
-                for key in OPTIONAL_PATTERN_KEYS
+                for key in PATTERN_KEYS
                 if self._pattern_checkboxes[key].isChecked()
             ),
             custom_patterns=(custom_pattern,) if custom_pattern else (),
+            show_separators=self._separate_entries.isChecked(),
+            show_generic_separators=self._separate_entries.isChecked(),
         )
+
+    def toggle_all_patterns(self) -> None:
+        """Enable all patterns, or disable them when all are already enabled."""
+
+        enable_all = not all(
+            checkbox.isChecked() for checkbox in self._pattern_checkboxes.values()
+        )
+        for checkbox in self._pattern_checkboxes.values():
+            checkbox.setChecked(enable_all)
 
     def open_file(self) -> None:
         """Prompt for a local log file and analyze it."""
@@ -282,13 +311,13 @@ def render_analysis(
         _insert(
             cursor,
             f"\n{analysis.line_count:,} source lines  •  "
-            f"ERROR: context {config.context}  •  "
-            f"other context {config.generic_context}\n",
+            f"context {config.context}\n",
             "muted",
         )
 
         for key, result in analysis.categories.items():
-            _render_category(cursor, key, result, config)
+            if result.match_count:
+                _render_category(cursor, key, result, config)
 
         cursor.endEditBlock()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
@@ -331,7 +360,7 @@ def _render_category(
             config.show_separator_for(key)
             and excerpt_index < len(result.excerpts) - 1
         ):
-            _insert(cursor, f"{SEPARATOR}\n", "muted")
+            _insert(cursor, f"{ENTRY_SEPARATOR}\n", "muted")
 
     if config.limit is not None and result.match_count > config.limit:
         _insert(

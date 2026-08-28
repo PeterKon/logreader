@@ -42,7 +42,7 @@ This can also be launched as a Python module:
 python -m logreader
 ```
 
-Choose **Open log…** to select a `.log`, `.txt`, or other text file. The file is analyzed immediately. Change the context, result limit, built-in patterns, or custom pattern and choose **Analyze** to run again.
+Choose **Open log…** to select a `.log`, `.txt`, or other text file. The file is analyzed immediately. All patterns are toggleable and use the same context value, which defaults to three lines. `ERROR:`, plain `ERROR`, `FAILED`, and `FATAL` appear first and are enabled by default. **Toggle all** enables every pattern when any are off, then disables every pattern when all are on. Plain and colon forms of errors, warnings, and exceptions can be selected independently without double-counting. Additional searches include `ABORTED`, `TERMINATED`, `TIMEOUT`, `UNINITIALIZED`, and `NOT FOUND`. Change the controls and choose **Analyze** to run again. Separation of entries is optional and off by default.
 
 The results pane keeps the source line numbers and uses color to distinguish matches from surrounding context. The status bar reports the source line count, total matches, and number of active patterns.
 
@@ -54,14 +54,14 @@ The CLI accepts a log file as its positional argument:
 
 ```powershell
 logreader server.log
-logreader server.log --context 5 --pattern timeout
-logreader server.log --enable warning exception --no-output-file
+logreader server.log --context 5 --enable timeout
+logreader server.log --pattern reconnect --enable warning exception --no-output-file
 ```
 
 By default, the CLI:
 
 - Searches for `ERROR:`, generic `ERROR`, `FAILED`, and `FATAL`.
-- Uses three lines of context for `ERROR:` and no context for other patterns.
+- Uses three lines of context for every pattern.
 - Prints colored output when the terminal supports it.
 - Writes a plain-text copy to `outfile.txt`.
 
@@ -79,7 +79,6 @@ logreader --help
 - `src/logreader/terminal.py`: terminal colors and plain-text report rendering.
 - `src/logreader/cli.py`: `argparse` command-line interface.
 - `src/logreader/qt_app.py`: PySide6 desktop application and Qt result rendering.
-- `src/logreader/legacy_gui.py`: legacy PySimpleGUI frontend.
 - `tests/`: engine, configuration, terminal, CLI, and GUI tests.
 
 ## Tests

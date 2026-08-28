@@ -10,7 +10,7 @@ from typing import Sequence
 from .config import (
     APP_VERSION,
     DEFAULT_ENABLED_PATTERNS,
-    OPTIONAL_PATTERN_KEYS,
+    PATTERN_KEYS,
     LogreaderConfig,
 )
 from .core import analyze_lines
@@ -25,15 +25,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--context",
         type=_non_negative_int,
-        help=(
-            "lines of context around ERROR: matches and, unless overridden, "
-            "other matches (default: ERROR: 3, others 0)"
-        ),
+        help="lines of context around all matches (default: 3)",
     )
     parser.add_argument(
         "--generic-context",
         type=_non_negative_int,
-        help="override context around optional and custom matches",
+        help="override context around every pattern except ERROR:",
     )
     parser.add_argument(
         "--limit",
@@ -51,19 +48,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--enable",
         action="extend",
         nargs="+",
-        choices=OPTIONAL_PATTERN_KEYS,
+        choices=PATTERN_KEYS,
         default=list(DEFAULT_ENABLED_PATTERNS),
         metavar="PRESET",
-        help="enable one or more optional built-in patterns",
+        help="enable one or more built-in patterns",
     )
     parser.add_argument(
         "--disable",
         action="extend",
         nargs="+",
-        choices=OPTIONAL_PATTERN_KEYS,
+        choices=PATTERN_KEYS,
         default=[],
         metavar="PRESET",
-        help="disable one or more optional built-in patterns",
+        help="disable one or more built-in patterns",
     )
     parser.add_argument(
         "--output-file",
@@ -112,7 +109,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     generic_context = (
         args.generic_context
         if args.generic_context is not None
-        else (args.context if args.context is not None else 0)
+        else context
     )
     try:
         config = LogreaderConfig(

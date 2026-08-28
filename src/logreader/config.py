@@ -18,34 +18,49 @@ class PatternPreset:
     key: str
     needle: str
     label: str
-    always_enabled: bool = False
     excluded_substrings: tuple[str, ...] = ()
 
 
 PATTERN_PRESETS = (
-    PatternPreset("error_colon", "error:", "ERROR:", always_enabled=True),
+    # This order is shared by the desktop controls and rendered results. Keep
+    # the four defaults in the first GUI row, followed by related concepts.
+    PatternPreset("error_colon", "error:", "ERROR:"),
     PatternPreset(
         "error",
         "error",
         "ERROR",
-        always_enabled=True,
         excluded_substrings=("error:",),
     ),
     PatternPreset("failed", "failed", "FAILED"),
     PatternPreset("fatal", "fatal", "FATAL"),
     PatternPreset("warning", "warning:", "WARNING:"),
+    PatternPreset(
+        "warning_generic",
+        "warning",
+        "WARNING",
+        excluded_substrings=("warning:",),
+    ),
+    PatternPreset("exception", "exception:", "EXCEPTION:"),
+    PatternPreset(
+        "exception_generic",
+        "exception",
+        "EXCEPTION",
+        excluded_substrings=("exception:",),
+    ),
     PatternPreset("failure", "failure", "FAILURE"),
+    PatternPreset("critical", "critical", "CRITICAL"),
     PatternPreset("illegal", "illegal", "ILLEGAL"),
     PatternPreset("invalid", "invalid", "INVALID"),
-    PatternPreset("exception", "exception:", "EXCEPTION:"),
-    PatternPreset("critical", "critical", "CRITICAL"),
+    PatternPreset("aborted", "aborted", "ABORTED"),
+    PatternPreset("terminated", "terminated", "TERMINATED"),
+    PatternPreset("timeout", "timeout", "TIMEOUT"),
+    PatternPreset("uninitialized", "uninitialized", "UNINITIALIZED"),
+    PatternPreset("not_found", "not found", "NOT FOUND"),
 )
 
 PATTERN_PRESETS_BY_KEY = {preset.key: preset for preset in PATTERN_PRESETS}
-OPTIONAL_PATTERN_KEYS = tuple(
-    preset.key for preset in PATTERN_PRESETS if not preset.always_enabled
-)
-DEFAULT_ENABLED_PATTERNS = ("failed", "fatal")
+PATTERN_KEYS = tuple(preset.key for preset in PATTERN_PRESETS)
+DEFAULT_ENABLED_PATTERNS = ("error_colon", "error", "failed", "fatal")
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +68,7 @@ class LogreaderConfig:
     """Options shared by the CLI and graphical frontends."""
 
     context: int = 3
-    generic_context: int = 0
+    generic_context: int = 3
     limit: int | None = None
     enabled_patterns: tuple[str, ...] = DEFAULT_ENABLED_PATTERNS
     custom_patterns: tuple[str, ...] = ()
@@ -69,10 +84,10 @@ class LogreaderConfig:
             raise ValueError("Limit must be positive or None")
 
         enabled_patterns = tuple(dict.fromkeys(self.enabled_patterns))
-        unknown_patterns = set(enabled_patterns) - set(OPTIONAL_PATTERN_KEYS)
+        unknown_patterns = set(enabled_patterns) - set(PATTERN_KEYS)
         if unknown_patterns:
             unknown = ", ".join(sorted(unknown_patterns))
-            raise ValueError(f"Unknown optional pattern: {unknown}")
+            raise ValueError(f"Unknown pattern: {unknown}")
 
         custom_patterns = tuple(pattern.strip() for pattern in self.custom_patterns)
         if any(not pattern for pattern in custom_patterns):
@@ -87,7 +102,7 @@ class LogreaderConfig:
         patterns = []
         enabled = set(self.enabled_patterns)
         for preset in PATTERN_PRESETS:
-            if not preset.always_enabled and preset.key not in enabled:
+            if preset.key not in enabled:
                 continue
             patterns.append(
                 SearchPattern(

@@ -137,25 +137,13 @@ def _render_summary(
     analysis: AnalysisResult,
     config: LogreaderConfig,
 ) -> list[str]:
-    summary_order = (
-        "error_colon",
-        "error",
-        "warning",
-        "failed",
-        "fatal",
-        "failure",
-        "illegal",
-        "invalid",
-        "exception",
-        "critical",
-    )
     output = []
-    for key in summary_order:
-        if key not in analysis.categories:
+    for key, result in analysis.categories.items():
+        if key.startswith("custom_"):
             continue
         label = config.label_for(key)
         prefix = f'Number of "{label}" in this file'
-        output.append(f"{prefix:<45}{analysis.category(key).match_count}")
+        output.append(f"{prefix:<45}{result.match_count}")
 
     for key, result in analysis.categories.items():
         if not key.startswith("custom_"):
