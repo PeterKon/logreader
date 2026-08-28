@@ -3,6 +3,15 @@ Python log-analysis utility for quickly extracting common error messages, option
 
 ## Usage
 
+Install the desktop dependency and start the new PySide6 interface with:
+
+```text
+python -m pip install -r requirements.txt
+python .\logreader_qt.py
+```
+
+Open a log file, adjust the filters above the output pane, and choose **Analyze** to rerun the shared analysis engine. This first desktop iteration runs analysis synchronously; background processing for very large files is planned for a later milestone.
+
 The standalone CLI is the recommended terminal interface:
 
 ```text
@@ -37,8 +46,9 @@ You can also enter up to three custom literal patterns. Searches are case-insens
 - `logreader_config.py` contains shared options and built-in search presets.
 - `logreader_terminal.py` renders colored terminal reports and plain-text output files.
 - `logreader_cli.py` is the standalone `argparse` command-line interface.
+- `logreader_qt.py` is the minimal PySide6 desktop frontend with filters and a colored results view.
 - `logreader.py` is the temporary legacy PySimpleGUI frontend. It consumes the same configuration, engine, and renderer as the CLI.
-- `tests/` contains unit and CLI integration tests.
+- `tests/` contains unit, CLI integration, and GUI tests.
 
 Run the tests with:
 
