@@ -6,18 +6,24 @@ already-decoded lines and decide how the structured results are rendered.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
+
+
+MatchValidator = Callable[[str, int, int], bool]
 
 
 @dataclass(frozen=True, slots=True)
 class SearchPattern:
-    """Configuration for one case-insensitive literal search."""
+    """Configuration for one case-insensitive literal or fixed-regex search."""
 
     key: str
     needle: str
     context: int = 0
     excluded_substrings: tuple[str, ...] = ()
+    is_regex: bool = False
+    match_validator: MatchValidator | None = None
 
     def __post_init__(self) -> None:
         if not self.key:
@@ -26,6 +32,25 @@ class SearchPattern:
             raise ValueError("Search pattern needle cannot be empty")
         if self.context < 0:
             raise ValueError("Search pattern context cannot be negative")
+        if self.match_validator is not None and not callable(self.match_validator):
+            raise ValueError("Search pattern match validator must be callable")
+        if self.is_regex:
+            try:
+                re.compile(self.needle, re.IGNORECASE)
+            except re.error as error:
+                raise ValueError(f"Invalid search pattern regex: {error}") from error
+
+
+@dataclass(frozen=True, slots=True)
+class MatchSpan:
+    """Half-open character range identifying matched text in a source line."""
+
+    start: int
+    end: int
+
+    def __post_init__(self) -> None:
+        if self.start < 0 or self.end <= self.start:
+            raise ValueError("Match span must have a non-empty positive range")
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +59,11 @@ class ResultLine:
 
     number: int
     text: str
-    is_match: bool
+    match_spans: tuple[MatchSpan, ...] = ()
+
+    @property
+    def is_match(self) -> bool:
+        return bool(self.match_spans)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,14 +97,15 @@ def analyze_lines(
     lines: Sequence[str] | Iterable[str],
     patterns: Iterable[SearchPattern],
 ) -> AnalysisResult:
-    """Analyze lines using case-insensitive literal search patterns.
+    """Analyze lines using case-insensitive literal or fixed-regex patterns.
 
     Context ranges that overlap or touch are merged into a single excerpt.  The
-    returned objects retain the original text and one-based source line numbers.
+    returned objects retain the original text, match spans, and one-based source
+    line numbers. Patterns may validate individual regex candidates before they
+    become matches.
     """
 
     source_lines = tuple(lines)
-    folded_lines = tuple(line.casefold() for line in source_lines)
     categories: dict[str, CategoryResult] = {}
 
     for pattern in patterns:
@@ -83,7 +113,6 @@ def analyze_lines(
             raise ValueError(f"Duplicate search pattern key: {pattern.key}")
         categories[pattern.key] = _analyze_pattern(
             source_lines,
-            folded_lines,
             pattern,
         )
 
@@ -92,18 +121,39 @@ def analyze_lines(
 
 def _analyze_pattern(
     source_lines: tuple[str, ...],
-    folded_lines: tuple[str, ...],
     pattern: SearchPattern,
 ) -> CategoryResult:
-    needle = pattern.needle.casefold()
-    exclusions = tuple(value.casefold() for value in pattern.excluded_substrings)
-
+    expression = re.compile(
+        pattern.needle if pattern.is_regex else re.escape(pattern.needle),
+        re.IGNORECASE,
+    )
+    match_spans = tuple(
+        _find_match_spans(
+            line,
+            expression,
+            pattern.excluded_substrings,
+            pattern.match_validator,
+        )
+        for line in source_lines
+    )
+    if pattern.excluded_substrings:
+        raw_matches = tuple(
+            bool(
+                _find_match_spans(
+                    line,
+                    expression,
+                    match_validator=pattern.match_validator,
+                )
+            )
+            for line in source_lines
+        )
+    else:
+        raw_matches = tuple(bool(spans) for spans in match_spans)
     match_indexes = tuple(
         index
-        for index, line in enumerate(folded_lines)
-        if needle in line and not any(exclusion in line for exclusion in exclusions)
+        for index, spans in enumerate(match_spans)
+        if spans
     )
-    match_index_set = set(match_indexes)
 
     ranges: list[tuple[int, int]] = []
     for match_index in match_indexes:
@@ -116,7 +166,7 @@ def _analyze_pattern(
         ):
             # Preserve the original reader's behavior: following context stops
             # before the next occurrence of the searched term.
-            if needle in folded_lines[candidate]:
+            if raw_matches[candidate]:
                 break
             end = candidate
 
@@ -132,7 +182,7 @@ def _analyze_pattern(
                 ResultLine(
                     number=index + 1,
                     text=source_lines[index],
-                    is_match=index in match_index_set,
+                    match_spans=match_spans[index],
                 )
                 for index in range(start, end + 1)
             )
@@ -144,4 +194,26 @@ def _analyze_pattern(
         pattern=pattern,
         match_count=len(match_indexes),
         excerpts=excerpts,
+    )
+
+
+def _find_match_spans(
+    line: str,
+    expression: re.Pattern[str],
+    excluded_substrings: tuple[str, ...] = (),
+    match_validator: MatchValidator | None = None,
+) -> tuple[MatchSpan, ...]:
+    if excluded_substrings:
+        folded_line = line.casefold()
+        if any(
+            exclusion.casefold() in folded_line
+            for exclusion in excluded_substrings
+        ):
+            return ()
+
+    return tuple(
+        MatchSpan(match.start(), match.end())
+        for match in expression.finditer(line)
+        if match_validator is None
+        or match_validator(line, match.start(), match.end())
     )

@@ -37,7 +37,9 @@ This can also be launched as a Python module:
 python -m logreader
 ```
 
-Choose **Open log…** to select a `.log`, `.txt`, or other text file. The file is decoded and staged without starting analysis; configure the filters, then choose **Analyze** to display results. Opening another file clears the previous results and again waits for **Analyze**. All patterns use the same context value, which defaults to three lines. `ERROR:`, plain `ERROR`, `FAILED`, and `FATAL` appear first and are enabled by default. **Toggle all** enables every pattern when any are off, then disables every pattern when all are on. Plain and colon forms of errors, warnings, and exceptions can be selected independently without double-counting. Additional searches include `ABORTED`, `TERMINATED`, `TIMEOUT`, `UNINITIALIZED`, and `NOT FOUND`. Separation of entries is optional and off by default.
+Choose **Open log…** to select a `.log`, `.txt`, or other text file. The file is decoded and staged without starting analysis; configure the filters, then choose **Analyze** to display results. Opening another file clears the previous results and again waits for **Analyze**. All patterns use the same context value, which defaults to three lines. `ERROR:`, plain `ERROR`, `FAILED`, and `FATAL` are enabled by default.
+
+The built-in searches are arranged into three groups: colon/plain counterparts, other text errors, and HTTP status codes. The first two groups have compact **Toggle all** buttons that affect only their own group. **Global toggle all** controls every built-in search, including HTTP statuses. The HTTP 4xx and 5xx searches are off by default and match exact three-digit numeric values in the ranges 400–499 and 500–599. Values embedded in longer numbers, identifiers, URL paths, and unrelated query parameters are ignored, while explicit status forms such as `HTTP404`, `status=404`, and `response_code=500` remain supported. Separation of entries is optional and off by default.
 
 Logreader detects UTF-8, UTF-8 with a byte-order mark, and UTF-16/32 with a byte-order mark. Other files fall back to Windows-1252. The selected encoding is shown in the status bar.
 
@@ -51,6 +53,7 @@ Analysis currently runs on the UI thread. Very large files may make the window b
 - `src/logreader/core.py`: pure analysis engine; no file or interface operations.
 - `src/logreader/config.py`: shared options and built-in search presets.
 - `src/logreader/file_loader.py`: deterministic file decoding and line loading.
+- `src/logreader/matchers.py`: pure candidate validation for structured patterns.
 - `src/logreader/presentation.py`: pure filtering and result-limit presentation rules.
 - `src/logreader/theme.py`: semantic desktop color roles.
 - `src/logreader/qt_app.py`: PySide6 desktop application and Qt result rendering.

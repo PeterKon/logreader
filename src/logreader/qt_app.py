@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -31,8 +30,11 @@ from PySide6.QtWidgets import (
 from .config import (
     APP_VERSION,
     DEFAULT_ENABLED_PATTERNS,
+    HTTP_STATUS_PATTERN_KEYS,
+    PAIRED_PATTERN_KEYS,
     PATTERN_KEYS,
     PATTERN_PRESETS_BY_KEY,
+    TEXT_PATTERN_KEYS,
     LogreaderConfig,
 )
 from .core import AnalysisResult, CategoryResult, ResultLine, analyze_lines
@@ -136,28 +138,52 @@ class LogreaderWindow(QMainWindow):
         layout.addWidget(limit_label, 0, 2)
         layout.addWidget(self._limit_spin, 0, 3)
 
-        pattern_layout = QGridLayout()
-        for index, key in enumerate(PATTERN_KEYS):
-            checkbox = QCheckBox(PATTERN_PRESETS_BY_KEY[key].label)
-            checkbox.setObjectName(f"pattern_{key}")
-            checkbox.setChecked(key in DEFAULT_ENABLED_PATTERNS)
-            self._pattern_checkboxes[key] = checkbox
-            pattern_layout.addWidget(checkbox, index // 4, index % 4)
-
-        self._toggle_all_button = QPushButton("Toggle all")
+        self._toggle_all_button = QPushButton("Global toggle all")
         self._toggle_all_button.setObjectName("toggleAllButton")
         self._toggle_all_button.setToolTip(
             "Enable every pattern, or disable every pattern when all are enabled."
         )
         self._toggle_all_button.clicked.connect(self.toggle_all_patterns)
-        pattern_layout.addWidget(
-            self._toggle_all_button,
-            (len(PATTERN_KEYS) + 3) // 4,
+        layout.addWidget(self._toggle_all_button, 0, 4)
+
+        layout.addWidget(
+            self._build_pattern_group(
+                "Colon and plain counterparts",
+                PAIRED_PATTERN_KEYS,
+                object_name="pairedPatternGroup",
+                columns=2,
+                toggle_object_name="togglePairedButton",
+            ),
+            1,
             0,
             1,
-            4,
+            8,
         )
-        layout.addLayout(pattern_layout, 1, 0, 1, 8)
+        layout.addWidget(
+            self._build_pattern_group(
+                "Other text errors",
+                TEXT_PATTERN_KEYS,
+                object_name="textPatternGroup",
+                columns=4,
+                toggle_object_name="toggleTextButton",
+            ),
+            2,
+            0,
+            1,
+            8,
+        )
+        layout.addWidget(
+            self._build_pattern_group(
+                "HTTP status codes",
+                HTTP_STATUS_PATTERN_KEYS,
+                object_name="httpStatusGroup",
+                columns=2,
+            ),
+            3,
+            0,
+            1,
+            8,
+        )
 
         self._custom_pattern = QLineEdit()
         self._custom_pattern.setObjectName("customPattern")
@@ -165,8 +191,8 @@ class LogreaderWindow(QMainWindow):
         self._custom_pattern.setPlaceholderText(
             "Optional case-insensitive literal pattern"
         )
-        layout.addWidget(QLabel("Custom pattern"), 2, 0)
-        layout.addWidget(self._custom_pattern, 2, 1, 1, 7)
+        layout.addWidget(QLabel("Custom pattern"), 4, 0)
+        layout.addWidget(self._custom_pattern, 4, 1, 1, 7)
 
         self._separate_entries = QCheckBox("Separation of entries")
         self._separate_entries.setObjectName("separateEntriesCheck")
@@ -174,7 +200,46 @@ class LogreaderWindow(QMainWindow):
         self._separate_entries.setToolTip(
             "Draw a horizontal rule between non-contiguous result excerpts."
         )
-        layout.addWidget(self._separate_entries, 3, 0, 1, 8)
+        layout.addWidget(self._separate_entries, 5, 0, 1, 8)
+        return group
+
+    def _build_pattern_group(
+        self,
+        title: str,
+        pattern_keys: tuple[str, ...],
+        *,
+        object_name: str,
+        columns: int,
+        toggle_object_name: str | None = None,
+    ) -> QGroupBox:
+        group = QGroupBox(title)
+        group.setObjectName(object_name)
+        layout = QGridLayout(group)
+
+        for index, key in enumerate(pattern_keys):
+            checkbox = QCheckBox(PATTERN_PRESETS_BY_KEY[key].label)
+            checkbox.setObjectName(f"pattern_{key}")
+            checkbox.setChecked(key in DEFAULT_ENABLED_PATTERNS)
+            self._pattern_checkboxes[key] = checkbox
+            layout.addWidget(checkbox, index // columns, index % columns)
+
+        if toggle_object_name is not None:
+            toggle_button = QPushButton("Toggle all")
+            toggle_button.setObjectName(toggle_object_name)
+            toggle_button.setMaximumWidth(100)
+            toggle_button.setSizePolicy(
+                QSizePolicy.Policy.Fixed,
+                QSizePolicy.Policy.Fixed,
+            )
+            toggle_button.clicked.connect(
+                lambda _checked=False, keys=pattern_keys: self.toggle_patterns(keys)
+            )
+            layout.addWidget(
+                toggle_button,
+                (len(pattern_keys) + columns - 1) // columns,
+                0,
+            )
+
         return group
 
     @staticmethod
@@ -203,14 +268,19 @@ class LogreaderWindow(QMainWindow):
     def toggle_all_patterns(self) -> None:
         """Enable all patterns, or disable them when all are already enabled."""
 
+        self.toggle_patterns(PATTERN_KEYS)
+
+    def toggle_patterns(self, pattern_keys: tuple[str, ...]) -> None:
+        """Toggle every checkbox in one pattern category as a unit."""
+
         enable_all = not all(
-            checkbox.isChecked() for checkbox in self._pattern_checkboxes.values()
+            self._pattern_checkboxes[key].isChecked() for key in pattern_keys
         )
-        for checkbox in self._pattern_checkboxes.values():
-            checkbox.setChecked(enable_all)
+        for key in pattern_keys:
+            self._pattern_checkboxes[key].setChecked(enable_all)
 
     def open_file(self) -> None:
-        """Prompt for a local log file and analyze it."""
+        """Prompt for a local log file and stage it for analysis."""
 
         initial_directory = (
             self._source_path.parent if self._source_path is not None else Path.home()
@@ -225,7 +295,7 @@ class LogreaderWindow(QMainWindow):
             self.load_file(filename)
 
     def load_file(self, source_path: str | Path) -> bool:
-        """Load and analyze a file, returning whether it could be read."""
+        """Load a file without analyzing it, returning whether it could be read."""
 
         path = Path(source_path)
         try:
@@ -339,7 +409,7 @@ def _render_category(
 
     for excerpt_index, excerpt in enumerate(presentation.excerpts):
         for line in excerpt.lines:
-            _render_result_line(cursor, line, presentation.result.pattern.needle)
+            _render_result_line(cursor, line)
 
         if (
             config.separate_entries
@@ -360,7 +430,6 @@ def _render_category(
 def _render_result_line(
     cursor: QTextCursor,
     line: ResultLine,
-    needle: str,
 ) -> None:
     line_number = f"{line.number:<7}-> "
     if not line.is_match:
@@ -369,14 +438,12 @@ def _render_result_line(
         return
 
     _insert(cursor, line_number, "match", bold=True)
-    match = re.search(re.escape(needle), line.text, re.IGNORECASE)
-    if match is None:
-        _insert(cursor, f"{line.text}\n", "body")
-        return
-
-    _insert(cursor, line.text[: match.start()], "matched_text")
-    _insert(cursor, line.text[match.start() : match.end()], "match", bold=True)
-    _insert(cursor, f"{line.text[match.end() :]}\n", "matched_text")
+    position = 0
+    for span in line.match_spans:
+        _insert(cursor, line.text[position : span.start], "matched_text")
+        _insert(cursor, line.text[span.start : span.end], "match", bold=True)
+        position = span.end
+    _insert(cursor, f"{line.text[position:]}\n", "matched_text")
 
 
 def _count_role(result: CategoryResult) -> str:

@@ -10,6 +10,7 @@ try:
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
+        QGroupBox,
         QLabel,
         QLineEdit,
         QPlainTextEdit,
@@ -17,7 +18,12 @@ try:
         QSpinBox,
     )
 
-    from logreader.config import PATTERN_KEYS
+    from logreader.config import (
+        HTTP_STATUS_PATTERN_KEYS,
+        PAIRED_PATTERN_KEYS,
+        PATTERN_KEYS,
+        TEXT_PATTERN_KEYS,
+    )
     from logreader.qt_app import COLORS, RULE, LogreaderWindow
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
@@ -76,7 +82,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(config.limit, 10)
         self.assertEqual(
             config.enabled_patterns,
-            ("error_colon", "error", "failed", "fatal", "warning"),
+            ("error_colon", "error", "warning", "failed", "fatal"),
         )
         self.assertEqual(config.custom_patterns, ("timeout",))
         self.assertTrue(config.separate_entries)
@@ -94,6 +100,8 @@ class LogreaderQtTests(unittest.TestCase):
             "pattern_timeout": "TIMEOUT",
             "pattern_uninitialized": "UNINITIALIZED",
             "pattern_not_found": "NOT FOUND",
+            "pattern_http_4xx": "HTTP 4xx (400–499)",
+            "pattern_http_5xx": "HTTP 5xx (500–599)",
         }
 
         for object_name, label in expected_labels.items():
@@ -107,6 +115,25 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn("error_colon", config.enabled_patterns)
         self.assertNotIn("error", config.enabled_patterns)
 
+    def test_patterns_are_split_into_three_named_groups(self):
+        expected_groups = {
+            "pairedPatternGroup": "Colon and plain counterparts",
+            "textPatternGroup": "Other text errors",
+            "httpStatusGroup": "HTTP status codes",
+        }
+
+        for object_name, title in expected_groups.items():
+            group = self.window.findChild(QGroupBox, object_name)
+            self.assertIsNotNone(group)
+            self.assertEqual(group.title(), title)
+
+        global_toggle = self.window.findChild(QPushButton, "toggleAllButton")
+        self.assertEqual(global_toggle.text(), "Global toggle all")
+        for key in HTTP_STATUS_PATTERN_KEYS:
+            self.assertFalse(
+                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
+            )
+
     def test_toggle_all_enables_every_pattern_then_disables_every_pattern(self):
         button = self.window.findChild(QPushButton, "toggleAllButton")
 
@@ -115,6 +142,49 @@ class LogreaderQtTests(unittest.TestCase):
 
         button.click()
         self.assertEqual(self.window.build_config().enabled_patterns, ())
+
+    def test_category_toggle_buttons_only_change_their_own_group(self):
+        paired_toggle = self.window.findChild(QPushButton, "togglePairedButton")
+        text_toggle = self.window.findChild(QPushButton, "toggleTextButton")
+        self.assertEqual(paired_toggle.maximumWidth(), 100)
+        self.assertEqual(text_toggle.maximumWidth(), 100)
+
+        paired_toggle.click()
+        self.assertTrue(
+            all(
+                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
+                for key in PAIRED_PATTERN_KEYS
+            )
+        )
+        self.assertFalse(
+            any(
+                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
+                for key in HTTP_STATUS_PATTERN_KEYS
+            )
+        )
+
+        paired_toggle.click()
+        self.assertFalse(
+            any(
+                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
+                for key in PAIRED_PATTERN_KEYS
+            )
+        )
+
+        text_toggle.click()
+        self.assertTrue(
+            all(
+                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
+                for key in TEXT_PATTERN_KEYS
+            )
+        )
+        text_toggle.click()
+        self.assertFalse(
+            any(
+                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
+                for key in TEXT_PATTERN_KEYS
+            )
+        )
 
     def test_loading_stages_file_until_analyze_button_is_pressed(self):
         with tempfile.TemporaryDirectory() as directory:

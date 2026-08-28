@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import __version__
-from .core import SearchPattern
+from .core import MatchValidator, SearchPattern
+from .matchers import is_http_status_candidate
 
 
 APP_VERSION = f"Logreader v{__version__}"
@@ -19,11 +20,12 @@ class PatternPreset:
     needle: str
     label: str
     excluded_substrings: tuple[str, ...] = ()
+    is_regex: bool = False
+    match_validator: MatchValidator | None = None
 
 
 PATTERN_PRESETS = (
-    # This order is shared by the desktop controls and rendered results. Keep
-    # the four defaults in the first GUI row, followed by related concepts.
+    # Colon/plain counterparts.
     PatternPreset("error_colon", "error:", "ERROR:"),
     PatternPreset(
         "error",
@@ -31,8 +33,6 @@ PATTERN_PRESETS = (
         "ERROR",
         excluded_substrings=("error:",),
     ),
-    PatternPreset("failed", "failed", "FAILED"),
-    PatternPreset("fatal", "fatal", "FATAL"),
     PatternPreset("warning", "warning:", "WARNING:"),
     PatternPreset(
         "warning_generic",
@@ -47,6 +47,9 @@ PATTERN_PRESETS = (
         "EXCEPTION",
         excluded_substrings=("exception:",),
     ),
+    # Other text errors.
+    PatternPreset("failed", "failed", "FAILED"),
+    PatternPreset("fatal", "fatal", "FATAL"),
     PatternPreset("failure", "failure", "FAILURE"),
     PatternPreset("critical", "critical", "CRITICAL"),
     PatternPreset("illegal", "illegal", "ILLEGAL"),
@@ -56,10 +59,48 @@ PATTERN_PRESETS = (
     PatternPreset("timeout", "timeout", "TIMEOUT"),
     PatternPreset("uninitialized", "uninitialized", "UNINITIALIZED"),
     PatternPreset("not_found", "not found", "NOT FOUND"),
+    # Exact three-digit HTTP status-code ranges. Numeric lookarounds prevent
+    # matches inside longer values such as 1404 or 5000.
+    PatternPreset(
+        "http_4xx",
+        r"(?<![0-9])4[0-9]{2}(?![0-9])",
+        "HTTP 4xx (400–499)",
+        is_regex=True,
+        match_validator=is_http_status_candidate,
+    ),
+    PatternPreset(
+        "http_5xx",
+        r"(?<![0-9])5[0-9]{2}(?![0-9])",
+        "HTTP 5xx (500–599)",
+        is_regex=True,
+        match_validator=is_http_status_candidate,
+    ),
 )
 
 PATTERN_PRESETS_BY_KEY = {preset.key: preset for preset in PATTERN_PRESETS}
-PATTERN_KEYS = tuple(preset.key for preset in PATTERN_PRESETS)
+PAIRED_PATTERN_KEYS = (
+    "error_colon",
+    "error",
+    "warning",
+    "warning_generic",
+    "exception",
+    "exception_generic",
+)
+TEXT_PATTERN_KEYS = (
+    "failed",
+    "fatal",
+    "failure",
+    "critical",
+    "illegal",
+    "invalid",
+    "aborted",
+    "terminated",
+    "timeout",
+    "uninitialized",
+    "not_found",
+)
+HTTP_STATUS_PATTERN_KEYS = ("http_4xx", "http_5xx")
+PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + HTTP_STATUS_PATTERN_KEYS
 DEFAULT_ENABLED_PATTERNS = ("error_colon", "error", "failed", "fatal")
 
 
@@ -106,6 +147,8 @@ class LogreaderConfig:
                     needle=preset.needle,
                     context=self.context,
                     excluded_substrings=preset.excluded_substrings,
+                    is_regex=preset.is_regex,
+                    match_validator=preset.match_validator,
                 )
             )
 

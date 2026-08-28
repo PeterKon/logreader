@@ -93,6 +93,25 @@ class AnalyzeLinesTests(unittest.TestCase):
                 ],
             )
 
+    def test_every_match_on_a_line_has_a_visible_span(self):
+        category = analyze_lines(
+            ["ERROR then error again"],
+            [SearchPattern("error", "error")],
+        ).category("error")
+
+        result_line = category.excerpts[0].lines[0]
+        self.assertEqual(
+            tuple(
+                result_line.text[span.start : span.end]
+                for span in result_line.match_spans
+            ),
+            ("ERROR", "error"),
+        )
+
+    def test_invalid_fixed_regex_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Invalid search pattern regex"):
+            SearchPattern("invalid", "[", is_regex=True)
+
 
 if __name__ == "__main__":
     unittest.main()
