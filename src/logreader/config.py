@@ -65,21 +65,17 @@ DEFAULT_ENABLED_PATTERNS = ("error_colon", "error", "failed", "fatal")
 
 @dataclass(frozen=True, slots=True)
 class LogreaderConfig:
-    """Options shared by the CLI and graphical frontends."""
+    """Analysis and presentation options used by the desktop application."""
 
     context: int = 3
-    generic_context: int = 3
     limit: int | None = None
     enabled_patterns: tuple[str, ...] = DEFAULT_ENABLED_PATTERNS
     custom_patterns: tuple[str, ...] = ()
-    show_separators: bool = True
-    show_generic_separators: bool = False
+    separate_entries: bool = False
 
     def __post_init__(self) -> None:
         if self.context < 0:
             raise ValueError("Context cannot be negative")
-        if self.generic_context < 0:
-            raise ValueError("Generic context cannot be negative")
         if self.limit is not None and self.limit <= 0:
             raise ValueError("Limit must be positive or None")
 
@@ -108,11 +104,7 @@ class LogreaderConfig:
                 SearchPattern(
                     key=preset.key,
                     needle=preset.needle,
-                    context=(
-                        self.context
-                        if preset.key == "error_colon"
-                        else self.generic_context
-                    ),
+                    context=self.context,
                     excluded_substrings=preset.excluded_substrings,
                 )
             )
@@ -121,7 +113,7 @@ class LogreaderConfig:
             SearchPattern(
                 key=f"custom_{index}",
                 needle=needle,
-                context=self.generic_context,
+                context=self.context,
             )
             for index, needle in enumerate(self.custom_patterns, start=1)
         )
@@ -143,10 +135,3 @@ class LogreaderConfig:
             index = int(key.removeprefix("custom_")) - 1
             return self.custom_patterns[index]
         raise KeyError(key)
-
-    def show_separator_for(self, key: str) -> bool:
-        """Return whether excerpts in a category should be separated."""
-
-        if key == "error_colon":
-            return self.show_separators
-        return self.show_generic_separators

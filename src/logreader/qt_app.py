@@ -192,10 +192,8 @@ class LogreaderWindow(QMainWindow):
         """Build the shared configuration represented by the controls."""
 
         custom_pattern = self._custom_pattern.text().strip()
-        context = self._context_spin.value()
         return LogreaderConfig(
-            context=context,
-            generic_context=context,
+            context=self._context_spin.value(),
             limit=self._limit_spin.value() or None,
             enabled_patterns=tuple(
                 key
@@ -203,8 +201,7 @@ class LogreaderWindow(QMainWindow):
                 if self._pattern_checkboxes[key].isChecked()
             ),
             custom_patterns=(custom_pattern,) if custom_pattern else (),
-            show_separators=self._separate_entries.isChecked(),
-            show_generic_separators=self._separate_entries.isChecked(),
+            separate_entries=self._separate_entries.isChecked(),
         )
 
     def toggle_all_patterns(self) -> None:
@@ -356,10 +353,7 @@ def _render_category(
             break
         if config.limit is not None and matches_rendered >= config.limit:
             break
-        if (
-            config.show_separator_for(key)
-            and excerpt_index < len(result.excerpts) - 1
-        ):
+        if config.separate_entries and excerpt_index < len(result.excerpts) - 1:
             _insert(cursor, f"{ENTRY_SEPARATOR}\n", "muted")
 
     if config.limit is not None and result.match_count > config.limit:

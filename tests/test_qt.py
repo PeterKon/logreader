@@ -43,15 +43,13 @@ class LogreaderQtTests(unittest.TestCase):
         config = self.window.build_config()
 
         self.assertEqual(config.context, 3)
-        self.assertEqual(config.generic_context, 3)
         self.assertIsNone(config.limit)
         self.assertEqual(
             config.enabled_patterns,
             ("error_colon", "error", "failed", "fatal"),
         )
         self.assertEqual(config.custom_patterns, ())
-        self.assertFalse(config.show_separators)
-        self.assertFalse(config.show_generic_separators)
+        self.assertFalse(config.separate_entries)
         self.assertEqual(
             self.window.findChild(QLabel, "limitLabel").text(),
             "Number of entries - limit",
@@ -75,15 +73,13 @@ class LogreaderQtTests(unittest.TestCase):
         config = self.window.build_config()
 
         self.assertEqual(config.context, 5)
-        self.assertEqual(config.generic_context, 5)
         self.assertEqual(config.limit, 10)
         self.assertEqual(
             config.enabled_patterns,
             ("error_colon", "error", "failed", "fatal", "warning"),
         )
         self.assertEqual(config.custom_patterns, ("timeout",))
-        self.assertTrue(config.show_separators)
-        self.assertTrue(config.show_generic_separators)
+        self.assertTrue(config.separate_entries)
 
     def test_error_patterns_and_plain_variants_are_available_as_toggles(self):
         expected_labels = {

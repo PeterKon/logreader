@@ -93,12 +93,10 @@ class LogreaderConfigTests(unittest.TestCase):
     def test_selected_and_custom_patterns_share_context_and_limits(self):
         config = LogreaderConfig(
             context=5,
-            generic_context=2,
             limit=10,
             enabled_patterns=("warning", "exception"),
             custom_patterns=(" timeout ",),
-            show_separators=False,
-            show_generic_separators=True,
+            separate_entries=True,
         )
         patterns = config.search_patterns()
 
@@ -107,10 +105,9 @@ class LogreaderConfigTests(unittest.TestCase):
             ["warning", "exception", "custom_1"],
         )
         self.assertEqual(config.custom_patterns, ("timeout",))
-        self.assertEqual(patterns[-1].context, 2)
+        self.assertTrue(all(pattern.context == 5 for pattern in patterns))
         self.assertEqual(config.label_for("custom_1"), "timeout")
-        self.assertFalse(config.show_separator_for("error_colon"))
-        self.assertTrue(config.show_separator_for("warning"))
+        self.assertTrue(config.separate_entries)
 
     def test_invalid_values_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "Context cannot be negative"):

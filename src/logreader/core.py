@@ -1,7 +1,7 @@
 """Pure log analysis primitives used by the Logreader interfaces.
 
-This module deliberately contains no file, terminal, or GUI operations.  Callers
-provide already-decoded lines and decide how the structured results are rendered.
+This module deliberately contains no file or GUI operations. Callers provide
+already-decoded lines and decide how the structured results are rendered.
 """
 
 from __future__ import annotations

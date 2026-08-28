@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "logreader-py"
 dynamic = ["version"]
-description = "Desktop and command-line tool for finding errors and context in log files"
+description = "Desktop application for finding errors and context in log files"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "GPL-3.0-only"
@@ -15,7 +15,6 @@ dependencies = [
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "Environment :: Console",
     "Environment :: Win32 (MS Windows)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -25,11 +24,8 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/PeterKon/logreader"
 
-[project.scripts]
-logreader = "logreader.cli:main"
-
 [project.gui-scripts]
-logreader-gui = "logreader.qt_app:main"
+logreader = "logreader.qt_app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

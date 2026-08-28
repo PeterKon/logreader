@@ -1,11 +1,6 @@
 # Logreader
 
-Logreader scans log files for common failure patterns and will show each match with surrounding lines. It is intended for a first pass through a long log: find the relevant sections quickly, then inspect them with enough context to understand what happened.
-
-The project provides two current interfaces:
-
-- A PySide6 desktop application with UI controls for filter and output that displays in color.
-- A command-line interface with colored terminal output and optional text-file export.
+Logreader is a PySide6 desktop application that scans log files for common failure patterns and shows each match with surrounding lines. It is intended for a first pass through a long log: find the relevant sections quickly, then inspect them with enough context to understand what happened.
 
 ## Requirements
 
@@ -26,14 +21,14 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
-The editable installation creates the `logreader` and `logreader-gui` commands while keeping them connected to this checkout. Source changes are available as soon as the application is restarted. reinstall only after changing dependencies or entry points in `pyproject.toml`.
+The editable installation creates the `logreader` desktop command while keeping it connected to this checkout. Source changes are available as soon as the application is restarted. Reinstall only after changing dependencies or entry points in `pyproject.toml`.
 
 ## Desktop application
 
 Start the PySide6 GUI with:
 
 ```powershell
-logreader-gui
+logreader
 ```
 
 This can also be launched as a Python module:
@@ -48,38 +43,13 @@ The results pane keeps the source line numbers and uses color to distinguish mat
 
 Analysis currently runs on the UI thread. Very large files may make the window briefly unresponsive.
 
-## Command-line interface
-
-The CLI accepts a log file as its positional argument:
-
-```powershell
-logreader server.log
-logreader server.log --context 5 --enable timeout
-logreader server.log --pattern reconnect --enable warning exception --no-output-file
-```
-
-By default, the CLI:
-
-- Searches for `ERROR:`, generic `ERROR`, `FAILED`, and `FATAL`.
-- Uses three lines of context for every pattern.
-- Prints colored output when the terminal supports it.
-- Writes a plain-text copy to `outfile.txt`.
-
-Use `--no-color` to disable terminal colors and `--no-output-file` to skip the text export. Run the built-in help for the complete option list:
-
-```powershell
-logreader --help
-```
-
 ## Project layout
 
 - `pyproject.toml`: package metadata, dependencies, and installed commands.
 - `src/logreader/core.py`: pure analysis engine; no file or interface operations.
 - `src/logreader/config.py`: shared options and built-in search presets.
-- `src/logreader/terminal.py`: terminal colors and plain-text report rendering.
-- `src/logreader/cli.py`: `argparse` command-line interface.
 - `src/logreader/qt_app.py`: PySide6 desktop application and Qt result rendering.
-- `tests/`: engine, configuration, terminal, CLI, and GUI tests.
+- `tests/`: engine, configuration, and GUI tests.
 
 ## Tests
 
