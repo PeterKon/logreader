@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -57,12 +58,13 @@ class LogreaderWindow(QMainWindow):
         self._source_lines: tuple[str, ...] = ()
         self._source_encoding: str | None = None
         self._pattern_checkboxes: dict[str, QCheckBox] = {}
+        self._results_maximized = False
 
         self.setWindowTitle(APP_VERSION)
         self.resize(1080, 760)
         self.setMinimumSize(820, 560)
         self._build_interface()
-        self.statusBar().showMessage("Ready — open a log file to begin")
+        self.statusBar().showMessage("Ready: Open a log file to begin")
 
     def _build_interface(self) -> None:
         central_widget = QWidget(self)
@@ -70,7 +72,10 @@ class LogreaderWindow(QMainWindow):
         root_layout.setContentsMargins(12, 12, 12, 10)
         root_layout.setSpacing(10)
 
-        file_row = QHBoxLayout()
+        self._file_controls = QWidget(central_widget)
+        self._file_controls.setObjectName("fileControlsRow")
+        file_row = QHBoxLayout(self._file_controls)
+        file_row.setContentsMargins(0, 0, 0, 0)
         self._open_button = QPushButton("&Open log…")
         self._open_button.setObjectName("openButton")
         self._open_button.clicked.connect(self.open_file)
@@ -92,9 +97,46 @@ class LogreaderWindow(QMainWindow):
         self._analyze_button.setEnabled(False)
         self._analyze_button.clicked.connect(self.analyze_current)
         file_row.addWidget(self._analyze_button)
-        root_layout.addLayout(file_row)
+        root_layout.addWidget(self._file_controls)
 
-        root_layout.addWidget(self._build_filter_group())
+        self._filter_group = self._build_filter_group()
+        root_layout.addWidget(self._filter_group)
+
+        results_header = QWidget(central_widget)
+        results_header.setObjectName("resultsHeader")
+        results_header_layout = QHBoxLayout(results_header)
+        results_header_layout.setContentsMargins(0, 0, 0, 0)
+        results_header_layout.setSpacing(8)
+
+        self._maximize_results_button = QPushButton("▲")
+        self._maximize_results_button.setObjectName("maximizeResultsButton")
+        self._maximize_results_button.setAccessibleName("Maximize results")
+        self._maximize_results_button.setFixedSize(38, 26)
+        self._maximize_results_button.setStyleSheet(
+            "font-size: 14px; font-weight: 700; padding: 0;"
+        )
+        self._maximize_results_button.setToolTip(
+            "Hide the file and filter controls so the results fill the window."
+        )
+        self._maximize_results_button.clicked.connect(
+            self.toggle_results_maximized
+        )
+        results_header_layout.addWidget(self._maximize_results_button)
+        results_header_layout.addStretch(1)
+
+        line_wrap_label = QLabel("Line wrapping")
+        line_wrap_label.setObjectName("lineWrapLabel")
+        results_header_layout.addWidget(line_wrap_label)
+
+        self._line_wrap_check = QCheckBox()
+        self._line_wrap_check.setObjectName("lineWrapCheck")
+        self._line_wrap_check.setAccessibleName("Line wrapping")
+        self._line_wrap_check.setToolTip(
+            "Wrap long result lines to the width of the results window."
+        )
+        self._line_wrap_check.toggled.connect(self.set_results_line_wrapping)
+        results_header_layout.addWidget(self._line_wrap_check)
+        root_layout.addWidget(results_header)
 
         self._results = QPlainTextEdit()
         self._results.setObjectName("resultsView")
@@ -114,29 +156,79 @@ class LogreaderWindow(QMainWindow):
             f" selection-background-color: {THEME_COLORS['selection']};"
             " padding: 8px;"
             "}"
+            "QPlainTextEdit QScrollBar:vertical {"
+            f" background: {THEME_COLORS['scrollbar_track']};"
+            " width: 12px;"
+            " margin: 0;"
+            "}"
+            "QPlainTextEdit QScrollBar:horizontal {"
+            f" background: {THEME_COLORS['scrollbar_track']};"
+            " height: 12px;"
+            " margin: 0;"
+            "}"
+            "QPlainTextEdit QScrollBar::handle:vertical {"
+            f" background: {THEME_COLORS['scrollbar_handle']};"
+            " min-height: 28px;"
+            " border-radius: 5px;"
+            " margin: 2px;"
+            "}"
+            "QPlainTextEdit QScrollBar::handle:vertical:hover {"
+            f" background: {THEME_COLORS['scrollbar_handle_hover']};"
+            "}"
+            "QPlainTextEdit QScrollBar::handle:horizontal {"
+            f" background: {THEME_COLORS['scrollbar_handle']};"
+            " min-width: 28px;"
+            " border-radius: 5px;"
+            " margin: 2px;"
+            "}"
+            "QPlainTextEdit QScrollBar::handle:horizontal:hover {"
+            f" background: {THEME_COLORS['scrollbar_handle_hover']};"
+            "}"
+            "QPlainTextEdit QScrollBar::add-line:vertical,"
+            "QPlainTextEdit QScrollBar::sub-line:vertical,"
+            "QPlainTextEdit QScrollBar::add-line:horizontal,"
+            "QPlainTextEdit QScrollBar::sub-line:horizontal {"
+            " height: 0;"
+            " width: 0;"
+            "}"
+            "QPlainTextEdit QScrollBar::add-page:vertical,"
+            "QPlainTextEdit QScrollBar::sub-page:vertical,"
+            "QPlainTextEdit QScrollBar::add-page:horizontal,"
+            "QPlainTextEdit QScrollBar::sub-page:horizontal {"
+            " background: transparent;"
+            "}"
         )
         root_layout.addWidget(self._results, 1)
         self.setCentralWidget(central_widget)
 
     def _build_filter_group(self) -> QGroupBox:
         group = QGroupBox("Filters")
-        layout = QGridLayout(group)
-        layout.setColumnStretch(7, 1)
+        group.setObjectName("filterGroup")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(8)
+
+        top_controls = QWidget(group)
+        top_controls.setObjectName("topControlsRow")
+        top_layout = QHBoxLayout(top_controls)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(8)
 
         self._context_spin = self._make_spin_box(0, 1_000, 3)
         self._context_spin.setObjectName("contextSpin")
         context_label = QLabel("Context around entries")
         context_label.setObjectName("contextLabel")
-        layout.addWidget(context_label, 0, 0)
-        layout.addWidget(self._context_spin, 0, 1)
+        top_layout.addWidget(context_label)
+        top_layout.addWidget(self._context_spin)
+        top_layout.addWidget(self._make_top_separator("topSeparatorContext"))
 
         self._limit_spin = self._make_spin_box(0, 1_000_000, 0)
         self._limit_spin.setObjectName("limitSpin")
         self._limit_spin.setSpecialValueText("Unlimited")
-        limit_label = QLabel("Number of entries - limit")
+        limit_label = QLabel("Total entries limit")
         limit_label.setObjectName("limitLabel")
-        layout.addWidget(limit_label, 0, 2)
-        layout.addWidget(self._limit_spin, 0, 3)
+        top_layout.addWidget(limit_label)
+        top_layout.addWidget(self._limit_spin)
+        top_layout.addWidget(self._make_top_separator("topSeparatorLimit"))
 
         self._toggle_all_button = QPushButton("Global toggle all")
         self._toggle_all_button.setObjectName("toggleAllButton")
@@ -144,55 +236,8 @@ class LogreaderWindow(QMainWindow):
             "Enable every pattern, or disable every pattern when all are enabled."
         )
         self._toggle_all_button.clicked.connect(self.toggle_all_patterns)
-        layout.addWidget(self._toggle_all_button, 0, 4)
-
-        layout.addWidget(
-            self._build_pattern_group(
-                "Colon and plain counterparts",
-                PAIRED_PATTERN_KEYS,
-                object_name="pairedPatternGroup",
-                columns=2,
-                toggle_object_name="togglePairedButton",
-            ),
-            1,
-            0,
-            1,
-            8,
-        )
-        layout.addWidget(
-            self._build_pattern_group(
-                "Other text errors",
-                TEXT_PATTERN_KEYS,
-                object_name="textPatternGroup",
-                columns=4,
-                toggle_object_name="toggleTextButton",
-            ),
-            2,
-            0,
-            1,
-            8,
-        )
-        layout.addWidget(
-            self._build_pattern_group(
-                "HTTP status codes",
-                HTTP_STATUS_PATTERN_KEYS,
-                object_name="httpStatusGroup",
-                columns=2,
-            ),
-            3,
-            0,
-            1,
-            8,
-        )
-
-        self._custom_pattern = QLineEdit()
-        self._custom_pattern.setObjectName("customPattern")
-        self._custom_pattern.setClearButtonEnabled(True)
-        self._custom_pattern.setPlaceholderText(
-            "Optional case-insensitive literal pattern"
-        )
-        layout.addWidget(QLabel("Custom pattern"), 4, 0)
-        layout.addWidget(self._custom_pattern, 4, 1, 1, 7)
+        top_layout.addWidget(self._toggle_all_button)
+        top_layout.addWidget(self._make_top_separator("topSeparatorGlobalToggle"))
 
         self._separate_entries = QCheckBox("Separation of entries")
         self._separate_entries.setObjectName("separateEntriesCheck")
@@ -200,8 +245,74 @@ class LogreaderWindow(QMainWindow):
         self._separate_entries.setToolTip(
             "Draw a horizontal rule between non-contiguous result excerpts."
         )
-        layout.addWidget(self._separate_entries, 5, 0, 1, 8)
+        top_layout.addWidget(self._separate_entries)
+        top_layout.addStretch(1)
+        layout.addWidget(top_controls)
+
+        text_groups = QWidget(group)
+        text_groups.setObjectName("textPatternGroupsRow")
+        text_groups_layout = QHBoxLayout(text_groups)
+        text_groups_layout.setContentsMargins(0, 0, 0, 0)
+        text_groups_layout.setSpacing(8)
+        text_groups_layout.addWidget(
+            self._build_pattern_group(
+                "Colon and plain counterparts",
+                PAIRED_PATTERN_KEYS,
+                object_name="pairedPatternGroup",
+                columns=2,
+                toggle_object_name="togglePairedButton",
+            )
+        )
+        text_groups_layout.addWidget(
+            self._build_pattern_group(
+                "Other text errors",
+                TEXT_PATTERN_KEYS,
+                object_name="textPatternGroup",
+                columns=4,
+                toggle_object_name="toggleTextButton",
+            )
+        )
+        text_groups_layout.addStretch(1)
+        layout.addWidget(text_groups)
+
+        http_row = QWidget(group)
+        http_row.setObjectName("httpStatusRow")
+        http_layout = QHBoxLayout(http_row)
+        http_layout.setContentsMargins(0, 0, 0, 0)
+        http_layout.setSpacing(0)
+        http_layout.addWidget(
+            self._build_pattern_group(
+                "HTTP status codes",
+                HTTP_STATUS_PATTERN_KEYS,
+                object_name="httpStatusGroup",
+                columns=2,
+            )
+        )
+        http_layout.addStretch(1)
+        layout.addWidget(http_row)
+
+        custom_row = QHBoxLayout()
+        custom_row.setSpacing(8)
+        self._custom_pattern = QLineEdit()
+        self._custom_pattern.setObjectName("customPattern")
+        self._custom_pattern.setClearButtonEnabled(True)
+        self._custom_pattern.setPlaceholderText(
+            "Optional case-insensitive literal pattern"
+        )
+        custom_row.addWidget(QLabel("Custom pattern"))
+        custom_row.addWidget(self._custom_pattern, 1)
+        layout.addLayout(custom_row)
         return group
+
+    @staticmethod
+    def _make_top_separator(object_name: str) -> QFrame:
+        separator = QFrame()
+        separator.setObjectName(object_name)
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setMaximumHeight(24)
+        separator.setStyleSheet(f"color: {THEME_COLORS['border']};")
+        return separator
 
     def _build_pattern_group(
         self,
@@ -214,14 +325,38 @@ class LogreaderWindow(QMainWindow):
     ) -> QGroupBox:
         group = QGroupBox(title)
         group.setObjectName(object_name)
+        group.setSizePolicy(
+            QSizePolicy.Policy.Maximum,
+            QSizePolicy.Policy.Fixed,
+        )
         layout = QGridLayout(group)
+        layout.setContentsMargins(8, 14, 8, 8)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(4)
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+        checkboxes = []
         for index, key in enumerate(pattern_keys):
             checkbox = QCheckBox(PATTERN_PRESETS_BY_KEY[key].label)
             checkbox.setObjectName(f"pattern_{key}")
             checkbox.setChecked(key in DEFAULT_ENABLED_PATTERNS)
+            checkbox.setSizePolicy(
+                QSizePolicy.Policy.Fixed,
+                QSizePolicy.Policy.Fixed,
+            )
             self._pattern_checkboxes[key] = checkbox
-            layout.addWidget(checkbox, index // columns, index % columns)
+            checkboxes.append(checkbox)
+            layout.addWidget(
+                checkbox,
+                index // columns,
+                index % columns,
+                Qt.AlignmentFlag.AlignLeft,
+            )
+
+        column_width = max(checkbox.sizeHint().width() for checkbox in checkboxes)
+        for column in range(columns):
+            layout.setColumnMinimumWidth(column, column_width)
+            layout.setColumnStretch(column, 0)
 
         if toggle_object_name is not None:
             toggle_button = QPushButton("Toggle all")
@@ -238,6 +373,7 @@ class LogreaderWindow(QMainWindow):
                 toggle_button,
                 (len(pattern_keys) + columns - 1) // columns,
                 0,
+                Qt.AlignmentFlag.AlignLeft,
             )
 
         return group
@@ -269,6 +405,37 @@ class LogreaderWindow(QMainWindow):
         """Enable all patterns, or disable them when all are already enabled."""
 
         self.toggle_patterns(PATTERN_KEYS)
+
+    def toggle_results_maximized(self) -> None:
+        """Toggle between the normal controls and an expanded results view."""
+
+        self._results_maximized = not self._results_maximized
+        controls_visible = not self._results_maximized
+        self._file_controls.setVisible(controls_visible)
+        self._filter_group.setVisible(controls_visible)
+
+        if self._results_maximized:
+            self._maximize_results_button.setText("▼")
+            self._maximize_results_button.setAccessibleName("Restore layout")
+            self._maximize_results_button.setToolTip(
+                "Show the file and filter controls again."
+            )
+        else:
+            self._maximize_results_button.setText("▲")
+            self._maximize_results_button.setAccessibleName("Maximize results")
+            self._maximize_results_button.setToolTip(
+                "Hide the file and filter controls so the results fill the window."
+            )
+
+    def set_results_line_wrapping(self, enabled: bool) -> None:
+        """Enable or disable wrapping of long lines in the results view."""
+
+        line_wrap_mode = (
+            QPlainTextEdit.LineWrapMode.WidgetWidth
+            if enabled
+            else QPlainTextEdit.LineWrapMode.NoWrap
+        )
+        self._results.setLineWrapMode(line_wrap_mode)
 
     def toggle_patterns(self, pattern_keys: tuple[str, ...]) -> None:
         """Toggle every checkbox in one pattern category as a unit."""
