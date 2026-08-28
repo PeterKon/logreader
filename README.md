@@ -1,13 +1,11 @@
 # Logreader
 
-Logreader scans text log files for common failure patterns and shows each match with its surrounding lines. It is intended for the first pass through a long log: find the relevant sections quickly, then inspect them with enough context to understand what happened.
+Logreader scans log files for common failure patterns and will show each match with surrounding lines. It is intended for a first pass through a long log: find the relevant sections quickly, then inspect them with enough context to understand what happened.
 
 The project provides two current interfaces:
 
-- A PySide6 desktop application with filter controls and a colored results view.
+- A PySide6 desktop application with UI controls for filter and output that displays in color.
 - A command-line interface with colored terminal output and optional text-file export.
-
-Both use the same configuration and analysis engine. The original PySimpleGUI interface remains available during the transition but is no longer the primary application.
 
 ## Requirements
 
@@ -28,27 +26,27 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
-The editable installation creates the `logreader` and `logreader-gui` commands while keeping them connected to this checkout. Source changes are available as soon as the application is restarted; reinstall only after changing dependencies or entry points in `pyproject.toml`.
+The editable installation creates the `logreader` and `logreader-gui` commands while keeping them connected to this checkout. Source changes are available as soon as the application is restarted. reinstall only after changing dependencies or entry points in `pyproject.toml`.
 
 ## Desktop application
 
-Start the PySide6 interface with:
+Start the PySide6 GUI with:
 
 ```powershell
 logreader-gui
 ```
 
-The desktop application can also be launched as a Python module:
+This can also be launched as a Python module:
 
 ```powershell
 python -m logreader
 ```
 
-Choose **Open log…** to select a `.log`, `.txt`, or other text file. The file is analyzed immediately. Change the context, result limit, built-in patterns, or custom pattern and choose **Analyze** to run it again.
+Choose **Open log…** to select a `.log`, `.txt`, or other text file. The file is analyzed immediately. Change the context, result limit, built-in patterns, or custom pattern and choose **Analyze** to run again.
 
 The results pane keeps the source line numbers and uses color to distinguish matches from surrounding context. The status bar reports the source line count, total matches, and number of active patterns.
 
-Analysis currently runs on the UI thread. Very large files may make the window briefly unresponsive; background processing is planned for a later release.
+Analysis currently runs on the UI thread. Very large files may make the window briefly unresponsive.
 
 ## Command-line interface
 
@@ -73,12 +71,6 @@ Use `--no-color` to disable terminal colors and `--no-output-file` to skip the t
 logreader --help
 ```
 
-## Search behavior
-
-Searches are case-insensitive literal substring matches, not regular expressions. Additional built-in patterns include `WARNING:`, `FAILURE`, `ILLEGAL`, `INVALID`, `EXCEPTION:`, and `CRITICAL`.
-
-Because matching is literal, the generic `ERROR` search also finds identifiers or comments such as `_error_` and `Error recovery`. Treat that category as a broad catch-all rather than a list of confirmed errors.
-
 ## Project layout
 
 - `pyproject.toml`: package metadata, dependencies, and installed commands.
@@ -99,16 +91,6 @@ python -m unittest discover -s tests -v
 ```
 
 The GUI tests use Qt's offscreen platform and do not open visible windows.
-
-## Legacy interface
-
-The original frontend can still be started if PySimpleGUI is installed:
-
-```powershell
-python -m logreader.legacy_gui
-```
-
-It uses the same configuration, engine, and terminal renderer as the current interfaces. It will remain in the repository until the PySide6 application reaches feature parity.
 
 ## License
 
