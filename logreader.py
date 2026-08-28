@@ -1,9 +1,8 @@
-import re
-import os
-from termcolor import colored
 import PySimpleGUI as sg
 
-from logreader_core import CategoryResult, SearchPattern, analyze_lines
+from logreader_config import APP_VERSION, LogreaderConfig
+from logreader_core import analyze_lines
+from logreader_terminal import print_report, write_report
 
 #Log analysis
 
@@ -15,126 +14,6 @@ from logreader_core import CategoryResult, SearchPattern, analyze_lines
 #TODO: Implement nested search (search from the generated error-lists with custom input)
 #TODO: Catch and handle file-encoding errors (see file encodingtest)
 
-def name(name):
-
-    dots = 23-len(name)-2
-    return sg.Text(name + ' ' + '•'*dots, size=(23,1), justification='r',pad=(0,0), font='Courier 10')
-
-def resultToDisplayRows(result: CategoryResult, display_separator: bool):
-
-    rows = []
-    for excerpt in result.excerpts:
-        for line in excerpt.lines:
-            line_number = str(line.number)
-            spaces = " " * max(0, 7-len(line_number))
-            rows.append(line_number + spaces + "-> " + line.text)
-        if display_separator:
-            rows.append("-------->")
-    return rows
-
-def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
-
-    print("------------------------------------------------")
-    print(gen_line)
-    print("------------------------------------------------")
-    err_count = 0
-    broken = False
-    for i, x in enumerate(arrIn):
-    
-        regex_comp = re.split(r'([0-9]+ *->)', x, 1)
-        isMsgArrow = (arrIn[i] == "-------->")
-        
-        if isMsgArrow:
-            isMsgContained = False
-            isErrorMsg = False
-        else:
-            isMsgContained = (msg.lower() in regex_comp[2].lower())
-            isErrorMsg = (msg == "error") and ("error:" in(regex_comp[2].lower()))
-        
-        if not isMsgArrow and isMsgContained and not isErrorMsg:
-            
-            #Split into parts and print appropriate words in color. The format is simple:
-            #1 - regex_comp[1] = The line-number in form "123  ->"
-            #2 - rest_res[0]   = The string before the "error"-word
-            #3 - warresword[0] = The error-word, retrieved to preserve case (ERROR: vs Error: etc)
-            #4 - rest_res[1]   = The string after the "error"-word
-            pattern = re.compile(re.escape(msg), re.IGNORECASE)
-            warresword = re.findall(pattern, regex_comp[2])
-            rest_res = re.split(pattern, regex_comp[2], 1)
-            
-            print(colored(regex_comp[1], "red", attrs=["bold"]) + colored(rest_res[0], 'green') + colored(warresword[0], "red") + colored(rest_res[1], 'green'))
-            err_count += 1
-        else:
-            #Colors the linenum-arrow
-            first_split = re.split(r'([0-9]+ *->)', x, 1)
-            if(first_split[0] == "-------->"):
-                print(x)
-            else:
-                print(colored(first_split[1], "blue", attrs=["bold"]) + first_split[2])
-                
-        if has_limit and (err_count == limit):
-            
-            #Print rest of context after error
-            for h in range(context):
-                if(((h + i) + 1) < len(arrIn)):
-                    if msg.lower() in arrIn[(h + i) + 1].lower():
-                        break
-                    else:
-                        res_split = re.split(r'([0-9]+ *->)', arrIn[(h + i) + 1], 1)
-                        if(res_split[0] == "-------->"):
-                            print(res_split[0])
-                        else:
-                            print(colored(res_split[1], "blue", attrs=["bold"]) + res_split[2])
-                            
-            insert_msg = "Limited, showing " + str(limit) + " out of " + str(err_num) + " elements.\n"
-            print(colored(insert_msg, "blue", attrs=["bold"]))
-            broken = True
-            break
-    if not broken:
-        insert_msg = "Printed all " + str(err_num) + " elements.\n"
-        print(colored(insert_msg, "blue", attrs=["bold"]))
-
-def writeArrayResults(w, arrIn, limit, has_limit, gen_line, msg, err_num, context):
-
-    err_count = 0
-    broken = False
-    
-    w.write("------------------------------------------------\n")
-    w.write(gen_line + "\n")
-    w.write("------------------------------------------------\n")
-    for i, x in enumerate(arrIn):
-        
-        regex_comp = re.split(r'([0-9]+ *->)', x, 1)
-        
-        isMsgArrow = (arrIn[i] == "-------->")
-        if isMsgArrow:
-            isMsgContained = False
-            isErrorMsg = False
-        else:
-            isMsgContained = (msg.lower() in regex_comp[2].lower())
-            isErrorMsg = (msg == "error") and ("error:" in(regex_comp[2].lower()))
-        
-        if not isMsgArrow and isMsgContained and not isErrorMsg:
-            w.write(x + "\n")
-            err_count += 1
-        else:
-            w.write(x + "\n")
-        if has_limit and (err_count == limit):
-                
-            #Write rest of context after error
-            for h in range(context):
-                if(((h + i) + 1) < len(arrIn)):
-                    if msg.lower() in arrIn[(h + i) + 1].lower():
-                        break
-                    else:
-                        w.write(arrIn[(h + i) + 1] + "\n")
-                
-            w.write("\nLimited, showing " + str(limit) + " out of " + str(err_num) + " elements.\n\n")
-            broken = True
-            break 
-    if not broken:
-        w.write("\nPrinted all " + str(err_num) + " elements.\n\n")
-
 def main():
     
     context = 3
@@ -143,16 +22,10 @@ def main():
     display_separator = True
     display_separator_general = False
     write_to_file = True
-    
-    limit_output = 0
-    limit_output_gen = 0
-    limit_output_wargen = 0
-    limit_output_failed = 0
-    limit_output_fatal = 0
-    
+
     general_limit = 0
-    
-    version = "Logreader v0.12"
+
+    version = APP_VERSION
     
     isFailedInitialized = True
     isFatalInitialized = True
@@ -162,17 +35,7 @@ def main():
     isInvalidInitialized = False
     isExceptionInitialized = False
     isCriticalInitialized = False
-    
-    err_msg1 = "error:"    
-    err_gen = "error"
-    failed_gen = "failed"
-    failure_gen = "failure"
-    illegal_gen = "illegal"
-    fatal_gen = "fatal"
-    war_msg1 = "warning:"
-    invalid_gen = "invalid"
-    exception_gen = "exception:"
-    critical_gen = "critical"
+
     cust_pattern = ""
     cust_pattern2 = ""
     cust_pattern3 = ""
@@ -393,260 +256,42 @@ def main():
             window['GENCONTIN'].update(values['GENCONTIN'][:-1])
     window.close()
     
-    custIsInitiated = (cust_pattern != "")
-    custIsInitiated2 = (cust_pattern2 != "")
-    custIsInitiated3 = (cust_pattern3 != "")
-    
-    if(general_limit != 0):
-        limit_output = general_limit
-        limit_output_gen = general_limit
-        limit_output_wargen = general_limit
-        limit_output_failed = general_limit
-        limit_output_fatal = general_limit
-    
-    has_limit = (limit_output != 0)
-    has_limit_gen = (limit_output_gen != 0)        
-    has_limit_wargen = (limit_output_wargen != 0)
-    has_limit_failed = (limit_output_failed != 0)
-    has_limit_fatal = (limit_output_fatal != 0)
-
-    #Reading
-    f = open(filename, "r")
-    if write_to_file:
-        w = open("outfile.txt", "w")
-        
-    logoutput = f.read().splitlines()
-
-    search_patterns = [
-        SearchPattern("error_colon", err_msg1, context),
-        SearchPattern(
-            "error",
-            err_gen,
-            context_generic,
-            excluded_substrings=(err_msg1,),
-        ),
-    ]
-    optional_patterns = [
-        (isFailedInitialized, "failed", failed_gen),
-        (isFatalInitialized, "fatal", fatal_gen),
-        (isWarningInitialized, "warning", war_msg1),
-        (isFailureInitialized, "failure", failure_gen),
-        (isIllegalInitialized, "illegal", illegal_gen),
-        (isInvalidInitialized, "invalid", invalid_gen),
-        (isExceptionInitialized, "exception", exception_gen),
-        (isCriticalInitialized, "critical", critical_gen),
-    ]
-    search_patterns.extend(
-        SearchPattern(key, needle, context_generic)
-        for enabled, key, needle in optional_patterns
+    enabled_patterns = tuple(
+        key
+        for enabled, key in (
+            (isFailedInitialized, "failed"),
+            (isFatalInitialized, "fatal"),
+            (isWarningInitialized, "warning"),
+            (isFailureInitialized, "failure"),
+            (isIllegalInitialized, "illegal"),
+            (isInvalidInitialized, "invalid"),
+            (isExceptionInitialized, "exception"),
+            (isCriticalInitialized, "critical"),
+        )
         if enabled
     )
-    if custIsInitiated:
-        search_patterns.append(SearchPattern("custom_1", cust_pattern, context_generic))
-    if custIsInitiated2:
-        search_patterns.append(SearchPattern("custom_2", cust_pattern2, context_generic))
-    if custIsInitiated3:
-        search_patterns.append(SearchPattern("custom_3", cust_pattern3, context_generic))
+    custom_patterns = tuple(
+        pattern
+        for pattern in (cust_pattern, cust_pattern2, cust_pattern3)
+        if pattern
+    )
+    config = LogreaderConfig(
+        context=context,
+        generic_context=context_generic,
+        limit=general_limit or None,
+        enabled_patterns=enabled_patterns,
+        custom_patterns=custom_patterns,
+        show_separators=display_separator,
+        show_generic_separators=display_separator_general,
+    )
 
-    analysis = analyze_lines(logoutput, search_patterns)
+    with open(filename, "r") as log_file:
+        logoutput = log_file.read().splitlines()
 
-    def analysisValues(key, display_separator):
-        result = analysis.category(key)
-        return resultToDisplayRows(result, display_separator), result.match_count
-
-    err_msg_arr, err_num = analysisValues("error_colon", display_separator)
-    errgen_msg_arr, err_gen_num = analysisValues("error", display_separator_general)
-
-    failed_msg_arr, failed_gen_num = ([], 0)
-    fatalgen_msg_arr, fatal_gen_num = ([], 0)
-    war_msg_arr, war_gen_num = ([], 0)
-    failure_msg_arr, failure_gen_num = ([], 0)
-    illegal_msg_arr, illegal_gen_num = ([], 0)
-    invalid_msg_arr, invalid_gen_num = ([], 0)
-    exception_msg_arr, exception_gen_num = ([], 0)
-    critical_msg_arr, critical_gen_num = ([], 0)
-    cust_arr, cust_arr_num = ([], 0)
-    cust_arr2, cust_arr_num2 = ([], 0)
-    cust_arr3, cust_arr_num3 = ([], 0)
-
-    if isFailedInitialized:
-        failed_msg_arr, failed_gen_num = analysisValues("failed", display_separator_general)
-    if isFatalInitialized:
-        fatalgen_msg_arr, fatal_gen_num = analysisValues("fatal", display_separator_general)
-    if isWarningInitialized:
-        war_msg_arr, war_gen_num = analysisValues("warning", display_separator_general)
-    if isFailureInitialized:
-        failure_msg_arr, failure_gen_num = analysisValues("failure", display_separator_general)
-    if isIllegalInitialized:
-        illegal_msg_arr, illegal_gen_num = analysisValues("illegal", display_separator_general)
-    if isInvalidInitialized:
-        invalid_msg_arr, invalid_gen_num = analysisValues("invalid", display_separator_general)
-    if isExceptionInitialized:
-        exception_msg_arr, exception_gen_num = analysisValues("exception", display_separator_general)
-    if isCriticalInitialized:
-        critical_msg_arr, critical_gen_num = analysisValues("critical", display_separator_general)
-    if custIsInitiated:
-        cust_arr, cust_arr_num = analysisValues("custom_1", display_separator_general)
-    if custIsInitiated2:
-        cust_arr2, cust_arr_num2 = analysisValues("custom_2", display_separator_general)
-    if custIsInitiated3:
-        cust_arr3, cust_arr_num3 = analysisValues("custom_3", display_separator_general)
-    
-    #Print results
-    print("\n" + version + "\n")
-    print("Filename:\n" + filename + "\n")
-    print("Number of \"ERROR:\" in this file          " + str(err_num))
-    print("Number of \"ERROR\" in this file           " + str(err_gen_num))
-    if(isWarningInitialized):
-        print("Number of \"WARNING:\" in this file        " + str(war_gen_num))
-    if(isFailedInitialized):
-        print("Number of \"FAILED\" in this file          " + str(failed_gen_num))
-    if(isFatalInitialized):
-        print("Number of \"FATAL\" in this file           " + str(fatal_gen_num))
-    if(isFailureInitialized):
-        print("Number of \"FAILURE\" in this file         " + str(failure_gen_num))
-    if(isIllegalInitialized):
-        print("Number of \"ILLEGAL\" in this file         " + str(illegal_gen_num))
-    if(isInvalidInitialized):
-        print("Number of \"INVALID\" in this file         " + str(invalid_gen_num))
-    if(isExceptionInitialized):
-        print("Number of \"EXCEPTION:\" in this file      " + str(exception_gen_num))
-    if(isCriticalInitialized):
-        print("Number of \"CRITICAL\" in this file        " + str(critical_gen_num))
-    if custIsInitiated:
-        print()
-        print("Custom pattern: " + cust_pattern)
-        print("Hits on pattern:                         " + str(cust_arr_num))
-    if custIsInitiated2:
-        print()
-        print("Custom pattern: " + cust_pattern2)
-        print("Hits on pattern:                         " + str(cust_arr_num2))
-    if custIsInitiated3:
-        print()
-        print("Custom pattern: " + cust_pattern3)
-        print("Hits on pattern:                         " + str(cust_arr_num3))
-    print()
-    print("Printed with context of:                 " + str(context))
-    print("Lines in file:                           " + str(len(logoutput)))
-    print()
-    
-    #Write to file
+    analysis = analyze_lines(logoutput, config.search_patterns())
+    print_report(filename, analysis, config, color=True)
     if write_to_file:
-        w.write("\n" + version + "\n\n")
-        w.write("Filename:\n" + filename + "\n\n")
-        w.write("Number of \"ERROR:\" in this file          " + str(err_num) + "\n")
-        w.write("Number of \"ERROR\" in this file           " + str(err_gen_num) + "\n")
-        if(isWarningInitialized):
-            w.write("Number of \"WARNING:\" in this file        " + str(war_gen_num) + "\n")
-        if(isFailedInitialized):
-            w.write("Number of \"FAILED\" in this file          " + str(failed_gen_num) + "\n")
-        if(isFatalInitialized):
-            w.write("Number of \"FATAL\" in this file           " + str(fatal_gen_num) + "\n")
-        if(isFailureInitialized):
-            w.write("Number of \"FAILURE\" in this file         " + str(failure_gen_num) + "\n")
-        if(isIllegalInitialized):
-            w.write("Number of \"ILLEGAL\" in this file         " + str(illegal_gen_num) + "\n")
-        if(isInvalidInitialized):
-            w.write("Number of \"INVALID\" in this file         " + str(invalid_gen_num) + "\n")
-        if(isExceptionInitialized):
-            w.write("Number of \"EXCEPTION:\" in this file      " + str(exception_gen_num) + "\n")
-        if(isCriticalInitialized):
-            w.write("Number of \"CRITICAL\" in this file        " + str(critical_gen_num) + "\n")
-        if custIsInitiated:
-            w.write("\nCustom pattern: " + cust_pattern + "\n")
-            w.write("Hits on pattern:                         " + str(cust_arr_num) + "\n")
-        if custIsInitiated2:
-            w.write("\nCustom pattern: " + cust_pattern2 + "\n")
-            w.write("Hits on pattern:                         " + str(cust_arr_num2) + "\n")
-        if custIsInitiated3:
-            w.write("\nCustom pattern: " + cust_pattern3 + "\n")
-            w.write("Hits on pattern:                         " + str(cust_arr_num3) + "\n")
-        w.write("\n")
-        w.write("Printed with context of:                 " + str(context) + "\n")
-        w.write("Lines in file:                           " + str(len(logoutput)) + "\n")
-        w.write("\n")
-
-    os.system('color')
-    
-    generr_line = "\"ERROR:\" contained:                            |"
-    printArrayResults(err_msg_arr, err_msg1, limit_output, has_limit, context, generr_line, err_num)
-    if write_to_file:
-        writeArrayResults(w, err_msg_arr, limit_output, has_limit, generr_line, err_msg1, err_num, context)
-    
-    generr_line = "\"ERROR\" contained:                             |"
-    printArrayResults(errgen_msg_arr, err_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, err_gen_num)
-    if write_to_file:
-        writeArrayResults(w, errgen_msg_arr, limit_output_gen, has_limit_gen, generr_line, err_gen, err_gen_num, context_generic)
-    
-    if(isFailedInitialized):
-        generr_line = "\"FAILED\" contained:                            |"
-        printArrayResults(failed_msg_arr, failed_gen, limit_output_failed, has_limit_failed, context_generic, generr_line, failed_gen_num)
-        if write_to_file:
-            writeArrayResults(w, failed_msg_arr, limit_output_failed, has_limit_failed, generr_line, failed_gen, failed_gen_num, context_generic)
-    
-    if(isFatalInitialized):
-        generr_line = "\"FATAL\" contained:                             |"
-        printArrayResults(fatalgen_msg_arr, fatal_gen, limit_output_fatal, has_limit_fatal, context_generic, generr_line, fatal_gen_num)
-        if write_to_file:
-            writeArrayResults(w, fatalgen_msg_arr, limit_output_fatal, has_limit_fatal, generr_line, fatal_gen, fatal_gen_num, context_generic)
-        
-    if(isWarningInitialized):
-        generr_line = "\"WARNING:\" contained:                          |"
-        printArrayResults(war_msg_arr, war_msg1, limit_output_wargen, has_limit_wargen, context_generic, generr_line, war_gen_num)
-        if write_to_file:
-            writeArrayResults(w, war_msg_arr, limit_output_wargen, has_limit_wargen, generr_line, war_msg1, war_gen_num, context_generic)
-        
-    if(isFailureInitialized):
-        generr_line = "\"FAILURE\" contained:                           |"
-        printArrayResults(failure_msg_arr, failure_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, failure_gen_num)
-        if write_to_file:
-            writeArrayResults(w, failure_msg_arr, limit_output_gen, has_limit_gen, generr_line, failure_gen, failure_gen_num, context_generic)
-    
-    if(isIllegalInitialized):
-        generr_line = "\"ILLEGAL\" contained:                           |"
-        printArrayResults(illegal_msg_arr, illegal_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, illegal_gen_num)
-        if write_to_file:
-            writeArrayResults(w, illegal_msg_arr, limit_output_gen, has_limit_gen, generr_line, illegal_gen, illegal_gen_num, context_generic)
-    
-    if(isInvalidInitialized):
-        generr_line = "\"INVALID\" contained:                           |"
-        printArrayResults(invalid_msg_arr, invalid_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, invalid_gen_num)
-        if write_to_file:
-            writeArrayResults(w, invalid_msg_arr, limit_output_gen, has_limit_gen, generr_line, invalid_gen, invalid_gen_num, context_generic)
-        
-    if(isExceptionInitialized):
-        generr_line = "\"EXCEPTION:\" contained:                        |"
-        printArrayResults(exception_msg_arr, exception_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, exception_gen_num)
-        if write_to_file:
-            writeArrayResults(w, exception_msg_arr, limit_output_gen, has_limit_gen, generr_line, exception_gen, exception_gen_num, context_generic)
-    
-    if(isCriticalInitialized):
-        generr_line = "\"CRITICAL\" contained:                          |"
-        printArrayResults(critical_msg_arr, critical_gen, limit_output_gen, has_limit_gen, context_generic, generr_line, critical_gen_num)
-        if write_to_file:
-            writeArrayResults(w, critical_msg_arr, limit_output_gen, has_limit_gen, generr_line, critical_gen, critical_gen_num, context_generic)
-        
-    if custIsInitiated:
-        generr_line = "Pattern searched: " + cust_pattern
-        printArrayResults(cust_arr, cust_pattern, limit_output_gen, has_limit_gen, context_generic, generr_line, cust_arr_num)
-        if write_to_file:
-            writeArrayResults(w, cust_arr, limit_output_gen, has_limit_gen, generr_line, cust_pattern, cust_arr_num, context_generic)
-            
-    if custIsInitiated2:
-        generr_line = "Pattern searched: " + cust_pattern2
-        printArrayResults(cust_arr2, cust_pattern2, limit_output_gen, has_limit_gen, context_generic, generr_line, cust_arr_num2)
-        if write_to_file:
-            writeArrayResults(w, cust_arr2, limit_output_gen, has_limit_gen, generr_line, cust_pattern2, cust_arr_num2, context_generic)
-            
-    if custIsInitiated3:
-        generr_line = "Pattern searched: " + cust_pattern3
-        printArrayResults(cust_arr3, cust_pattern3, limit_output_gen, has_limit_gen, context_generic, generr_line, cust_arr_num3)
-        if write_to_file:
-            writeArrayResults(w, cust_arr3, limit_output_gen, has_limit_gen, generr_line, cust_pattern3, cust_arr_num3, context_generic)
-        
-    f.close()
-    if write_to_file:
-        w.close()    
+        write_report("outfile.txt", filename, analysis, config)
 
 if __name__ == "__main__":
 

@@ -1,8 +1,25 @@
 # Logreader
-Simple python-script I use to analyze log-files to quickly extract the commonly relevant error-messages. The script prints the results to terminal and by default outputs to file `outfile.txt`.
+Python log-analysis utility for quickly extracting common error messages, optional literal patterns, and surrounding context. Results are colorized in the terminal and, by default, also written to `outfile.txt`.
 
 ## Usage
-Running the script with `python logreader.py` and selecting the logfile to be analyzed. The following can be adjusted:
+
+The standalone CLI is the recommended terminal interface:
+
+```text
+python .\logreader_cli.py server.log
+python .\logreader_cli.py server.log --context 5 --pattern timeout
+python .\logreader_cli.py server.log --enable warning exception --no-output-file
+```
+
+`ERROR:`, generic `ERROR`, `FAILED`, and `FATAL` searches are enabled by default. Run `python .\logreader_cli.py --help` for all pattern, context, limit, separator, encoding, color, and output-file options.
+
+The temporary legacy GUI can still be started with:
+
+```text
+python .\logreader.py
+```
+
+It requires PySimpleGUI and lets you select a log file and adjust:
 
 `display_separator`:   (True/false) Whether or not to display separators between errors in format "error:".  
 `write_to_file`:       (True/false) Writing to a file or just terminal.  
@@ -12,13 +29,16 @@ Running the script with `python logreader.py` and selecting the logfile to be an
 `generic_display_separator`:   (True/false) Whether or not to display separators between generic errors.  
 `generic_context`:             Optional. The number of error-messages written above and below generic errors. (Default: 0)  
 
-You can also optionally enter one to three entries for `custom pattern` which returns case insensitive hits on the pattern. There is also a toggle for optional patterns to be searched, only two are enabled by default.
+You can also enter up to three custom literal patterns. Searches are case-insensitive.
 
 ## Project structure
 
 - `logreader_core.py` contains the pure log-analysis engine. It accepts decoded log lines and search patterns, and returns structured categories, excerpts, source line numbers, and match metadata. It does not open files or write to a GUI, terminal, or output file.
-- `logreader.py` contains the current PySimpleGUI interface, file handling, and terminal/text-file rendering.
-- `tests/` contains the analysis-engine unit tests.
+- `logreader_config.py` contains shared options and built-in search presets.
+- `logreader_terminal.py` renders colored terminal reports and plain-text output files.
+- `logreader_cli.py` is the standalone `argparse` command-line interface.
+- `logreader.py` is the temporary legacy PySimpleGUI frontend. It consumes the same configuration, engine, and renderer as the CLI.
+- `tests/` contains unit and CLI integration tests.
 
 Run the tests with:
 
