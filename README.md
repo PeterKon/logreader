@@ -11,7 +11,7 @@ python .\logreader_cli.py server.log --context 5 --pattern timeout
 python .\logreader_cli.py server.log --enable warning exception --no-output-file
 ```
 
-`ERROR:`, generic `ERROR`, `FAILED`, and `FATAL` searches are enabled by default. Run `python .\logreader_cli.py --help` for all pattern, context, limit, separator, encoding, color, and output-file options.
+`ERROR:`, generic `ERROR`, `FAILED`, and `FATAL` searches are enabled by default. Terminal color is enabled automatically when supported; use `--no-color` or the `NO_COLOR` environment variable to force plain text. Run `python .\logreader_cli.py --help` for all pattern, context, limit, separator, encoding, color, and output-file options.
 
 The temporary legacy GUI can still be started with:
 

@@ -2,6 +2,7 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from logreader_config import LogreaderConfig
 from logreader_core import analyze_lines
@@ -40,6 +41,29 @@ class TerminalRendererTests(unittest.TestCase):
 
         self.assertIn("\033[", stream.getvalue())
         self.assertIn("ERROR:", stream.getvalue())
+
+    @patch("logreader_terminal._stream_supports_color", return_value=True)
+    def test_automatic_color_uses_ansi_when_supported(self, supports_color):
+        config = LogreaderConfig(enabled_patterns=())
+        analysis = analyze_lines(["ERROR: boom"], config.search_patterns())
+        stream = io.StringIO()
+
+        print_report("sample.log", analysis, config, stream=stream)
+
+        supports_color.assert_called_once_with(stream)
+        self.assertIn("\033[", stream.getvalue())
+
+    @patch("logreader_terminal._stream_supports_color", return_value=False)
+    def test_automatic_color_falls_back_to_plain_text(self, supports_color):
+        config = LogreaderConfig(enabled_patterns=())
+        analysis = analyze_lines(["ERROR: boom"], config.search_patterns())
+        stream = io.StringIO()
+
+        print_report("sample.log", analysis, config, stream=stream)
+
+        supports_color.assert_called_once_with(stream)
+        self.assertNotIn("\033[", stream.getvalue())
+        self.assertIn("ERROR: boom", stream.getvalue())
 
     def test_limit_stops_before_the_next_match_but_keeps_context(self):
         config = LogreaderConfig(context=1, limit=1, enabled_patterns=())

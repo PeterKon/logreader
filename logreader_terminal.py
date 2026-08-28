@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -55,11 +56,67 @@ def print_report(
     stream: TextIO | None = None,
     color: bool | None = None,
 ) -> None:
-    """Write a report to a terminal-like stream."""
+    """Write a report, automatically using color when the stream supports it."""
 
     output_stream = stream if stream is not None else sys.stdout
-    use_color = output_stream.isatty() if color is None else color
+    use_color = _stream_supports_color(output_stream) if color is None else color
     output_stream.write(render_report(source_name, analysis, config, color=use_color))
+
+
+def _stream_supports_color(stream: TextIO) -> bool:
+    """Return whether ANSI colors can safely be written to a stream."""
+
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+
+    try:
+        if not stream.isatty():
+            return False
+    except (AttributeError, OSError):
+        return False
+
+    if os.environ.get("TERM") == "dumb":
+        return False
+    if os.name != "nt":
+        return True
+    return _enable_windows_virtual_terminal(stream)
+
+
+def _enable_windows_virtual_terminal(stream: TextIO) -> bool:
+    """Enable ANSI processing for a Windows console, if supported."""
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+        import msvcrt
+
+        handle = msvcrt.get_osfhandle(stream.fileno())
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_console_mode = kernel32.GetConsoleMode
+        get_console_mode.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        get_console_mode.restype = wintypes.BOOL
+        set_console_mode = kernel32.SetConsoleMode
+        set_console_mode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        set_console_mode.restype = wintypes.BOOL
+
+        mode = wintypes.DWORD()
+        if not get_console_mode(handle, ctypes.byref(mode)):
+            return False
+
+        enable_virtual_terminal_processing = 0x0004
+        if mode.value & enable_virtual_terminal_processing:
+            return True
+        return bool(
+            set_console_mode(
+                handle,
+                mode.value | enable_virtual_terminal_processing,
+            )
+        )
+    except (AttributeError, OSError, ValueError):
+        return False
 
 
 def write_report(

@@ -289,7 +289,7 @@ def main():
         logoutput = log_file.read().splitlines()
 
     analysis = analyze_lines(logoutput, config.search_patterns())
-    print_report(filename, analysis, config, color=True)
+    print_report(filename, analysis, config)
     if write_to_file:
         write_report("outfile.txt", filename, analysis, config)
 
