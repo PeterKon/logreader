@@ -3,35 +3,34 @@ import os
 from termcolor import colored
 import PySimpleGUI as sg
 
+from logreader_core import CategoryResult, SearchPattern, analyze_lines
+
 #Log analysis
 
 #TODO: Migrate to different GUI (maybe)
 #TODO: Add support for several files in at once (maybe)
-#TODO: Move array and vars into a single class for an error-object(maybe)
-#TODO: Implement general error-limit vs "error:" (add GUI) (or fix class)
 #TODO: Fix general display_separator to be only initialized when has context and remove from GUI for both
 #TODO: Change default filewrite to off
-#TODO: Class inheritance from parent class with vars
 #TODO: Investigate error in custom pattern on browser log (lim non contxt 20 delimiter) (fix: conv to lower)
-#TODO: Add errorobjects to a list and iterate through the list when calling functions
 #TODO: Implement nested search (search from the generated error-lists with custom input)
 #TODO: Catch and handle file-encoding errors (see file encodingtest)
 
-class ErrorObject:
-
-    def __init__(self, isInitialized, messageArray, errorMessage, errorNumber, limit, hasLimit):
-    
-        self.isInitialized = isInitialized
-        self.messageArray = messageArray
-        self.errorMessage = errorMessage
-        self.errorNumber = errorNumber
-        self.limit = limit
-        self.hasLimit = hasLimit
-        
 def name(name):
 
     dots = 23-len(name)-2
     return sg.Text(name + ' ' + '•'*dots, size=(23,1), justification='r',pad=(0,0), font='Courier 10')
+
+def resultToDisplayRows(result: CategoryResult, display_separator: bool):
+
+    rows = []
+    for excerpt in result.excerpts:
+        for line in excerpt.lines:
+            line_number = str(line.number)
+            spaces = " " * max(0, 7-len(line_number))
+            rows.append(line_number + spaces + "-> " + line.text)
+        if display_separator:
+            rows.append("-------->")
+    return rows
 
 def printArrayResults(arrIn, msg, limit, has_limit, context, gen_line, err_num):
 
@@ -136,62 +135,6 @@ def writeArrayResults(w, arrIn, limit, has_limit, gen_line, msg, err_num, contex
     if not broken:
         w.write("\nPrinted all " + str(err_num) + " elements.\n\n")
 
-def addContextBefore(context_num, logoutput, in_arr, x):
-    
-    #Grabs messages before the error-line and adds them to array
-    cont_num = context_num
-    for z in range(context_num):
-        if (cont_num >= 0):
-            if(x - cont_num) >= 0:
-                if(logoutput[x - cont_num] not in in_arr):
-                    in_arr.append(logoutput[x - cont_num])
-            cont_num += -1
-
-def addContextAfter(context_num, logoutput, in_arr, x, msg, display_separator):
-
-    #Grabs messages after the error-line and adds them to array
-    for c in range(context_num):
-        if((x + (c + 1)) > (len(logoutput) - 1)) or (msg in logoutput[x + (c + 1)].lower()):
-            break
-        in_arr.append(logoutput[x + (c + 1)])
-            
-    if display_separator:
-        in_arr.append(" ")
-
-def contextFixer(display_separator, in_arr):
-
-    #This function looks for adjacent lines and checks if they are separated by
-    #a line-separator, and removes the separator for adjacent lines only.
-    #if not res triggers on a line-separator
-    if display_separator:
-
-        for x in range(len(in_arr)):
-            
-            res = in_arr[x].split()
-            if not res:
-                if(((x - 1) >= 0) and ((x + 1) < len(in_arr))):
-                
-                    comp1 = in_arr[x - 1].split()
-                    comp1_res = re.search('[0-9]+', comp1[0]).group()
-                    
-                    comp2 = in_arr[x + 1].split()
-                    comp2_res = re.search('[0-9]+', comp2[0]).group()
-                    
-                    if(int(comp1_res) == (int(comp2_res) - 1)):
-                        in_arr[x] = "remove"
-                        
-        #Iterate backwards and remove unneeded lineseparators.
-        v = len(in_arr) - 1
-        for x in range(len(in_arr)):
-            
-            if(in_arr[v] == "remove"):
-                in_arr.pop(v)
-            v += -1
-            
-        for x in range(len(in_arr)):
-            if(in_arr[x] == " "):
-                in_arr[x] = "-------->"
-
 def main():
     
     context = 3
@@ -207,14 +150,11 @@ def main():
     limit_output_failed = 0
     limit_output_fatal = 0
     
-    #isInitialized, messageArray, errorMessage, errorNumber, limit, hasLimit
     general_limit = 0
-    failed = ErrorObject(True, [], "failed", 0, general_limit, False)
-    fatal = ErrorObject(True, [], "fatal", 0, general_limit, False)
-    #TODO: apply all fatal vars
     
     version = "Logreader v0.12"
     
+    isFailedInitialized = True
     isFatalInitialized = True
     isWarningInitialized = False
     isFailureInitialized = False
@@ -223,34 +163,9 @@ def main():
     isExceptionInitialized = False
     isCriticalInitialized = False
     
-    err_num = 0
-    err_gen_num = 0
-    war_gen_num = 0
-    failure_gen_num = 0
-    illegal_gen_num = 0
-    fatal_gen_num = 0
-    invalid_gen_num = 0
-    exception_gen_num = 0
-    critical_gen_num = 0
-    cust_arr_num = 0
-    cust_arr_num2 = 0
-    cust_arr_num3 = 0
-    
-    err_msg_arr = []
-    errgen_msg_arr = []
-    fatalgen_msg_arr = []
-    war_msg_arr = []
-    failure_msg_arr = []
-    illegal_msg_arr = []
-    invalid_msg_arr = []
-    exception_msg_arr = []
-    critical_msg_arr = []
-    cust_arr = []
-    cust_arr2 = []
-    cust_arr3 = []
-    
     err_msg1 = "error:"    
     err_gen = "error"
+    failed_gen = "failed"
     failure_gen = "failure"
     illegal_gen = "illegal"
     fatal_gen = "fatal"
@@ -383,7 +298,7 @@ def main():
             else:
                 window['FAILED'].metadata = not window['FAILED'].metadata
                 window['FAILED'].update(image_data=toggle_btn_on if window['FAILED'].metadata else toggle_btn_off)
-                failed.isInitialized = window['FAILED'].metadata
+                isFailedInitialized = window['FAILED'].metadata
                 window['FATAL'].metadata = not window['FATAL'].metadata
                 window['FATAL'].update(image_data=toggle_btn_on if window['FATAL'].metadata else toggle_btn_off)
                 isFatalInitialized = window['FATAL'].metadata
@@ -409,7 +324,7 @@ def main():
         elif event == 'FAILED':
             window['FAILED'].metadata = not window['FAILED'].metadata
             window['FAILED'].update(image_data=toggle_btn_on if window['FAILED'].metadata else toggle_btn_off)
-            failed.isInitialized = window['FAILED'].metadata
+            isFailedInitialized = window['FAILED'].metadata
         elif event == 'FATAL':
             window['FATAL'].metadata = not window['FATAL'].metadata
             window['FATAL'].update(image_data=toggle_btn_on if window['FATAL'].metadata else toggle_btn_off)
@@ -453,7 +368,7 @@ def main():
             cust_pattern = values['CUSTOMIN']
             cust_pattern2 = values['CUSTOMIN2']
             cust_pattern3 = values['CUSTOMIN3']
-            failed.isInitialized = window['FAILED'].metadata
+            isFailedInitialized = window['FAILED'].metadata
             isFatalInitialized = window['FATAL'].metadata
             isWarningInitialized = window['WARNING'].metadata
             isFailureInitialized = window['FAILURE'].metadata
@@ -466,8 +381,6 @@ def main():
                 context_generic = int(values['GENCONTIN'])            
             if values['ERRIN'] != '':
                 general_limit = int(values['ERRIN'])
-                failed.limit = general_limit
-                failed.hasLimit = (failed.limit != 0)
             if values['CONTIN'] != '':
                 context = int(values['CONTIN'])                
             break
@@ -503,145 +416,81 @@ def main():
         w = open("outfile.txt", "w")
         
     logoutput = f.read().splitlines()
-    
-    #Formatting each line to the format 123xxxx-> where x is spaces and maintaining the same
-    #num of spaces up to 8 digits to make them line up. 123 being the line-number from 1 to
-    #the end of file
-    for x in range(len(logoutput)):
 
-        space_string = ""
-        num_len = len(str(x + 1))
-        
-        if x >= 0:
-            for z in range(7-(num_len)):
-                space_string += " "
-        
-        logoutput[x] = str(x + 1) + space_string + "-> " + logoutput[x]
-    
-    #Appending the error-strings to the appropriate array, and adding context
-    for x in range(len(logoutput)):
-        
-        #Add errors in format "error:"
-        if (err_msg1 in logoutput[x].lower()):
-            
-            addContextBefore(context, logoutput, err_msg_arr, x)
-            err_msg_arr.append(logoutput[x])
-            err_num +=1
-            addContextAfter(context, logoutput, err_msg_arr, x, "error:", display_separator)
-        
-        #Add the other generic messages
-        if (war_msg1 in logoutput[x].lower()):            
-            if(isWarningInitialized):
-                addContextBefore(context_generic, logoutput, war_msg_arr, x)
-                war_msg_arr.append(logoutput[x])
-                war_gen_num +=1
-                addContextAfter(context_generic, logoutput, war_msg_arr, x, war_msg1, display_separator_general)
-        
-        if (failure_gen in logoutput[x].lower()):            
-            if(isFailureInitialized):
-                addContextBefore(context_generic, logoutput, failure_msg_arr, x)
-                failure_msg_arr.append(logoutput[x])
-                failure_gen_num +=1
-                addContextAfter(context_generic, logoutput, failure_msg_arr, x, failure_gen, display_separator_general)
-        
-        if (illegal_gen in logoutput[x].lower()):            
-            if(isIllegalInitialized):
-                addContextBefore(context_generic, logoutput, illegal_msg_arr, x)
-                illegal_msg_arr.append(logoutput[x])
-                illegal_gen_num +=1
-                addContextAfter(context_generic, logoutput, illegal_msg_arr, x, illegal_gen, display_separator_general)
-            
-        if (err_gen in logoutput[x].lower()) and ("error:" not in logoutput[x].lower()):        
-            addContextBefore(context_generic, logoutput, errgen_msg_arr, x)
-            errgen_msg_arr.append(logoutput[x])
-            err_gen_num +=1
-            addContextAfter(context_generic, logoutput, errgen_msg_arr, x, err_gen, display_separator_general)
-            
-        if (failed.errorMessage in logoutput[x].lower()):            
-            if(failed.isInitialized):
-                addContextBefore(context_generic, logoutput, failed.messageArray, x)
-                failed.messageArray.append(logoutput[x])
-                failed.errorNumber +=1
-                addContextAfter(context_generic, logoutput, failed.messageArray, x, failed.errorMessage, display_separator_general)
-            
-        if (fatal_gen in logoutput[x].lower()):
-            if(isFatalInitialized):
-                addContextBefore(context_generic, logoutput, fatalgen_msg_arr, x)
-                fatalgen_msg_arr.append(logoutput[x])
-                fatal_gen_num +=1
-                addContextAfter(context_generic, logoutput, fatalgen_msg_arr, x, fatal_gen, display_separator_general)
-        
-        if (invalid_gen in logoutput[x].lower()):
-            if(isInvalidInitialized):
-                addContextBefore(context_generic, logoutput, invalid_msg_arr, x)
-                invalid_msg_arr.append(logoutput[x])
-                invalid_gen_num +=1
-                addContextAfter(context_generic, logoutput, invalid_msg_arr, x, invalid_gen, display_separator_general)
-        
-        if (exception_gen in logoutput[x].lower()):
-            if(isExceptionInitialized):
-                addContextBefore(context_generic, logoutput, exception_msg_arr, x)
-                exception_msg_arr.append(logoutput[x])
-                exception_gen_num +=1
-                addContextAfter(context_generic, logoutput, exception_msg_arr, x, exception_gen, display_separator_general)
-                
-        if (critical_gen in logoutput[x].lower()):
-            if(isCriticalInitialized):
-                addContextBefore(context_generic, logoutput, critical_msg_arr, x)
-                critical_msg_arr.append(logoutput[x])
-                critical_gen_num +=1
-                addContextAfter(context_generic, logoutput, critical_msg_arr, x, critical_gen, display_separator_general)
-            
-        if custIsInitiated:
-            regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
-            if (cust_pattern.lower() in regex_comp[2].lower()):
-                addContextBefore(context_generic, logoutput, cust_arr, x)
-                cust_arr.append(logoutput[x])
-                cust_arr_num +=1
-                addContextAfter(context_generic, logoutput, cust_arr, x, cust_pattern, display_separator_general)
-                
-        if custIsInitiated2:
-            regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
-            if (cust_pattern2.lower() in regex_comp[2].lower()):                
-                addContextBefore(context_generic, logoutput, cust_arr2, x)
-                cust_arr2.append(logoutput[x])
-                cust_arr_num2 +=1
-                addContextAfter(context_generic, logoutput, cust_arr2, x, cust_pattern2, display_separator_general)
-                
-        if custIsInitiated3:
-            regex_comp = re.split(r'([0-9]+ *->)', logoutput[x], 1)
-            if (cust_pattern3.lower() in regex_comp[2].lower()):                
-                addContextBefore(context_generic, logoutput, cust_arr3, x)
-                cust_arr3.append(logoutput[x])
-                cust_arr_num3 +=1
-                addContextAfter(context_generic, logoutput, cust_arr3, x, cust_pattern3, display_separator_general)
-                
-
-    #Checking for spaces that we dont need (places where separating errors do not make sense)        
-    contextFixer(display_separator, err_msg_arr)
-    contextFixer(display_separator_general, errgen_msg_arr)
-    if(isFailureInitialized):
-        contextFixer(display_separator_general, failure_msg_arr)
-    if(isIllegalInitialized):
-        contextFixer(display_separator_general, illegal_msg_arr)
-    if(isWarningInitialized):
-        contextFixer(display_separator_general, war_msg_arr)
-    if(failed.isInitialized):
-        contextFixer(display_separator_general, failed.messageArray)
-    if(isFatalInitialized):
-        contextFixer(display_separator_general, fatalgen_msg_arr)
-    if(isInvalidInitialized):
-        contextFixer(display_separator_general, invalid_msg_arr)
-    if(isExceptionInitialized):
-        contextFixer(display_separator_general, exception_msg_arr)
-    if(isCriticalInitialized):
-        contextFixer(display_separator_general, critical_msg_arr)
+    search_patterns = [
+        SearchPattern("error_colon", err_msg1, context),
+        SearchPattern(
+            "error",
+            err_gen,
+            context_generic,
+            excluded_substrings=(err_msg1,),
+        ),
+    ]
+    optional_patterns = [
+        (isFailedInitialized, "failed", failed_gen),
+        (isFatalInitialized, "fatal", fatal_gen),
+        (isWarningInitialized, "warning", war_msg1),
+        (isFailureInitialized, "failure", failure_gen),
+        (isIllegalInitialized, "illegal", illegal_gen),
+        (isInvalidInitialized, "invalid", invalid_gen),
+        (isExceptionInitialized, "exception", exception_gen),
+        (isCriticalInitialized, "critical", critical_gen),
+    ]
+    search_patterns.extend(
+        SearchPattern(key, needle, context_generic)
+        for enabled, key, needle in optional_patterns
+        if enabled
+    )
     if custIsInitiated:
-        contextFixer(display_separator_general, cust_arr)
+        search_patterns.append(SearchPattern("custom_1", cust_pattern, context_generic))
     if custIsInitiated2:
-        contextFixer(display_separator_general, cust_arr2)
+        search_patterns.append(SearchPattern("custom_2", cust_pattern2, context_generic))
     if custIsInitiated3:
-        contextFixer(display_separator_general, cust_arr3)
+        search_patterns.append(SearchPattern("custom_3", cust_pattern3, context_generic))
+
+    analysis = analyze_lines(logoutput, search_patterns)
+
+    def analysisValues(key, display_separator):
+        result = analysis.category(key)
+        return resultToDisplayRows(result, display_separator), result.match_count
+
+    err_msg_arr, err_num = analysisValues("error_colon", display_separator)
+    errgen_msg_arr, err_gen_num = analysisValues("error", display_separator_general)
+
+    failed_msg_arr, failed_gen_num = ([], 0)
+    fatalgen_msg_arr, fatal_gen_num = ([], 0)
+    war_msg_arr, war_gen_num = ([], 0)
+    failure_msg_arr, failure_gen_num = ([], 0)
+    illegal_msg_arr, illegal_gen_num = ([], 0)
+    invalid_msg_arr, invalid_gen_num = ([], 0)
+    exception_msg_arr, exception_gen_num = ([], 0)
+    critical_msg_arr, critical_gen_num = ([], 0)
+    cust_arr, cust_arr_num = ([], 0)
+    cust_arr2, cust_arr_num2 = ([], 0)
+    cust_arr3, cust_arr_num3 = ([], 0)
+
+    if isFailedInitialized:
+        failed_msg_arr, failed_gen_num = analysisValues("failed", display_separator_general)
+    if isFatalInitialized:
+        fatalgen_msg_arr, fatal_gen_num = analysisValues("fatal", display_separator_general)
+    if isWarningInitialized:
+        war_msg_arr, war_gen_num = analysisValues("warning", display_separator_general)
+    if isFailureInitialized:
+        failure_msg_arr, failure_gen_num = analysisValues("failure", display_separator_general)
+    if isIllegalInitialized:
+        illegal_msg_arr, illegal_gen_num = analysisValues("illegal", display_separator_general)
+    if isInvalidInitialized:
+        invalid_msg_arr, invalid_gen_num = analysisValues("invalid", display_separator_general)
+    if isExceptionInitialized:
+        exception_msg_arr, exception_gen_num = analysisValues("exception", display_separator_general)
+    if isCriticalInitialized:
+        critical_msg_arr, critical_gen_num = analysisValues("critical", display_separator_general)
+    if custIsInitiated:
+        cust_arr, cust_arr_num = analysisValues("custom_1", display_separator_general)
+    if custIsInitiated2:
+        cust_arr2, cust_arr_num2 = analysisValues("custom_2", display_separator_general)
+    if custIsInitiated3:
+        cust_arr3, cust_arr_num3 = analysisValues("custom_3", display_separator_general)
     
     #Print results
     print("\n" + version + "\n")
@@ -650,8 +499,8 @@ def main():
     print("Number of \"ERROR\" in this file           " + str(err_gen_num))
     if(isWarningInitialized):
         print("Number of \"WARNING:\" in this file        " + str(war_gen_num))
-    if(failed.isInitialized):
-        print("Number of \"FAILED\" in this file          " + str(failed.errorNumber))
+    if(isFailedInitialized):
+        print("Number of \"FAILED\" in this file          " + str(failed_gen_num))
     if(isFatalInitialized):
         print("Number of \"FATAL\" in this file           " + str(fatal_gen_num))
     if(isFailureInitialized):
@@ -689,8 +538,8 @@ def main():
         w.write("Number of \"ERROR\" in this file           " + str(err_gen_num) + "\n")
         if(isWarningInitialized):
             w.write("Number of \"WARNING:\" in this file        " + str(war_gen_num) + "\n")
-        if(failed.isInitialized):
-            w.write("Number of \"FAILED\" in this file          " + str(failed.errorNumber) + "\n")
+        if(isFailedInitialized):
+            w.write("Number of \"FAILED\" in this file          " + str(failed_gen_num) + "\n")
         if(isFatalInitialized):
             w.write("Number of \"FATAL\" in this file           " + str(fatal_gen_num) + "\n")
         if(isFailureInitialized):
@@ -729,11 +578,11 @@ def main():
     if write_to_file:
         writeArrayResults(w, errgen_msg_arr, limit_output_gen, has_limit_gen, generr_line, err_gen, err_gen_num, context_generic)
     
-    if(failed.isInitialized):
+    if(isFailedInitialized):
         generr_line = "\"FAILED\" contained:                            |"
-        printArrayResults(failed.messageArray, failed.errorMessage, failed.limit, failed.hasLimit, context_generic, generr_line, failed.errorNumber)
+        printArrayResults(failed_msg_arr, failed_gen, limit_output_failed, has_limit_failed, context_generic, generr_line, failed_gen_num)
         if write_to_file:
-            writeArrayResults(w, failed.messageArray, failed.limit, failed.hasLimit, generr_line, failed.errorMessage, failed.errorNumber, context_generic)
+            writeArrayResults(w, failed_msg_arr, limit_output_failed, has_limit_failed, generr_line, failed_gen, failed_gen_num, context_generic)
     
     if(isFatalInitialized):
         generr_line = "\"FATAL\" contained:                             |"
