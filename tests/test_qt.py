@@ -116,7 +116,7 @@ class LogreaderQtTests(unittest.TestCase):
         button.click()
         self.assertEqual(self.window.build_config().enabled_patterns, ())
 
-    def test_loading_a_file_renders_colored_plain_text_and_updates_status(self):
+    def test_loading_stages_file_until_analyze_button_is_pressed(self):
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "server.log"
             log_path.write_text(
@@ -126,16 +126,27 @@ class LogreaderQtTests(unittest.TestCase):
 
             loaded = self.window.load_file(log_path)
             results = self.window.findChild(QPlainTextEdit, "resultsView")
+            staged_output = results.toPlainText()
+            staged_status = self.window.statusBar().currentMessage()
+
+            self.window.findChild(QLineEdit, "customPattern").returnPressed.emit()
+            output_after_return = results.toPlainText()
+
+            self.window.findChild(QPushButton, "analyzeButton").click()
             output = results.toPlainText()
             html = results.document().toHtml()
 
         self.assertTrue(loaded)
+        self.assertEqual(staged_output, "")
+        self.assertEqual(output_after_return, "")
+        self.assertIn("3 lines loaded as UTF-8", staged_status)
+        self.assertIn("press Analyze to begin", staged_status)
         self.assertIn("ERROR: boom", output)
         self.assertNotIn("\033[", output)
-        self.assertIn(COLORS["red"].name(), html)
-        self.assertIn(COLORS["green"].name(), html)
-        self.assertIn(COLORS["blue"].name(), html)
-        self.assertIn("3 lines", self.window.statusBar().currentMessage())
+        self.assertIn(COLORS["match"].name(), html)
+        self.assertIn(COLORS["matched_text"].name(), html)
+        self.assertIn(COLORS["line_number"].name(), html)
+        self.assertIn("UTF-8", self.window.statusBar().currentMessage())
 
     def test_zero_match_patterns_stay_in_summary_without_blank_sections(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -143,6 +154,7 @@ class LogreaderQtTests(unittest.TestCase):
             log_path.write_text("ERROR: boom\n", encoding="utf-8")
 
             self.window.load_file(log_path)
+            self.window.findChild(QPushButton, "analyzeButton").click()
             output = self.window.findChild(
                 QPlainTextEdit,
                 "resultsView",
@@ -167,6 +179,7 @@ class LogreaderQtTests(unittest.TestCase):
             )
 
             self.window.load_file(log_path)
+            self.window.findChild(QPushButton, "analyzeButton").click()
             output = self.window.findChild(
                 QPlainTextEdit,
                 "resultsView",
@@ -188,6 +201,7 @@ class LogreaderQtTests(unittest.TestCase):
 
             self.window.load_file(log_path)
             results = self.window.findChild(QPlainTextEdit, "resultsView")
+            self.window.findChild(QPushButton, "analyzeButton").click()
             without_separator = results.toPlainText()
 
             self.window.findChild(

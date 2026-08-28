@@ -37,7 +37,9 @@ This can also be launched as a Python module:
 python -m logreader
 ```
 
-Choose **Open log…** to select a `.log`, `.txt`, or other text file. The file is analyzed immediately. All patterns are toggleable and use the same context value, which defaults to three lines. `ERROR:`, plain `ERROR`, `FAILED`, and `FATAL` appear first and are enabled by default. **Toggle all** enables every pattern when any are off, then disables every pattern when all are on. Plain and colon forms of errors, warnings, and exceptions can be selected independently without double-counting. Additional searches include `ABORTED`, `TERMINATED`, `TIMEOUT`, `UNINITIALIZED`, and `NOT FOUND`. Change the controls and choose **Analyze** to run again. Separation of entries is optional and off by default.
+Choose **Open log…** to select a `.log`, `.txt`, or other text file. The file is decoded and staged without starting analysis; configure the filters, then choose **Analyze** to display results. Opening another file clears the previous results and again waits for **Analyze**. All patterns use the same context value, which defaults to three lines. `ERROR:`, plain `ERROR`, `FAILED`, and `FATAL` appear first and are enabled by default. **Toggle all** enables every pattern when any are off, then disables every pattern when all are on. Plain and colon forms of errors, warnings, and exceptions can be selected independently without double-counting. Additional searches include `ABORTED`, `TERMINATED`, `TIMEOUT`, `UNINITIALIZED`, and `NOT FOUND`. Separation of entries is optional and off by default.
+
+Logreader detects UTF-8, UTF-8 with a byte-order mark, and UTF-16/32 with a byte-order mark. Other files fall back to Windows-1252. The selected encoding is shown in the status bar.
 
 The results pane keeps the source line numbers and uses color to distinguish matches from surrounding context. The status bar reports the source line count, total matches, and number of active patterns.
 
@@ -48,8 +50,11 @@ Analysis currently runs on the UI thread. Very large files may make the window b
 - `pyproject.toml`: package metadata, dependencies, and installed commands.
 - `src/logreader/core.py`: pure analysis engine; no file or interface operations.
 - `src/logreader/config.py`: shared options and built-in search presets.
+- `src/logreader/file_loader.py`: deterministic file decoding and line loading.
+- `src/logreader/presentation.py`: pure filtering and result-limit presentation rules.
+- `src/logreader/theme.py`: semantic desktop color roles.
 - `src/logreader/qt_app.py`: PySide6 desktop application and Qt result rendering.
-- `tests/`: engine, configuration, and GUI tests.
+- `tests/`: engine, configuration, file-loading, presentation, and GUI tests.
 
 ## Tests
 

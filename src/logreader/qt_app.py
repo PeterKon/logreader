@@ -36,16 +36,12 @@ from .config import (
     LogreaderConfig,
 )
 from .core import AnalysisResult, CategoryResult, ResultLine, analyze_lines
+from .file_loader import LogDecodeError, load_log
+from .presentation import CategoryPresentation, build_category_presentations
+from .theme import THEME_COLORS
 
 
-COLORS = {
-    "text": QColor("#d8dee9"),
-    "muted": QColor("#8b949e"),
-    "heading": QColor("#d2a8ff"),
-    "red": QColor("#ff7b72"),
-    "green": QColor("#7ee787"),
-    "blue": QColor("#79c0ff"),
-}
+COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
 RULE = "─" * 72
 ENTRY_SEPARATOR = RULE
 
@@ -57,6 +53,7 @@ class LogreaderWindow(QMainWindow):
         super().__init__()
         self._source_path: Path | None = None
         self._source_lines: tuple[str, ...] = ()
+        self._source_encoding: str | None = None
         self._pattern_checkboxes: dict[str, QCheckBox] = {}
 
         self.setWindowTitle(APP_VERSION)
@@ -108,11 +105,11 @@ class LogreaderWindow(QMainWindow):
             QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         )
         self._results.setStyleSheet(
-            "QPlainTextEdit {"
-            " background: #0d1117;"
-            " color: #d8dee9;"
-            " border: 1px solid #30363d;"
-            " selection-background-color: #264f78;"
+            f"QPlainTextEdit {{"
+            f" background: {THEME_COLORS['background']};"
+            f" color: {THEME_COLORS['body']};"
+            f" border: 1px solid {THEME_COLORS['border']};"
+            f" selection-background-color: {THEME_COLORS['selection']};"
             " padding: 8px;"
             "}"
         )
@@ -168,7 +165,6 @@ class LogreaderWindow(QMainWindow):
         self._custom_pattern.setPlaceholderText(
             "Optional case-insensitive literal pattern"
         )
-        self._custom_pattern.returnPressed.connect(self.analyze_current)
         layout.addWidget(QLabel("Custom pattern"), 2, 0)
         layout.addWidget(self._custom_pattern, 2, 1, 1, 7)
 
@@ -233,8 +229,8 @@ class LogreaderWindow(QMainWindow):
 
         path = Path(source_path)
         try:
-            source_lines = tuple(path.read_text().splitlines())
-        except (OSError, UnicodeError) as error:
+            loaded = load_log(path)
+        except (OSError, LogDecodeError) as error:
             QMessageBox.critical(
                 self,
                 "Unable to open log",
@@ -244,12 +240,20 @@ class LogreaderWindow(QMainWindow):
             return False
 
         self._source_path = path
-        self._source_lines = source_lines
+        self._source_lines = loaded.lines
+        self._source_encoding = loaded.encoding
         self._path_label.setText(path.name)
         self._path_label.setToolTip(str(path))
         self._analyze_button.setEnabled(True)
         self.setWindowTitle(f"{APP_VERSION} — {path.name}")
-        self.analyze_current()
+        self._results.clear()
+        self._results.setPlaceholderText(
+            f"{path.name} is loaded. Choose Analyze to display results."
+        )
+        self.statusBar().showMessage(
+            f"{len(loaded.lines):,} lines loaded as {loaded.encoding}  •  "
+            "press Analyze to begin"
+        )
         return True
 
     def analyze_current(self) -> None:
@@ -280,7 +284,8 @@ class LogreaderWindow(QMainWindow):
         )
         self.statusBar().showMessage(
             f"{analysis.line_count:,} lines  •  {match_count:,} matches  •  "
-            f"{len(analysis.categories)} active patterns"
+            f"{len(analysis.categories)} active patterns  •  "
+            f"{self._source_encoding or 'unknown encoding'}"
         )
 
 
@@ -302,8 +307,8 @@ def render_analysis(
         _insert(cursor, f"{source_name}\n\n", "muted")
         for key, result in analysis.categories.items():
             label = config.label_for(key)
-            _insert(cursor, f"{label:<20}", "text")
-            _insert(cursor, f"{result.match_count:>8} matches\n", _count_color(result))
+            _insert(cursor, f"{label:<20}", "body")
+            _insert(cursor, f"{result.match_count:>8} matches\n", _count_role(result))
 
         _insert(
             cursor,
@@ -312,9 +317,8 @@ def render_analysis(
             "muted",
         )
 
-        for key, result in analysis.categories.items():
-            if result.match_count:
-                _render_category(cursor, key, result, config)
+        for presentation in build_category_presentations(analysis, config.limit):
+            _render_category(cursor, presentation, config)
 
         cursor.endEditBlock()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
@@ -325,42 +329,30 @@ def render_analysis(
 
 def _render_category(
     cursor: QTextCursor,
-    key: str,
-    result: CategoryResult,
+    presentation: CategoryPresentation,
     config: LogreaderConfig,
 ) -> None:
-    label = config.label_for(key)
+    label = config.label_for(presentation.key)
     _insert(cursor, f"\n{RULE}\n", "muted")
-    _insert(cursor, f"{label} — {result.match_count} matches\n", "heading", bold=True)
+    _insert(cursor, f"{presentation.heading(label)}\n", "heading", bold=True)
     _insert(cursor, f"{RULE}\n", "muted")
 
-    if not result.excerpts:
-        _insert(cursor, "No matches.\n", "muted")
-        return
-
-    matches_rendered = 0
-    stopped_at_limit = False
-    for excerpt_index, excerpt in enumerate(result.excerpts):
+    for excerpt_index, excerpt in enumerate(presentation.excerpts):
         for line in excerpt.lines:
-            if line.is_match:
-                if config.limit is not None and matches_rendered >= config.limit:
-                    stopped_at_limit = True
-                    break
-                matches_rendered += 1
-            _render_result_line(cursor, line, result.pattern.needle)
+            _render_result_line(cursor, line, presentation.result.pattern.needle)
 
-        if stopped_at_limit:
-            break
-        if config.limit is not None and matches_rendered >= config.limit:
-            break
-        if config.separate_entries and excerpt_index < len(result.excerpts) - 1:
+        if (
+            config.separate_entries
+            and excerpt_index < len(presentation.excerpts) - 1
+        ):
             _insert(cursor, f"{ENTRY_SEPARATOR}\n", "muted")
 
-    if config.limit is not None and result.match_count > config.limit:
+    limit_message = presentation.limit_message()
+    if limit_message is not None:
         _insert(
             cursor,
-            f"Showing {config.limit} of {result.match_count} matches.\n",
-            "blue",
+            f"{limit_message}\n",
+            "limit_notice",
             bold=True,
         )
 
@@ -372,34 +364,34 @@ def _render_result_line(
 ) -> None:
     line_number = f"{line.number:<7}-> "
     if not line.is_match:
-        _insert(cursor, line_number, "blue", bold=True)
-        _insert(cursor, f"{line.text}\n", "text")
+        _insert(cursor, line_number, "line_number", bold=True)
+        _insert(cursor, f"{line.text}\n", "body")
         return
 
-    _insert(cursor, line_number, "red", bold=True)
+    _insert(cursor, line_number, "match", bold=True)
     match = re.search(re.escape(needle), line.text, re.IGNORECASE)
     if match is None:
-        _insert(cursor, f"{line.text}\n", "text")
+        _insert(cursor, f"{line.text}\n", "body")
         return
 
-    _insert(cursor, line.text[: match.start()], "green")
-    _insert(cursor, line.text[match.start() : match.end()], "red", bold=True)
-    _insert(cursor, f"{line.text[match.end() :]}\n", "green")
+    _insert(cursor, line.text[: match.start()], "matched_text")
+    _insert(cursor, line.text[match.start() : match.end()], "match", bold=True)
+    _insert(cursor, f"{line.text[match.end() :]}\n", "matched_text")
 
 
-def _count_color(result: CategoryResult) -> str:
-    return "red" if result.match_count else "muted"
+def _count_role(result: CategoryResult) -> str:
+    return "hit_count" if result.match_count else "muted"
 
 
 def _insert(
     cursor: QTextCursor,
     text: str,
-    color: str,
+    role: str,
     *,
     bold: bool = False,
 ) -> None:
     text_format = QTextCharFormat()
-    text_format.setForeground(COLORS[color])
+    text_format.setForeground(COLORS[role])
     if bold:
         text_format.setFontWeight(QFont.Weight.Bold)
     cursor.insertText(text, text_format)
