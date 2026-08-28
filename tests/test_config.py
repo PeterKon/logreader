@@ -1,6 +1,6 @@
 import unittest
 
-from logreader_config import LogreaderConfig
+from logreader.config import LogreaderConfig
 
 
 class LogreaderConfigTests(unittest.TestCase):

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from logreader_core import SearchPattern
+from . import __version__
+from .core import SearchPattern
 
 
-APP_VERSION = "Logreader v0.12"
+APP_VERSION = f"Logreader v{__version__}"
 
 
 @dataclass(frozen=True, slots=True)

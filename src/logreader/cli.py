@@ -7,14 +7,14 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from logreader_config import (
+from .config import (
     APP_VERSION,
     DEFAULT_ENABLED_PATTERNS,
     OPTIONAL_PATTERN_KEYS,
     LogreaderConfig,
 )
-from logreader_core import analyze_lines
-from logreader_terminal import print_report, write_report
+from .core import analyze_lines
+from .terminal import print_report, write_report
 
 
 def build_parser() -> argparse.ArgumentParser:

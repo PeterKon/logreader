@@ -1,8 +1,8 @@
 import PySimpleGUI as sg
 
-from logreader_config import APP_VERSION, LogreaderConfig
-from logreader_core import analyze_lines
-from logreader_terminal import print_report, write_report
+from .config import APP_VERSION, LogreaderConfig
+from .core import analyze_lines
+from .terminal import print_report, write_report
 
 #Log analysis
 

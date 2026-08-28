@@ -15,7 +15,7 @@ try:
         QSpinBox,
     )
 
-    from logreader_qt import COLORS, LogreaderWindow
+    from logreader.qt_app import COLORS, LogreaderWindow
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:

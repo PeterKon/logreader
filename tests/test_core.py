@@ -1,6 +1,6 @@
 import unittest
 
-from logreader_core import SearchPattern, analyze_lines
+from logreader.core import SearchPattern, analyze_lines
 
 
 class AnalyzeLinesTests(unittest.TestCase):

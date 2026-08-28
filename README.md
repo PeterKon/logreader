@@ -25,15 +25,23 @@ git clone https://github.com/PeterKon/logreader.git
 cd logreader
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
+
+The editable installation creates the `logreader` and `logreader-gui` commands while keeping them connected to this checkout. Source changes are available as soon as the application is restarted; reinstall only after changing dependencies or entry points in `pyproject.toml`.
 
 ## Desktop application
 
 Start the PySide6 interface with:
 
 ```powershell
-python .\logreader_qt.py
+logreader-gui
+```
+
+The desktop application can also be launched as a Python module:
+
+```powershell
+python -m logreader
 ```
 
 Choose **Open log…** to select a `.log`, `.txt`, or other text file. The file is analyzed immediately. Change the context, result limit, built-in patterns, or custom pattern and choose **Analyze** to run it again.
@@ -47,9 +55,9 @@ Analysis currently runs on the UI thread. Very large files may make the window b
 The CLI accepts a log file as its positional argument:
 
 ```powershell
-python .\logreader_cli.py server.log
-python .\logreader_cli.py server.log --context 5 --pattern timeout
-python .\logreader_cli.py server.log --enable warning exception --no-output-file
+logreader server.log
+logreader server.log --context 5 --pattern timeout
+logreader server.log --enable warning exception --no-output-file
 ```
 
 By default, the CLI:
@@ -62,7 +70,7 @@ By default, the CLI:
 Use `--no-color` to disable terminal colors and `--no-output-file` to skip the text export. Run the built-in help for the complete option list:
 
 ```powershell
-python .\logreader_cli.py --help
+logreader --help
 ```
 
 ## Search behavior
@@ -73,12 +81,13 @@ Because matching is literal, the generic `ERROR` search also finds identifiers o
 
 ## Project layout
 
-- `logreader_core.py`: pure analysis engine; no file or interface operations.
-- `logreader_config.py`: shared options and built-in search presets.
-- `logreader_terminal.py`: terminal colors and plain-text report rendering.
-- `logreader_cli.py`: `argparse` command-line interface.
-- `logreader_qt.py`: PySide6 desktop application and Qt result rendering.
-- `logreader.py`: legacy PySimpleGUI frontend.
+- `pyproject.toml`: package metadata, dependencies, and installed commands.
+- `src/logreader/core.py`: pure analysis engine; no file or interface operations.
+- `src/logreader/config.py`: shared options and built-in search presets.
+- `src/logreader/terminal.py`: terminal colors and plain-text report rendering.
+- `src/logreader/cli.py`: `argparse` command-line interface.
+- `src/logreader/qt_app.py`: PySide6 desktop application and Qt result rendering.
+- `src/logreader/legacy_gui.py`: legacy PySimpleGUI frontend.
 - `tests/`: engine, configuration, terminal, CLI, and GUI tests.
 
 ## Tests
@@ -96,7 +105,7 @@ The GUI tests use Qt's offscreen platform and do not open visible windows.
 The original frontend can still be started if PySimpleGUI is installed:
 
 ```powershell
-python .\logreader.py
+python -m logreader.legacy_gui
 ```
 
 It uses the same configuration, engine, and terminal renderer as the current interfaces. It will remain in the repository until the PySide6 application reaches feature parity.

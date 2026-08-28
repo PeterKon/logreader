@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from logreader_cli import main
+from logreader.cli import main
 
 
 class LogreaderCliTests(unittest.TestCase):

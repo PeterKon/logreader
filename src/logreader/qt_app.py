@@ -28,14 +28,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from logreader_config import (
+from .config import (
     APP_VERSION,
     DEFAULT_ENABLED_PATTERNS,
     OPTIONAL_PATTERN_KEYS,
     PATTERN_PRESETS_BY_KEY,
     LogreaderConfig,
 )
-from logreader_core import AnalysisResult, CategoryResult, ResultLine, analyze_lines
+from .core import AnalysisResult, CategoryResult, ResultLine, analyze_lines
 
 
 COLORS = {

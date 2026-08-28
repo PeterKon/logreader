@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 from typing import TextIO
 
-from logreader_config import APP_VERSION, LogreaderConfig
-from logreader_core import AnalysisResult, CategoryResult, ResultLine
+from .config import APP_VERSION, LogreaderConfig
+from .core import AnalysisResult, CategoryResult, ResultLine
 
 
 SEPARATOR = "-------->"

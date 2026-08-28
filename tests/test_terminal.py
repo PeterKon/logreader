@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from logreader_config import LogreaderConfig
-from logreader_core import analyze_lines
-from logreader_terminal import print_report, render_report, write_report
+from logreader.config import LogreaderConfig
+from logreader.core import analyze_lines
+from logreader.terminal import print_report, render_report, write_report
 
 
 class TerminalRendererTests(unittest.TestCase):
@@ -42,7 +42,7 @@ class TerminalRendererTests(unittest.TestCase):
         self.assertIn("\033[", stream.getvalue())
         self.assertIn("ERROR:", stream.getvalue())
 
-    @patch("logreader_terminal._stream_supports_color", return_value=True)
+    @patch("logreader.terminal._stream_supports_color", return_value=True)
     def test_automatic_color_uses_ansi_when_supported(self, supports_color):
         config = LogreaderConfig(enabled_patterns=())
         analysis = analyze_lines(["ERROR: boom"], config.search_patterns())
@@ -53,7 +53,7 @@ class TerminalRendererTests(unittest.TestCase):
         supports_color.assert_called_once_with(stream)
         self.assertIn("\033[", stream.getvalue())
 
-    @patch("logreader_terminal._stream_supports_color", return_value=False)
+    @patch("logreader.terminal._stream_supports_color", return_value=False)
     def test_automatic_color_falls_back_to_plain_text(self, supports_color):
         config = LogreaderConfig(enabled_patterns=())
         analysis = analyze_lines(["ERROR: boom"], config.search_patterns())
