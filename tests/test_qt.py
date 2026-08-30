@@ -136,6 +136,16 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIn("QSpinBox::up-arrow", style_sheet)
         self.assertIn("QSpinBox::down-arrow", style_sheet)
         self.assertIn(
+            "QLineEdit,\nQSpinBox {\n"
+            f"    background-color: {COLORS['ui_island'].name()}",
+            style_sheet,
+        )
+        self.assertIn(
+            'QCheckBox[islandIndicator="true"]::indicator:unchecked {\n'
+            f"    background-color: {COLORS['ui_island'].name()}",
+            style_sheet,
+        )
+        self.assertIn(
             "QPushButton#openButton,\nQPushButton#toggleAllButton {\n"
             f"    background-color: {COLORS['ui_island'].name()}",
             style_sheet,
@@ -155,7 +165,18 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertIn(
             "QSpinBox::up-button,\nQSpinBox::down-button {\n"
-            f"    background-color: {COLORS['ui_island'].name()}",
+            f"    background-color: {COLORS['ui_island'].name()};\n"
+            f"    border: 1px solid {COLORS['ui_border_strong'].name()}",
+            style_sheet,
+        )
+        self.assertIn(
+            "QSpinBox::down-button {\n    border-top: none",
+            style_sheet,
+        )
+        self.assertNotIn("QSpinBox:hover", style_sheet)
+        self.assertIn(
+            "QSpinBox::up-button:hover,\nQSpinBox::down-button:hover {\n"
+            f"    background-color: {COLORS['ui_button_hover'].name()}",
             style_sheet,
         )
         self.assertIn(
@@ -170,6 +191,21 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIsInstance(
             self.window.findChild(QSpinBox, "contextSpin"),
             VisibleSpinBox,
+        )
+        self.assertTrue(
+            self.window.findChild(QCheckBox, "pattern_warning").property(
+                "islandIndicator"
+            )
+        )
+        self.assertTrue(
+            self.window.findChild(QCheckBox, "separateEntriesCheck").property(
+                "islandIndicator"
+            )
+        )
+        self.assertIsNone(
+            self.window.findChild(QCheckBox, "lineWrapCheck").property(
+                "islandIndicator"
+            )
         )
 
         contrast_pairs = (
@@ -248,12 +284,15 @@ class LogreaderQtTests(unittest.TestCase):
                     button,
                     subcontrol == QStyle.SubControl.SC_SpinBoxDown,
                 )
+                self.assertEqual(center.x(), button.center().x() + 1)
                 if subcontrol == QStyle.SubControl.SC_SpinBoxDown:
                     self.assertGreater(center.y(), left.y())
                     self.assertGreater(center.y(), right.y())
+                    self.assertEqual(center.y(), button.center().y() + 1.5)
                 else:
                     self.assertLess(center.y(), left.y())
                     self.assertLess(center.y(), right.y())
+                    self.assertEqual(center.y(), button.center().y() - 0.5)
 
     @staticmethod
     def _contrast_ratio(foreground: QColor, background: QColor) -> float:

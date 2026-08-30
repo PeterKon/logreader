@@ -201,7 +201,7 @@ QPushButton#regexPatternRemoveButton:hover {{
 }}
 QLineEdit,
 QSpinBox {{
-    background-color: {THEME_COLORS['ui_field']};
+    background-color: {THEME_COLORS['ui_island']};
     border: 1px solid {THEME_COLORS['ui_border_strong']};
     border-radius: 4px;
     color: {THEME_COLORS['ui_text']};
@@ -213,8 +213,7 @@ QSpinBox {{
 QSpinBox {{
     padding-right: 24px;
 }}
-QLineEdit:hover,
-QSpinBox:hover {{
+QLineEdit:hover {{
     border-color: {THEME_COLORS['ui_muted']};
 }}
 QLineEdit:focus,
@@ -229,16 +228,16 @@ QSpinBox:disabled {{
 QSpinBox::up-button,
 QSpinBox::down-button {{
     background-color: {THEME_COLORS['ui_island']};
-    border-left: 1px solid {THEME_COLORS['ui_border']};
+    border: 1px solid {THEME_COLORS['ui_border_strong']};
     subcontrol-origin: border;
     width: 20px;
 }}
 QSpinBox::up-button {{
-    border-bottom: 1px solid {THEME_COLORS['ui_border']};
     border-top-right-radius: 3px;
     subcontrol-position: top right;
 }}
 QSpinBox::down-button {{
+    border-top: none;
     border-bottom-right-radius: 3px;
     subcontrol-position: bottom right;
 }}
@@ -311,6 +310,9 @@ QCheckBox::indicator:hover {{
 QCheckBox::indicator:checked {{
     background-color: {THEME_COLORS['ui_button_pressed']};
     border-color: {THEME_COLORS['ui_accent']};
+}}
+QCheckBox[islandIndicator="true"]::indicator:unchecked {{
+    background-color: {THEME_COLORS['ui_island']};
 }}
 QCheckBox::indicator:disabled {{
     background-color: {THEME_COLORS['ui_disabled']};
@@ -437,8 +439,8 @@ class VisibleSpinBox(QSpinBox):
 
     @staticmethod
     def _chevron_points(button, points_down: bool) -> tuple[QPointF, ...]:
-        center_x = button.center().x()
-        center_y = button.center().y()
+        center_x = button.center().x() + 1
+        center_y = button.center().y() + (0 if points_down else 1)
         vertical_offset = 1.5 if points_down else -1.5
         return (
             QPointF(center_x - 3.5, center_y - vertical_offset),
@@ -684,6 +686,7 @@ class LogreaderWindow(QMainWindow):
 
         self._separate_entries = VisibleCheckBox("Separation of lines")
         self._separate_entries.setObjectName("separateEntriesCheck")
+        self._separate_entries.setProperty("islandIndicator", True)
         self._separate_entries.setChecked(False)
         self._separate_entries.setToolTip(
             "Draw a horizontal rule between non-contiguous result excerpts."
@@ -871,6 +874,7 @@ class LogreaderWindow(QMainWindow):
         for index, key in enumerate(pattern_keys):
             checkbox = VisibleCheckBox(self._pattern_control_label(key))
             checkbox.setObjectName(f"pattern_{key}")
+            checkbox.setProperty("islandIndicator", True)
             checkbox.setChecked(key in DEFAULT_ENABLED_PATTERNS)
             checkbox.setSizePolicy(
                 QSizePolicy.Policy.Fixed,
