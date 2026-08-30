@@ -62,6 +62,7 @@ from .theme import THEME_COLORS
 COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
 RULE = "─" * 72
 ENTRY_SEPARATOR = "-------->"
+FILTER_ALIGNMENT_EXTRA_WIDTH = 115
 
 INTERFACE_STYLE_SHEET = f"""
 QMainWindow {{
@@ -822,7 +823,7 @@ class LogreaderWindow(QMainWindow):
         http_layout.addWidget(http_options, 1, Qt.AlignmentFlag.AlignTop)
         layout.addWidget(self._http_row)
         self._filter_alignment_container.setMaximumWidth(
-            top_controls.sizeHint().width()
+            top_controls.sizeHint().width() + FILTER_ALIGNMENT_EXTRA_WIDTH
         )
         return group
 

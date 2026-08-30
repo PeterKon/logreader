@@ -488,6 +488,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIs(http_options.layout().itemAt(0).widget(), http_group)
         self.assertIs(http_options.layout().itemAt(1).widget(), separation)
 
+        self.window.resize(1280, 800)
         self.window.show()
         self.app.processEvents()
         self.assertEqual(separation.geometry().left(), http_group.geometry().left())
@@ -519,7 +520,7 @@ class LogreaderQtTests(unittest.TestCase):
         aligned_width = alignment_container.width()
         self.assertEqual(alignment_container.maximumWidth(), aligned_width)
 
-        self.window.resize(1280, 800)
+        self.window.resize(1480, 800)
         self.app.processEvents()
         guide_button = guide_widgets[0]
         guide_right = guide_button.mapTo(
