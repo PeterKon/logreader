@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from PySide6.QtCore import Qt
-    from PySide6.QtGui import QPalette
+    from PySide6.QtGui import QColor, QPalette
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
@@ -22,6 +22,9 @@ try:
         QPushButton,
         QSizePolicy,
         QSpinBox,
+        QStyle,
+        QStyleOptionButton,
+        QStyleOptionSpinBox,
         QWidget,
     )
 
@@ -32,7 +35,14 @@ try:
         TEXT_PATTERN_KEYS,
     )
     from logreader.core import analyze_lines
-    from logreader.qt_app import COLORS, ENTRY_SEPARATOR, RULE, LogreaderWindow
+    from logreader.qt_app import (
+        COLORS,
+        ENTRY_SEPARATOR,
+        RULE,
+        LogreaderWindow,
+        VisibleCheckBox,
+        VisibleSpinBox,
+    )
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -93,17 +103,235 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIn(COLORS["scrollbar_handle"].name(), style_sheet)
         self.assertIn(COLORS["scrollbar_handle_hover"].name(), style_sheet)
 
+    def test_non_results_theme_uses_distinct_high_contrast_surfaces(self):
+        palette = self.window.palette()
+        style_sheet = self.window.styleSheet()
+        results = self.window.findChild(QPlainTextEdit, "resultsView")
+
+        self.assertEqual(
+            palette.color(QPalette.ColorRole.Window).name(),
+            COLORS["ui_canvas"].name(),
+        )
+        self.assertEqual(
+            palette.color(QPalette.ColorRole.WindowText).name(),
+            COLORS["ui_text"].name(),
+        )
+        self.assertEqual(COLORS["ui_surface"], COLORS["ui_canvas"])
+        self.assertEqual(COLORS["ui_field"], COLORS["background"])
+        self.assertNotEqual(COLORS["ui_surface"], COLORS["ui_island"])
+        self.assertNotEqual(COLORS["ui_island"], COLORS["ui_field"])
+        self.assertGreater(
+            self._relative_luminance(COLORS["ui_island"]),
+            self._relative_luminance(COLORS["ui_surface"]),
+        )
+        for object_name in (
+            "pairedPatternGroup",
+            "textPatternGroup",
+            "customPatternGroup",
+            "regexPatternGroup",
+            "httpStatusGroup",
+        ):
+            self.assertIn(f"QGroupBox#{object_name}", style_sheet)
+        self.assertIn("QCheckBox::indicator:checked", style_sheet)
+        self.assertIn("QSpinBox::up-arrow", style_sheet)
+        self.assertIn("QSpinBox::down-arrow", style_sheet)
+        self.assertIn(
+            "QPushButton#openButton,\nQPushButton#toggleAllButton {\n"
+            f"    background-color: {COLORS['ui_island'].name()}",
+            style_sheet,
+        )
+        self.assertIn(
+            "QPushButton#togglePairedButton,\n"
+            "QPushButton#toggleTextButton,\n"
+            "QPushButton#customPatternAddButton,\n"
+            "QPushButton#regexPatternAddButton {\n"
+            f"    background-color: {COLORS['ui_island'].name()}",
+            style_sheet,
+        )
+        self.assertIn(
+            "QPushButton#maximizeResultsButton {\n"
+            f"    background-color: {COLORS['background'].name()}",
+            style_sheet,
+        )
+        self.assertIn(
+            "QSpinBox::up-button,\nQSpinBox::down-button {\n"
+            f"    background-color: {COLORS['ui_island'].name()}",
+            style_sheet,
+        )
+        self.assertIn(
+            "QPushButton#analyzeButton:disabled {\n"
+            f"    background-color: {COLORS['ui_island'].name()}",
+            style_sheet,
+        )
+        self.assertIsInstance(
+            self.window.findChild(QCheckBox, "pattern_error_colon"),
+            VisibleCheckBox,
+        )
+        self.assertIsInstance(
+            self.window.findChild(QSpinBox, "contextSpin"),
+            VisibleSpinBox,
+        )
+
+        contrast_pairs = (
+            ("ui_text", "ui_canvas"),
+            ("ui_text", "ui_surface"),
+            ("ui_text", "ui_island"),
+            ("ui_text", "ui_field"),
+            ("ui_muted", "ui_surface"),
+            ("ui_accent", "ui_island"),
+            ("ui_text", "ui_button"),
+            ("ui_disabled_text", "ui_disabled"),
+        )
+        for foreground, background in contrast_pairs:
+            with self.subTest(foreground=foreground, background=background):
+                self.assertGreaterEqual(
+                    self._contrast_ratio(
+                        COLORS[foreground],
+                        COLORS[background],
+                    ),
+                    4.0,
+                )
+        self.assertGreaterEqual(
+            self._contrast_ratio(QColor("#ffffff"), COLORS["ui_primary"]),
+            4.5,
+        )
+        self.assertIn(
+            COLORS["background"].name(),
+            results.styleSheet(),
+        )
+        self.assertIn(
+            "QStatusBar {\n"
+            f"    background-color: {COLORS['background'].name()};\n"
+            "    border-top: none",
+            style_sheet,
+        )
+
+    def test_checkbox_marks_and_spin_arrows_are_painted_visibly(self):
+        checkbox = self.window.findChild(QCheckBox, "separateEntriesCheck")
+        checkbox.setChecked(True)
+        self.window.show()
+        self.app.processEvents()
+
+        checkbox_option = QStyleOptionButton()
+        checkbox.initStyleOption(checkbox_option)
+        indicator = checkbox.style().subElementRect(
+            QStyle.SubElement.SE_CheckBoxIndicator,
+            checkbox_option,
+            checkbox,
+        )
+        checkbox_image = checkbox.grab().toImage()
+        self.assertGreater(
+            self._light_pixel_count(checkbox_image, indicator, threshold=220),
+            2,
+        )
+
+        for object_name in ("contextSpin", "limitSpin"):
+            spin_box = self.window.findChild(QSpinBox, object_name)
+            spin_option = QStyleOptionSpinBox()
+            spin_box.initStyleOption(spin_option)
+            spin_image = spin_box.grab().toImage()
+            for subcontrol in (
+                QStyle.SubControl.SC_SpinBoxUp,
+                QStyle.SubControl.SC_SpinBoxDown,
+            ):
+                button = spin_box.style().subControlRect(
+                    QStyle.ComplexControl.CC_SpinBox,
+                    spin_option,
+                    subcontrol,
+                    spin_box,
+                )
+                self.assertGreater(
+                    self._light_pixel_count(spin_image, button, threshold=205),
+                    2,
+                )
+                left, center, right = spin_box._chevron_points(
+                    button,
+                    subcontrol == QStyle.SubControl.SC_SpinBoxDown,
+                )
+                if subcontrol == QStyle.SubControl.SC_SpinBoxDown:
+                    self.assertGreater(center.y(), left.y())
+                    self.assertGreater(center.y(), right.y())
+                else:
+                    self.assertLess(center.y(), left.y())
+                    self.assertLess(center.y(), right.y())
+
+    @staticmethod
+    def _contrast_ratio(foreground: QColor, background: QColor) -> float:
+        lighter, darker = sorted(
+            (
+                LogreaderQtTests._relative_luminance(foreground),
+                LogreaderQtTests._relative_luminance(background),
+            ),
+            reverse=True,
+        )
+        return (lighter + 0.05) / (darker + 0.05)
+
+    @staticmethod
+    def _relative_luminance(color: QColor) -> float:
+        linear_channels = []
+        for channel in (color.redF(), color.greenF(), color.blueF()):
+            linear_channels.append(
+                channel / 12.92
+                if channel <= 0.04045
+                else ((channel + 0.055) / 1.055) ** 2.4
+            )
+        return (
+            0.2126 * linear_channels[0]
+            + 0.7152 * linear_channels[1]
+            + 0.0722 * linear_channels[2]
+        )
+
+    @staticmethod
+    def _light_pixel_count(image, area, *, threshold: int) -> int:
+        count = 0
+        for y in range(max(0, area.top()), min(image.height(), area.bottom() + 1)):
+            for x in range(
+                max(0, area.left()),
+                min(image.width(), area.right() + 1),
+            ):
+                color = image.pixelColor(x, y)
+                if (
+                    color.red() >= threshold
+                    and color.green() >= threshold
+                    and color.blue() >= threshold
+                ):
+                    count += 1
+        return count
+
     def test_results_view_can_be_maximized_and_restored(self):
         file_controls = self.window.findChild(QWidget, "fileControlsRow")
         filter_group = self.window.findChild(QGroupBox, "filterGroup")
         results_header = self.window.findChild(QWidget, "resultsHeader")
+        results_panel = self.window.findChild(QWidget, "resultsPanel")
         results = self.window.findChild(QPlainTextEdit, "resultsView")
+        controls_container = self.window.findChild(QWidget, "controlsContainer")
         button = self.window.findChild(QPushButton, "maximizeResultsButton")
 
         self.assertFalse(file_controls.isHidden())
         self.assertFalse(filter_group.isHidden())
         self.assertFalse(results_header.isHidden())
         self.assertFalse(results.isHidden())
+        self.assertIs(results_header.parentWidget(), results_panel)
+        self.assertIs(results.parentWidget(), results_panel)
+        self.assertEqual(results_panel.layout().spacing(), 0)
+        panel_margins = results_panel.layout().contentsMargins()
+        self.assertEqual(
+            (
+                panel_margins.left(),
+                panel_margins.top(),
+                panel_margins.right(),
+                panel_margins.bottom(),
+            ),
+            (0, 0, 0, 0),
+        )
+        self.window.show()
+        self.app.processEvents()
+        self.assertEqual(results.geometry().top(), results_header.geometry().bottom() + 1)
+        self.assertIn("border: none", results.styleSheet())
+        self.assertEqual(results_panel.geometry().left(), 0)
+        self.assertEqual(results_panel.geometry().right(), self.window.centralWidget().width() - 1)
+        self.assertEqual(results_panel.geometry().bottom(), self.window.centralWidget().height() - 1)
+        self.assertFalse(controls_container.isHidden())
         self.assertEqual(button.text(), "▲")
         self.assertEqual(button.accessibleName(), "Maximize results")
         self.assertEqual(button.toolTip(), "Expand results window")
@@ -127,6 +355,7 @@ class LogreaderQtTests(unittest.TestCase):
 
         self.assertTrue(file_controls.isHidden())
         self.assertTrue(filter_group.isHidden())
+        self.assertTrue(controls_container.isHidden())
         self.assertFalse(results_header.isHidden())
         self.assertFalse(results.isHidden())
         self.assertEqual(button.text(), "▼")
@@ -137,6 +366,7 @@ class LogreaderQtTests(unittest.TestCase):
 
         self.assertFalse(file_controls.isHidden())
         self.assertFalse(filter_group.isHidden())
+        self.assertFalse(controls_container.isHidden())
         self.assertEqual(button.text(), "▲")
         self.assertEqual(button.accessibleName(), "Maximize results")
         self.assertEqual(button.toolTip(), "Expand results window")
@@ -321,7 +551,10 @@ class LogreaderQtTests(unittest.TestCase):
             QPushButton,
             "customPatternRemoveButton",
         )
+        self.window.show()
+        self.app.processEvents()
         self.assertEqual([button.text() for button in remove_buttons], ["-", "-"])
+        self.assertTrue(all(button.width() >= 24 for button in remove_buttons))
         self.assertEqual(remove_buttons[0].accessibleName(), "Remove timeout")
         remove_buttons[0].click()
         self.assertEqual(pattern_list.count(), 1)
@@ -408,6 +641,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIs(http_row.layout().itemAt(0).widget(), custom_group)
         self.assertIs(http_row.layout().itemAt(1).widget(), regex_group)
         self.assertIs(http_row.layout().itemAt(2).widget(), http_group)
+        self.assertGreaterEqual(http_group.minimumWidth(), 130)
         self.assertTrue(
             http_row.layout().itemAt(0).alignment()
             & Qt.AlignmentFlag.AlignTop

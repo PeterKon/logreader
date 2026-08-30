@@ -6,12 +6,14 @@ import sys
 from pathlib import Path
 from typing import Callable, Sequence
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QPointF, QSize, Qt
 from PySide6.QtGui import (
     QColor,
     QFont,
     QFontDatabase,
+    QPainter,
     QPalette,
+    QPen,
     QTextCharFormat,
     QTextCursor,
 )
@@ -33,6 +35,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QStyle,
+    QStyleOptionButton,
+    QStyleOptionSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -57,6 +62,390 @@ COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
 RULE = "─" * 72
 ENTRY_SEPARATOR = "-------->"
 
+INTERFACE_STYLE_SHEET = f"""
+QMainWindow {{
+    background-color: {THEME_COLORS['ui_canvas']};
+    color: {THEME_COLORS['ui_text']};
+}}
+QWidget#centralWidget {{
+    background-color: {THEME_COLORS['ui_canvas']};
+    color: {THEME_COLORS['ui_text']};
+}}
+QWidget#fileControlsRow {{
+    background-color: {THEME_COLORS['ui_canvas']};
+    border: 1px solid {THEME_COLORS['ui_border']};
+    border-radius: 6px;
+}}
+QWidget#resultsHeader {{
+    background-color: {THEME_COLORS['background']};
+    border: none;
+    border-bottom: 1px solid {THEME_COLORS['border']};
+    border-top: 1px solid {THEME_COLORS['border']};
+}}
+QLabel {{
+    background-color: transparent;
+    border: none;
+    color: {THEME_COLORS['ui_text']};
+}}
+QLabel#pathLabel {{
+    color: {THEME_COLORS['ui_muted']};
+}}
+QGroupBox#filterGroup {{
+    background-color: {THEME_COLORS['ui_surface']};
+    border: 1px solid {THEME_COLORS['ui_border']};
+    border-radius: 7px;
+    color: {THEME_COLORS['ui_text']};
+    margin-top: 10px;
+}}
+QGroupBox#filterGroup::title {{
+    color: {THEME_COLORS['ui_accent']};
+    font-weight: 600;
+    left: 10px;
+    padding: 0 4px;
+    subcontrol-origin: margin;
+}}
+QGroupBox#pairedPatternGroup,
+QGroupBox#textPatternGroup,
+QGroupBox#customPatternGroup,
+QGroupBox#regexPatternGroup,
+QGroupBox#httpStatusGroup {{
+    background-color: {THEME_COLORS['ui_island']};
+    border: 1px solid {THEME_COLORS['ui_border']};
+    border-radius: 6px;
+    color: {THEME_COLORS['ui_text']};
+    margin-top: 10px;
+}}
+QGroupBox#pairedPatternGroup::title,
+QGroupBox#textPatternGroup::title,
+QGroupBox#customPatternGroup::title,
+QGroupBox#regexPatternGroup::title,
+QGroupBox#httpStatusGroup::title {{
+    color: {THEME_COLORS['ui_accent']};
+    font-weight: 600;
+    left: 8px;
+    padding: 0 4px;
+    subcontrol-origin: margin;
+}}
+QPushButton {{
+    background-color: {THEME_COLORS['ui_button']};
+    border: 1px solid {THEME_COLORS['ui_border_strong']};
+    border-radius: 5px;
+    color: {THEME_COLORS['ui_text']};
+    min-height: 20px;
+    padding: 3px 10px;
+}}
+QPushButton:hover {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QPushButton:focus {{
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QPushButton:pressed {{
+    background-color: {THEME_COLORS['ui_button_pressed']};
+}}
+QPushButton:disabled {{
+    background-color: {THEME_COLORS['ui_disabled']};
+    border-color: {THEME_COLORS['ui_border']};
+    color: {THEME_COLORS['ui_disabled_text']};
+}}
+QPushButton#openButton,
+QPushButton#toggleAllButton {{
+    background-color: {THEME_COLORS['ui_island']};
+}}
+QPushButton#togglePairedButton,
+QPushButton#toggleTextButton,
+QPushButton#customPatternAddButton,
+QPushButton#regexPatternAddButton {{
+    background-color: {THEME_COLORS['ui_island']};
+}}
+QPushButton#maximizeResultsButton {{
+    background-color: {THEME_COLORS['background']};
+}}
+QPushButton#analyzeButton {{
+    background-color: {THEME_COLORS['ui_primary']};
+    border-color: {THEME_COLORS['ui_primary']};
+    color: #ffffff;
+    font-weight: 600;
+}}
+QPushButton#analyzeButton:hover {{
+    background-color: {THEME_COLORS['ui_primary_hover']};
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QPushButton#analyzeButton:disabled {{
+    background-color: {THEME_COLORS['ui_island']};
+    border-color: {THEME_COLORS['ui_border']};
+    color: {THEME_COLORS['ui_disabled_text']};
+}}
+QPushButton#customPatternAddButton,
+QPushButton#regexPatternAddButton {{
+    min-width: 42px;
+}}
+QPushButton#customPatternRemoveButton,
+QPushButton#regexPatternRemoveButton {{
+    background-color: transparent;
+    border: 1px solid {THEME_COLORS['ui_border_strong']};
+    border-radius: 3px;
+    color: {THEME_COLORS['ui_muted']};
+    max-height: 16px;
+    max-width: 24px;
+    min-height: 16px;
+    min-width: 24px;
+    padding: 0;
+}}
+QPushButton#customPatternRemoveButton:hover,
+QPushButton#regexPatternRemoveButton:hover {{
+    background-color: #4a2028;
+    border-color: #ff7b72;
+    color: #ffffff;
+}}
+QLineEdit,
+QSpinBox {{
+    background-color: {THEME_COLORS['ui_field']};
+    border: 1px solid {THEME_COLORS['ui_border_strong']};
+    border-radius: 4px;
+    color: {THEME_COLORS['ui_text']};
+    min-height: 20px;
+    padding: 3px 6px;
+    selection-background-color: {THEME_COLORS['selection']};
+    selection-color: #ffffff;
+}}
+QSpinBox {{
+    padding-right: 24px;
+}}
+QLineEdit:hover,
+QSpinBox:hover {{
+    border-color: {THEME_COLORS['ui_muted']};
+}}
+QLineEdit:focus,
+QSpinBox:focus {{
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QLineEdit:disabled,
+QSpinBox:disabled {{
+    background-color: {THEME_COLORS['ui_disabled']};
+    color: {THEME_COLORS['ui_disabled_text']};
+}}
+QSpinBox::up-button,
+QSpinBox::down-button {{
+    background-color: {THEME_COLORS['ui_island']};
+    border-left: 1px solid {THEME_COLORS['ui_border']};
+    subcontrol-origin: border;
+    width: 20px;
+}}
+QSpinBox::up-button {{
+    border-bottom: 1px solid {THEME_COLORS['ui_border']};
+    border-top-right-radius: 3px;
+    subcontrol-position: top right;
+}}
+QSpinBox::down-button {{
+    border-bottom-right-radius: 3px;
+    subcontrol-position: bottom right;
+}}
+QSpinBox::up-button:hover,
+QSpinBox::down-button:hover {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+}}
+QSpinBox::up-arrow {{
+    height: 6px;
+    image: none;
+    width: 9px;
+}}
+QSpinBox::down-arrow {{
+    height: 6px;
+    image: none;
+    width: 9px;
+}}
+QListWidget {{
+    background-color: {THEME_COLORS['ui_field']};
+    border: 1px solid {THEME_COLORS['ui_border_strong']};
+    border-radius: 4px;
+    color: {THEME_COLORS['ui_text']};
+    outline: none;
+    selection-background-color: {THEME_COLORS['selection']};
+    selection-color: #ffffff;
+}}
+QListWidget:focus {{
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QListWidget::item:hover {{
+    background-color: {THEME_COLORS['ui_button_pressed']};
+}}
+QListWidget::item:selected {{
+    background-color: {THEME_COLORS['selection']};
+    color: #ffffff;
+}}
+QListWidget QScrollBar:vertical {{
+    background-color: {THEME_COLORS['ui_field']};
+    width: 10px;
+    margin: 0;
+}}
+QListWidget QScrollBar::handle:vertical {{
+    background-color: {THEME_COLORS['scrollbar_handle']};
+    border-radius: 4px;
+    min-height: 20px;
+    margin: 2px;
+}}
+QListWidget QScrollBar::handle:vertical:hover {{
+    background-color: {THEME_COLORS['scrollbar_handle_hover']};
+}}
+QListWidget QScrollBar::add-line:vertical,
+QListWidget QScrollBar::sub-line:vertical {{
+    height: 0;
+}}
+QCheckBox {{
+    background-color: transparent;
+    color: {THEME_COLORS['ui_text']};
+    spacing: 6px;
+}}
+QCheckBox::indicator {{
+    background-color: {THEME_COLORS['ui_field']};
+    border: 1px solid {THEME_COLORS['ui_border_strong']};
+    border-radius: 3px;
+    height: 14px;
+    width: 14px;
+}}
+QCheckBox::indicator:hover {{
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QCheckBox::indicator:checked {{
+    background-color: {THEME_COLORS['ui_button_pressed']};
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QCheckBox::indicator:disabled {{
+    background-color: {THEME_COLORS['ui_disabled']};
+    border-color: {THEME_COLORS['ui_border']};
+}}
+QCheckBox:hover,
+QCheckBox:focus {{
+    color: #ffffff;
+}}
+QCheckBox:disabled {{
+    color: {THEME_COLORS['ui_disabled_text']};
+}}
+QFrame#topSeparatorContext,
+QFrame#topSeparatorLimit,
+QFrame#topSeparatorGlobalToggle {{
+    color: {THEME_COLORS['ui_border_strong']};
+}}
+QStatusBar {{
+    background-color: {THEME_COLORS['background']};
+    border-top: none;
+    color: {THEME_COLORS['ui_muted']};
+}}
+QStatusBar::item {{
+    border: none;
+}}
+QToolTip {{
+    background-color: {THEME_COLORS['ui_island']};
+    border: 1px solid {THEME_COLORS['ui_border_strong']};
+    color: {THEME_COLORS['ui_text']};
+    font-weight: 400;
+    padding: 4px;
+}}
+"""
+
+
+class VisibleCheckBox(QCheckBox):
+    """Checkbox with a platform-independent painted checkmark."""
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API name
+        super().paintEvent(event)
+        if self.checkState() == Qt.CheckState.Unchecked:
+            return
+
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        indicator = self.style().subElementRect(
+            QStyle.SubElement.SE_CheckBoxIndicator,
+            option,
+            self,
+        )
+        if not indicator.isValid():
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        mark_color = (
+            QColor("#ffffff")
+            if self.isEnabled()
+            else COLORS["ui_disabled_text"]
+        )
+        painter.setPen(
+            QPen(
+                mark_color,
+                2.0,
+                Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap,
+                Qt.PenJoinStyle.RoundJoin,
+            )
+        )
+
+        if self.checkState() == Qt.CheckState.PartiallyChecked:
+            painter.drawLine(
+                QPointF(indicator.left() + 4, indicator.center().y()),
+                QPointF(indicator.right() - 4, indicator.center().y()),
+            )
+            return
+
+        painter.drawLine(
+            QPointF(indicator.left() + 3.5, indicator.center().y()),
+            QPointF(indicator.left() + 6.5, indicator.bottom() - 3.5),
+        )
+        painter.drawLine(
+            QPointF(indicator.left() + 6.5, indicator.bottom() - 3.5),
+            QPointF(indicator.right() - 3, indicator.top() + 3.5),
+        )
+
+
+class VisibleSpinBox(QSpinBox):
+    """Spin box with platform-independent painted up/down chevrons."""
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API name
+        super().paintEvent(event)
+
+        option = QStyleOptionSpinBox()
+        self.initStyleOption(option)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(
+            QPen(
+                COLORS["ui_text"],
+                1.7,
+                Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap,
+                Qt.PenJoinStyle.RoundJoin,
+            )
+        )
+
+        for subcontrol, points_down in (
+            (QStyle.SubControl.SC_SpinBoxUp, False),
+            (QStyle.SubControl.SC_SpinBoxDown, True),
+        ):
+            button = self.style().subControlRect(
+                QStyle.ComplexControl.CC_SpinBox,
+                option,
+                subcontrol,
+                self,
+            )
+            if not button.isValid():
+                continue
+
+            left, center, right = self._chevron_points(button, points_down)
+            painter.drawLine(left, center)
+            painter.drawLine(center, right)
+
+    @staticmethod
+    def _chevron_points(button, points_down: bool) -> tuple[QPointF, ...]:
+        center_x = button.center().x()
+        center_y = button.center().y()
+        vertical_offset = 1.5 if points_down else -1.5
+        return (
+            QPointF(center_x - 3.5, center_y - vertical_offset),
+            QPointF(center_x, center_y + vertical_offset),
+            QPointF(center_x + 3.5, center_y - vertical_offset),
+        )
+
 
 class LogreaderWindow(QMainWindow):
     """Small desktop shell around the shared Logreader engine."""
@@ -69,6 +458,8 @@ class LogreaderWindow(QMainWindow):
         self._pattern_checkboxes: dict[str, QCheckBox] = {}
         self._results_maximized = False
 
+        self._apply_interface_palette()
+        self.setStyleSheet(INTERFACE_STYLE_SHEET)
         self.setWindowTitle(APP_VERSION)
         self.resize(1080, 760)
         self.setMinimumSize(820, 560)
@@ -77,14 +468,22 @@ class LogreaderWindow(QMainWindow):
 
     def _build_interface(self) -> None:
         central_widget = QWidget(self)
+        central_widget.setObjectName("centralWidget")
         root_layout = QVBoxLayout(central_widget)
-        root_layout.setContentsMargins(12, 12, 12, 10)
-        root_layout.setSpacing(10)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        self._file_controls = QWidget(central_widget)
+        self._controls_container = QWidget(central_widget)
+        self._controls_container.setObjectName("controlsContainer")
+        controls_layout = QVBoxLayout(self._controls_container)
+        controls_layout.setContentsMargins(12, 12, 12, 10)
+        controls_layout.setSpacing(10)
+
+        self._file_controls = QWidget(self._controls_container)
         self._file_controls.setObjectName("fileControlsRow")
         file_row = QHBoxLayout(self._file_controls)
-        file_row.setContentsMargins(0, 0, 0, 0)
+        file_row.setContentsMargins(8, 6, 8, 6)
+        file_row.setSpacing(8)
         self._open_button = QPushButton("&Open log…")
         self._open_button.setObjectName("openButton")
         self._open_button.clicked.connect(self.open_file)
@@ -106,15 +505,23 @@ class LogreaderWindow(QMainWindow):
         self._analyze_button.setEnabled(False)
         self._analyze_button.clicked.connect(self.analyze_current)
         file_row.addWidget(self._analyze_button)
-        root_layout.addWidget(self._file_controls)
+        controls_layout.addWidget(self._file_controls)
 
         self._filter_group = self._build_filter_group()
-        root_layout.addWidget(self._filter_group)
+        controls_layout.addWidget(self._filter_group)
+        root_layout.addWidget(self._controls_container)
 
-        results_header = QWidget(central_widget)
+        self._results_panel = QWidget(central_widget)
+        self._results_panel.setObjectName("resultsPanel")
+        results_panel_layout = QVBoxLayout(self._results_panel)
+        results_panel_layout.setContentsMargins(0, 0, 0, 0)
+        results_panel_layout.setSpacing(0)
+
+        results_header = QWidget(self._results_panel)
         results_header.setObjectName("resultsHeader")
+        results_header.setMinimumHeight(36)
         results_header_layout = QHBoxLayout(results_header)
-        results_header_layout.setContentsMargins(0, 0, 0, 0)
+        results_header_layout.setContentsMargins(8, 5, 8, 5)
         results_header_layout.setSpacing(8)
 
         self._maximize_results_button = QPushButton("▲")
@@ -138,7 +545,7 @@ class LogreaderWindow(QMainWindow):
         line_wrap_label.setObjectName("lineWrapLabel")
         results_header_layout.addWidget(line_wrap_label)
 
-        self._line_wrap_check = QCheckBox()
+        self._line_wrap_check = VisibleCheckBox()
         self._line_wrap_check.setObjectName("lineWrapCheck")
         self._line_wrap_check.setAccessibleName("Line wrapping")
         self._line_wrap_check.setToolTip(
@@ -146,9 +553,9 @@ class LogreaderWindow(QMainWindow):
         )
         self._line_wrap_check.toggled.connect(self.set_results_line_wrapping)
         results_header_layout.addWidget(self._line_wrap_check)
-        root_layout.addWidget(results_header)
+        results_panel_layout.addWidget(results_header)
 
-        self._results = QPlainTextEdit()
+        self._results = QPlainTextEdit(self._results_panel)
         self._results.setObjectName("resultsView")
         self._results.setReadOnly(True)
         self._results.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -162,7 +569,7 @@ class LogreaderWindow(QMainWindow):
             f"QPlainTextEdit {{"
             f" background: {THEME_COLORS['background']};"
             f" color: {THEME_COLORS['body']};"
-            f" border: 1px solid {THEME_COLORS['border']};"
+            " border: none;"
             f" selection-background-color: {THEME_COLORS['selection']};"
             " padding: 8px;"
             "}"
@@ -208,13 +615,39 @@ class LogreaderWindow(QMainWindow):
             " background: transparent;"
             "}"
         )
-        root_layout.addWidget(self._results, 1)
+        results_panel_layout.addWidget(self._results, 1)
+        root_layout.addWidget(self._results_panel, 1)
         self.setCentralWidget(central_widget)
+
+    def _apply_interface_palette(self) -> None:
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, COLORS["ui_canvas"])
+        palette.setColor(QPalette.ColorRole.WindowText, COLORS["ui_text"])
+        palette.setColor(QPalette.ColorRole.Base, COLORS["ui_field"])
+        palette.setColor(QPalette.ColorRole.AlternateBase, COLORS["ui_island"])
+        palette.setColor(QPalette.ColorRole.Text, COLORS["ui_text"])
+        palette.setColor(QPalette.ColorRole.Button, COLORS["ui_button"])
+        palette.setColor(QPalette.ColorRole.ButtonText, COLORS["ui_text"])
+        palette.setColor(QPalette.ColorRole.Highlight, COLORS["ui_primary"])
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+        palette.setColor(QPalette.ColorRole.PlaceholderText, COLORS["ui_muted"])
+        palette.setColor(
+            QPalette.ColorGroup.Disabled,
+            QPalette.ColorRole.Text,
+            COLORS["ui_disabled_text"],
+        )
+        palette.setColor(
+            QPalette.ColorGroup.Disabled,
+            QPalette.ColorRole.ButtonText,
+            COLORS["ui_disabled_text"],
+        )
+        self.setPalette(palette)
 
     def _build_filter_group(self) -> QGroupBox:
         group = QGroupBox("Filters")
         group.setObjectName("filterGroup")
         layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 18, 10, 10)
         layout.setSpacing(8)
 
         top_controls = QWidget(group)
@@ -249,7 +682,7 @@ class LogreaderWindow(QMainWindow):
         top_layout.addWidget(self._toggle_all_button)
         top_layout.addWidget(self._make_top_separator("topSeparatorGlobalToggle"))
 
-        self._separate_entries = QCheckBox("Separation of lines")
+        self._separate_entries = VisibleCheckBox("Separation of lines")
         self._separate_entries.setObjectName("separateEntriesCheck")
         self._separate_entries.setChecked(False)
         self._separate_entries.setToolTip(
@@ -359,7 +792,6 @@ class LogreaderWindow(QMainWindow):
             QSizePolicy.Policy.Maximum,
             QSizePolicy.Policy.Fixed,
         )
-
         layout = QVBoxLayout(group)
         layout.setContentsMargins(8, 14, 8, 8)
         layout.setSpacing(4)
@@ -407,7 +839,7 @@ class LogreaderWindow(QMainWindow):
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         separator.setMaximumHeight(24)
-        separator.setStyleSheet(f"color: {THEME_COLORS['border']};")
+        separator.setStyleSheet(f"color: {THEME_COLORS['ui_border_strong']};")
         return separator
 
     def _build_pattern_group(
@@ -425,6 +857,10 @@ class LogreaderWindow(QMainWindow):
             QSizePolicy.Policy.Maximum,
             QSizePolicy.Policy.Fixed,
         )
+        if object_name == "httpStatusGroup":
+            group.setMinimumWidth(
+                max(130, group.fontMetrics().horizontalAdvance(title) + 32)
+            )
         layout = QGridLayout(group)
         layout.setContentsMargins(8, 14, 8, 8)
         layout.setHorizontalSpacing(10)
@@ -433,7 +869,7 @@ class LogreaderWindow(QMainWindow):
 
         checkboxes = []
         for index, key in enumerate(pattern_keys):
-            checkbox = QCheckBox(self._pattern_control_label(key))
+            checkbox = VisibleCheckBox(self._pattern_control_label(key))
             checkbox.setObjectName(f"pattern_{key}")
             checkbox.setChecked(key in DEFAULT_ENABLED_PATTERNS)
             checkbox.setSizePolicy(
@@ -486,7 +922,7 @@ class LogreaderWindow(QMainWindow):
 
     @staticmethod
     def _make_spin_box(minimum: int, maximum: int, value: int) -> QSpinBox:
-        spin_box = QSpinBox()
+        spin_box = VisibleSpinBox()
         spin_box.setRange(minimum, maximum)
         spin_box.setValue(value)
         return spin_box
@@ -574,7 +1010,7 @@ class LogreaderWindow(QMainWindow):
         remove_button.setObjectName(remove_button_object_name)
         remove_button.setAccessibleName(f"Remove {pattern}")
         remove_button.setToolTip(f"Remove {pattern}")
-        remove_button.setFixedSize(18, 16)
+        remove_button.setFixedSize(24, 16)
         remove_button.clicked.connect(
             lambda _checked=False, list_item=item: remove_handler(list_item)
         )
@@ -619,6 +1055,7 @@ class LogreaderWindow(QMainWindow):
 
         self._results_maximized = not self._results_maximized
         controls_visible = not self._results_maximized
+        self._controls_container.setVisible(controls_visible)
         self._file_controls.setVisible(controls_visible)
         self._filter_group.setVisible(controls_visible)
 

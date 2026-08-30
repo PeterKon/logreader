@@ -1,6 +1,24 @@
 """Semantic color roles for the Logreader desktop interface."""
 
 THEME_COLORS = {
+    # Three structural tones: a darker base, lighter islands, and one deepest
+    # content well shared by inputs, lists, and the results view.
+    "ui_canvas": "#111820",
+    "ui_surface": "#111820",
+    "ui_island": "#202b38",
+    "ui_field": "#0d1117",
+    "ui_border": "#344255",
+    "ui_border_strong": "#53657a",
+    "ui_text": "#e6edf3",
+    "ui_muted": "#9aa7b5",
+    "ui_accent": "#79c0ff",
+    "ui_button": "#263445",
+    "ui_button_hover": "#32445a",
+    "ui_button_pressed": "#1d2937",
+    "ui_primary": "#1f6feb",
+    "ui_primary_hover": "#185fc7",
+    "ui_disabled": "#151d27",
+    "ui_disabled_text": "#778392",
     "background": "#0d1117",
     "body": "#d8dee9",
     "border": "#30363d",
