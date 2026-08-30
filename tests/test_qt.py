@@ -40,6 +40,7 @@ try:
         ENTRY_SEPARATOR,
         RULE,
         LogreaderWindow,
+        UnclippedPushButton,
         VisibleCheckBox,
         VisibleSpinBox,
     )
@@ -85,7 +86,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(
             self.window.findChild(QCheckBox, "separateEntriesCheck").text(),
-            "Separation of lines",
+            "Line-separator",
         )
         self.assertEqual(
             self.window.statusBar().currentMessage(),
@@ -192,6 +193,10 @@ class LogreaderQtTests(unittest.TestCase):
             self.window.findChild(QSpinBox, "contextSpin"),
             VisibleSpinBox,
         )
+        self.assertIsInstance(
+            self.window.findChild(QPushButton, "toggleAllButton"),
+            UnclippedPushButton,
+        )
         self.assertTrue(
             self.window.findChild(QCheckBox, "pattern_warning").property(
                 "islandIndicator"
@@ -266,6 +271,14 @@ class LogreaderQtTests(unittest.TestCase):
             spin_option = QStyleOptionSpinBox()
             spin_box.initStyleOption(spin_option)
             spin_image = spin_box.grab().toImage()
+            edit_field = spin_box.lineEdit().geometry()
+            up_button = spin_box.style().subControlRect(
+                QStyle.ComplexControl.CC_SpinBox,
+                spin_option,
+                QStyle.SubControl.SC_SpinBoxUp,
+                spin_box,
+            )
+            self.assertEqual(edit_field.right(), up_button.left() - 1)
             for subcontrol in (
                 QStyle.SubControl.SC_SpinBoxUp,
                 QStyle.SubControl.SC_SpinBoxDown,
@@ -451,17 +464,84 @@ class LogreaderQtTests(unittest.TestCase):
                 "limitSpin",
                 "topSeparatorLimit",
                 "toggleAllButton",
-                "topSeparatorGlobalToggle",
-                "separateEntriesCheck",
             ],
         )
         for object_name in (
             "topSeparatorContext",
             "topSeparatorLimit",
-            "topSeparatorGlobalToggle",
         ):
             separator = self.window.findChild(QFrame, object_name)
             self.assertEqual(separator.frameShape(), QFrame.Shape.VLine)
+            self.assertEqual(separator.frameShadow(), QFrame.Shadow.Plain)
+            self.assertEqual(separator.lineWidth(), 1)
+            self.assertEqual(separator.minimumWidth(), 1)
+            self.assertEqual(separator.maximumWidth(), 1)
+        self.assertIsNone(
+            self.window.findChild(QFrame, "topSeparatorGlobalToggle")
+        )
+
+        separation = self.window.findChild(QCheckBox, "separateEntriesCheck")
+        http_group = self.window.findChild(QGroupBox, "httpStatusGroup")
+        http_options = self.window.findChild(QWidget, "httpOptionsColumn")
+        self.assertIs(separation.parentWidget(), http_options)
+        self.assertIs(http_group.parentWidget(), http_options)
+        self.assertIs(http_options.layout().itemAt(0).widget(), http_group)
+        self.assertIs(http_options.layout().itemAt(1).widget(), separation)
+
+        self.window.show()
+        self.app.processEvents()
+        self.assertEqual(separation.geometry().left(), http_group.geometry().left())
+        self.assertEqual(
+            separation.geometry().top() - http_group.geometry().bottom() - 1,
+            9,
+        )
+        guide_widgets = (
+            self.window.findChild(QPushButton, "toggleAllButton"),
+            self.window.findChild(QGroupBox, "textPatternGroup"),
+            http_group,
+        )
+        guide_edges = [
+            widget.mapTo(self.window, widget.rect().topRight()).x()
+            for widget in guide_widgets
+        ]
+        self.assertLessEqual(max(guide_edges) - min(guide_edges), 1)
+
+        alignment_container = self.window.findChild(
+            QWidget,
+            "filterAlignmentContainer",
+        )
+        top_controls = self.window.findChild(QWidget, "topControlsRow")
+        text_groups = self.window.findChild(QWidget, "textPatternGroupsRow")
+        http_row = self.window.findChild(QWidget, "httpStatusRow")
+        self.assertIs(top_controls.parentWidget(), alignment_container)
+        self.assertIs(text_groups.parentWidget(), alignment_container)
+        self.assertIs(http_row.parentWidget(), alignment_container)
+        aligned_width = alignment_container.width()
+        self.assertEqual(alignment_container.maximumWidth(), aligned_width)
+
+        self.window.resize(1280, 800)
+        self.app.processEvents()
+        guide_button = guide_widgets[0]
+        guide_right = guide_button.mapTo(
+            self.window,
+            guide_button.rect().topRight(),
+        ).x()
+        resized_edges = [
+            widget.mapTo(self.window, widget.rect().topRight()).x()
+            for widget in guide_widgets
+        ]
+        self.assertTrue(
+            all(abs(edge - guide_right) <= 1 for edge in resized_edges)
+        )
+        self.assertEqual(alignment_container.width(), aligned_width)
+        filter_group = self.window.findChild(QGroupBox, "filterGroup")
+        self.assertLess(
+            guide_right,
+            filter_group.mapTo(
+                self.window,
+                filter_group.rect().topRight(),
+            ).x(),
+        )
 
     def test_controls_update_context_patterns_and_limit(self):
         self.window.findChild(QSpinBox, "contextSpin").setValue(5)
@@ -671,15 +751,17 @@ class LogreaderQtTests(unittest.TestCase):
         custom_group = self.window.findChild(QGroupBox, "customPatternGroup")
         regex_group = self.window.findChild(QGroupBox, "regexPatternGroup")
         http_row = self.window.findChild(QWidget, "httpStatusRow")
+        http_options = self.window.findChild(QWidget, "httpOptionsColumn")
 
         self.assertIs(paired_group.parentWidget(), text_groups)
         self.assertIs(text_group.parentWidget(), text_groups)
-        self.assertIs(http_group.parentWidget(), http_row)
+        self.assertIs(http_group.parentWidget(), http_options)
+        self.assertIs(http_options.parentWidget(), http_row)
         self.assertIs(custom_group.parentWidget(), http_row)
         self.assertIs(regex_group.parentWidget(), http_row)
         self.assertIs(http_row.layout().itemAt(0).widget(), custom_group)
         self.assertIs(http_row.layout().itemAt(1).widget(), regex_group)
-        self.assertIs(http_row.layout().itemAt(2).widget(), http_group)
+        self.assertIs(http_row.layout().itemAt(2).widget(), http_options)
         self.assertGreaterEqual(http_group.minimumWidth(), 130)
         self.assertTrue(
             http_row.layout().itemAt(0).alignment()
@@ -699,7 +781,11 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(
             text_group.sizePolicy().horizontalPolicy(),
-            QSizePolicy.Policy.Maximum,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.assertEqual(
+            http_group.sizePolicy().horizontalPolicy(),
+            QSizePolicy.Policy.Expanding,
         )
 
         paired_layout = paired_group.layout()

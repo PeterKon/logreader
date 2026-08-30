@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyleOptionButton,
     QStyleOptionSpinBox,
+    QStylePainter,
     QVBoxLayout,
     QWidget,
 )
@@ -326,8 +327,7 @@ QCheckBox:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
 }}
 QFrame#topSeparatorContext,
-QFrame#topSeparatorLimit,
-QFrame#topSeparatorGlobalToggle {{
+QFrame#topSeparatorLimit {{
     color: {THEME_COLORS['ui_border_strong']};
 }}
 QStatusBar {{
@@ -403,6 +403,20 @@ class VisibleCheckBox(QCheckBox):
 class VisibleSpinBox(QSpinBox):
     """Spin box with platform-independent painted up/down chevrons."""
 
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API name
+        super().resizeEvent(event)
+        option = QStyleOptionSpinBox()
+        self.initStyleOption(option)
+        up_button = self.style().subControlRect(
+            QStyle.ComplexControl.CC_SpinBox,
+            option,
+            QStyle.SubControl.SC_SpinBoxUp,
+            self,
+        )
+        editor_geometry = self.lineEdit().geometry()
+        editor_geometry.setRight(up_button.left() - 1)
+        self.lineEdit().setGeometry(editor_geometry)
+
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API name
         super().paintEvent(event)
 
@@ -446,6 +460,32 @@ class VisibleSpinBox(QSpinBox):
             QPointF(center_x - 3.5, center_y - vertical_offset),
             QPointF(center_x, center_y + vertical_offset),
             QPointF(center_x + 3.5, center_y - vertical_offset),
+        )
+
+
+class UnclippedPushButton(QPushButton):
+    """Push button that paints its label clear of stylesheet padding clips."""
+
+    _TEXT_INSET = 6
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API name
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        label = option.text
+        option.text = ""
+
+        painter = QStylePainter(self)
+        painter.drawControl(QStyle.ControlElement.CE_PushButton, option)
+        painter.setPen(option.palette.color(QPalette.ColorRole.ButtonText))
+        painter.drawText(
+            self.rect().adjusted(
+                self._TEXT_INSET,
+                0,
+                -self._TEXT_INSET,
+                0,
+            ),
+            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextShowMnemonic,
+            label,
         )
 
 
@@ -648,11 +688,29 @@ class LogreaderWindow(QMainWindow):
     def _build_filter_group(self) -> QGroupBox:
         group = QGroupBox("Filters")
         group.setObjectName("filterGroup")
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 18, 10, 10)
-        layout.setSpacing(8)
+        outer_layout = QHBoxLayout(group)
+        outer_layout.setContentsMargins(10, 18, 10, 10)
+        outer_layout.setSpacing(0)
 
-        top_controls = QWidget(group)
+        self._filter_alignment_container = QWidget(group)
+        self._filter_alignment_container.setObjectName(
+            "filterAlignmentContainer"
+        )
+        self._filter_alignment_container.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        layout = QVBoxLayout(self._filter_alignment_container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        outer_layout.addWidget(
+            self._filter_alignment_container,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+        )
+        outer_layout.addStretch(1)
+
+        top_controls = QWidget(self._filter_alignment_container)
         top_controls.setObjectName("topControlsRow")
         top_layout = QHBoxLayout(top_controls)
         top_layout.setContentsMargins(0, 0, 0, 0)
@@ -675,29 +733,27 @@ class LogreaderWindow(QMainWindow):
         top_layout.addWidget(self._limit_spin)
         top_layout.addWidget(self._make_top_separator("topSeparatorLimit"))
 
-        self._toggle_all_button = QPushButton("Global toggle all")
+        self._toggle_all_button = UnclippedPushButton("Global toggle all")
         self._toggle_all_button.setObjectName("toggleAllButton")
         self._toggle_all_button.setToolTip(
             "Enable every pattern, or disable every pattern when all are enabled."
         )
         self._toggle_all_button.clicked.connect(self.toggle_all_patterns)
         top_layout.addWidget(self._toggle_all_button)
-        top_layout.addWidget(self._make_top_separator("topSeparatorGlobalToggle"))
 
-        self._separate_entries = VisibleCheckBox("Separation of lines")
+        self._separate_entries = VisibleCheckBox("Line-separator")
         self._separate_entries.setObjectName("separateEntriesCheck")
         self._separate_entries.setProperty("islandIndicator", True)
         self._separate_entries.setChecked(False)
         self._separate_entries.setToolTip(
             "Draw a horizontal rule between non-contiguous result excerpts."
         )
-        top_layout.addWidget(self._separate_entries)
         top_layout.addStretch(1)
         layout.addWidget(top_controls)
 
-        text_groups = QWidget(group)
-        text_groups.setObjectName("textPatternGroupsRow")
-        text_groups_layout = QHBoxLayout(text_groups)
+        self._text_groups = QWidget(self._filter_alignment_container)
+        self._text_groups.setObjectName("textPatternGroupsRow")
+        text_groups_layout = QHBoxLayout(self._text_groups)
         text_groups_layout.setContentsMargins(0, 0, 0, 0)
         text_groups_layout.setSpacing(8)
         text_groups_layout.addWidget(
@@ -709,21 +765,23 @@ class LogreaderWindow(QMainWindow):
                 toggle_object_name="togglePairedButton",
             )
         )
-        text_groups_layout.addWidget(
-            self._build_pattern_group(
-                "Other errors",
-                TEXT_PATTERN_KEYS,
-                object_name="textPatternGroup",
-                columns=4,
-                toggle_object_name="toggleTextButton",
-            )
+        self._text_pattern_group = self._build_pattern_group(
+            "Other errors",
+            TEXT_PATTERN_KEYS,
+            object_name="textPatternGroup",
+            columns=4,
+            toggle_object_name="toggleTextButton",
         )
-        text_groups_layout.addStretch(1)
-        layout.addWidget(text_groups)
+        self._text_pattern_group.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        text_groups_layout.addWidget(self._text_pattern_group, 1)
+        layout.addWidget(self._text_groups)
 
-        http_row = QWidget(group)
-        http_row.setObjectName("httpStatusRow")
-        http_layout = QHBoxLayout(http_row)
+        self._http_row = QWidget(self._filter_alignment_container)
+        self._http_row.setObjectName("httpStatusRow")
+        http_layout = QHBoxLayout(self._http_row)
         http_layout.setContentsMargins(0, 0, 0, 0)
         http_layout.setSpacing(8)
         http_layout.addWidget(
@@ -736,15 +794,36 @@ class LogreaderWindow(QMainWindow):
             0,
             Qt.AlignmentFlag.AlignTop,
         )
-        http_group = self._build_pattern_group(
+        self._http_status_group = self._build_pattern_group(
             "HTTP codes",
             HTTP_STATUS_PATTERN_KEYS,
             object_name="httpStatusGroup",
             columns=1,
         )
-        http_layout.addWidget(http_group, 0, Qt.AlignmentFlag.AlignTop)
-        http_layout.addStretch(1)
-        layout.addWidget(http_row)
+        http_options = QWidget(self._http_row)
+        http_options.setObjectName("httpOptionsColumn")
+        http_options.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        http_options_layout = QVBoxLayout(http_options)
+        http_options_layout.setContentsMargins(0, 0, 0, 0)
+        http_options_layout.setSpacing(9)
+        self._http_status_group.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        http_options_layout.addWidget(self._http_status_group)
+        http_options_layout.addWidget(
+            self._separate_entries,
+            0,
+            Qt.AlignmentFlag.AlignLeft,
+        )
+        http_layout.addWidget(http_options, 1, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self._http_row)
+        self._filter_alignment_container.setMaximumWidth(
+            top_controls.sizeHint().width()
+        )
         return group
 
     def _build_custom_pattern_group(self) -> QGroupBox:
@@ -840,9 +919,15 @@ class LogreaderWindow(QMainWindow):
         separator = QFrame()
         separator.setObjectName(object_name)
         separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setFrameShadow(QFrame.Shadow.Plain)
+        separator.setLineWidth(1)
+        separator.setFixedWidth(1)
         separator.setMaximumHeight(24)
-        separator.setStyleSheet(f"color: {THEME_COLORS['ui_border_strong']};")
+        separator.setStyleSheet(
+            f"background-color: {THEME_COLORS['ui_border_strong']};"
+            " border: none;"
+            f" color: {THEME_COLORS['ui_border_strong']};"
+        )
         return separator
 
     def _build_pattern_group(
