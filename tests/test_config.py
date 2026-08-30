@@ -24,6 +24,7 @@ class LogreaderConfigTests(unittest.TestCase):
         self.assertEqual(patterns[0].context, 3)
         self.assertEqual(patterns[1].context, 3)
         self.assertEqual(patterns[1].excluded_substrings, ("error:",))
+        self.assertEqual(config.regex_patterns, ())
 
     def test_patterns_have_a_stable_logical_display_order(self):
         expected_order = (
@@ -200,17 +201,21 @@ class LogreaderConfigTests(unittest.TestCase):
             limit=10,
             enabled_patterns=("warning", "exception"),
             custom_patterns=(" timeout ",),
+            regex_patterns=(r" ERROR\s+[0-9]+ ",),
             separate_entries=True,
         )
         patterns = config.search_patterns()
 
         self.assertEqual(
             [pattern.key for pattern in patterns],
-            ["warning", "exception", "custom_1"],
+            ["warning", "exception", "custom_1", "regex_1"],
         )
         self.assertEqual(config.custom_patterns, ("timeout",))
+        self.assertEqual(config.regex_patterns, (r"ERROR\s+[0-9]+",))
         self.assertTrue(all(pattern.context == 5 for pattern in patterns))
         self.assertEqual(config.label_for("custom_1"), "timeout")
+        self.assertEqual(config.label_for("regex_1"), r"ERROR\s+[0-9]+")
+        self.assertTrue(patterns[-1].is_regex)
         self.assertTrue(config.separate_entries)
 
     def test_invalid_values_are_rejected(self):
@@ -222,6 +227,8 @@ class LogreaderConfigTests(unittest.TestCase):
             LogreaderConfig(enabled_patterns=("unknown",))
         with self.assertRaisesRegex(ValueError, "Custom patterns cannot be empty"):
             LogreaderConfig(custom_patterns=(" ",))
+        with self.assertRaisesRegex(ValueError, "Regex patterns cannot be empty"):
+            LogreaderConfig(regex_patterns=(" ",))
 
 
 if __name__ == "__main__":

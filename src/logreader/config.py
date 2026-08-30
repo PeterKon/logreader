@@ -113,6 +113,7 @@ class LogreaderConfig:
     enabled_patterns: tuple[str, ...] = DEFAULT_ENABLED_PATTERNS
     custom_patterns: tuple[str, ...] = ()
     separate_entries: bool = False
+    regex_patterns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.context < 0:
@@ -130,8 +131,13 @@ class LogreaderConfig:
         if any(not pattern for pattern in custom_patterns):
             raise ValueError("Custom patterns cannot be empty")
 
+        regex_patterns = tuple(pattern.strip() for pattern in self.regex_patterns)
+        if any(not pattern for pattern in regex_patterns):
+            raise ValueError("Regex patterns cannot be empty")
+
         object.__setattr__(self, "enabled_patterns", enabled_patterns)
         object.__setattr__(self, "custom_patterns", custom_patterns)
+        object.__setattr__(self, "regex_patterns", regex_patterns)
 
     def search_patterns(self) -> tuple[SearchPattern, ...]:
         """Build the pure engine patterns represented by this configuration."""
@@ -160,6 +166,15 @@ class LogreaderConfig:
             )
             for index, needle in enumerate(self.custom_patterns, start=1)
         )
+        patterns.extend(
+            SearchPattern(
+                key=f"regex_{index}",
+                needle=needle,
+                context=self.context,
+                is_regex=True,
+            )
+            for index, needle in enumerate(self.regex_patterns, start=1)
+        )
         return tuple(patterns)
 
     def preset(self, key: str) -> PatternPreset | None:
@@ -177,4 +192,7 @@ class LogreaderConfig:
         if key.startswith("custom_"):
             index = int(key.removeprefix("custom_")) - 1
             return self.custom_patterns[index]
+        if key.startswith("regex_"):
+            index = int(key.removeprefix("regex_")) - 1
+            return self.regex_patterns[index]
         raise KeyError(key)

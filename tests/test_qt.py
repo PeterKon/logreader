@@ -7,6 +7,8 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QPalette
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
@@ -15,6 +17,7 @@ try:
         QGroupBox,
         QLabel,
         QLineEdit,
+        QListWidget,
         QPlainTextEdit,
         QPushButton,
         QSizePolicy,
@@ -28,6 +31,7 @@ try:
         PATTERN_KEYS,
         TEXT_PATTERN_KEYS,
     )
+    from logreader.core import analyze_lines
     from logreader.qt_app import COLORS, ENTRY_SEPARATOR, RULE, LogreaderWindow
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
@@ -59,18 +63,19 @@ class LogreaderQtTests(unittest.TestCase):
             ("error_colon", "error", "failed", "fatal"),
         )
         self.assertEqual(config.custom_patterns, ())
+        self.assertEqual(config.regex_patterns, ())
         self.assertFalse(config.separate_entries)
         self.assertEqual(
             self.window.findChild(QLabel, "limitLabel").text(),
-            "Total entries limit",
+            "Total errors limit",
         )
         self.assertEqual(
             self.window.findChild(QLabel, "contextLabel").text(),
-            "Context around entries",
+            "Context around errors",
         )
         self.assertEqual(
             self.window.findChild(QCheckBox, "separateEntriesCheck").text(),
-            "Separation of entries",
+            "Separation of lines",
         )
         self.assertEqual(
             self.window.statusBar().currentMessage(),
@@ -101,6 +106,8 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertFalse(results.isHidden())
         self.assertEqual(button.text(), "▲")
         self.assertEqual(button.accessibleName(), "Maximize results")
+        self.assertEqual(button.toolTip(), "Expand results window")
+        self.assertIn("QToolTip { font-weight: 400; }", button.styleSheet())
         self.assertEqual(button.width(), 38)
         self.assertEqual(button.height(), 26)
         header_layout = results_header.layout()
@@ -124,6 +131,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertFalse(results.isHidden())
         self.assertEqual(button.text(), "▼")
         self.assertEqual(button.accessibleName(), "Restore layout")
+        self.assertEqual(button.toolTip(), "Show menu and filters")
 
         button.click()
 
@@ -131,6 +139,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertFalse(filter_group.isHidden())
         self.assertEqual(button.text(), "▲")
         self.assertEqual(button.accessibleName(), "Maximize results")
+        self.assertEqual(button.toolTip(), "Expand results window")
 
     def test_line_wrapping_can_be_toggled_from_results_header(self):
         results = self.window.findChild(QPlainTextEdit, "resultsView")
@@ -191,6 +200,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.window.findChild(QCheckBox, "pattern_warning").setChecked(True)
         self.window.findChild(QCheckBox, "separateEntriesCheck").setChecked(True)
         self.window.findChild(QLineEdit, "customPattern").setText(" timeout ")
+        self.window.findChild(QPushButton, "customPatternAddButton").click()
 
         config = self.window.build_config()
 
@@ -201,23 +211,30 @@ class LogreaderQtTests(unittest.TestCase):
             ("error_colon", "error", "warning", "failed", "fatal"),
         )
         self.assertEqual(config.custom_patterns, ("timeout",))
+        self.assertEqual(config.regex_patterns, ())
         self.assertTrue(config.separate_entries)
 
     def test_error_patterns_and_plain_variants_are_available_as_toggles(self):
         expected_labels = {
-            "pattern_error_colon": "ERROR:",
-            "pattern_error": "ERROR",
-            "pattern_warning": "WARNING:",
-            "pattern_warning_generic": "WARNING",
-            "pattern_exception": "EXCEPTION:",
-            "pattern_exception_generic": "EXCEPTION",
-            "pattern_aborted": "ABORTED",
-            "pattern_terminated": "TERMINATED",
-            "pattern_timeout": "TIMEOUT",
-            "pattern_uninitialized": "UNINITIALIZED",
-            "pattern_not_found": "NOT FOUND",
-            "pattern_http_4xx": "HTTP 4xx (400–499)",
-            "pattern_http_5xx": "HTTP 5xx (500–599)",
+            "pattern_error_colon": "Error:",
+            "pattern_error": "Error",
+            "pattern_warning": "Warning:",
+            "pattern_warning_generic": "Warning",
+            "pattern_exception": "Exception:",
+            "pattern_exception_generic": "Exception",
+            "pattern_failed": "Failed",
+            "pattern_fatal": "Fatal",
+            "pattern_failure": "Failure",
+            "pattern_critical": "Critical",
+            "pattern_illegal": "Illegal",
+            "pattern_invalid": "Invalid",
+            "pattern_aborted": "Aborted",
+            "pattern_terminated": "Terminated",
+            "pattern_timeout": "Timeout",
+            "pattern_uninitialized": "Uninitialized",
+            "pattern_not_found": "Not found",
+            "pattern_http_4xx": "4xx",
+            "pattern_http_5xx": "5xx",
         }
 
         for object_name, label in expected_labels.items():
@@ -231,11 +248,13 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn("error_colon", config.enabled_patterns)
         self.assertNotIn("error", config.enabled_patterns)
 
-    def test_patterns_are_split_into_three_named_groups(self):
+    def test_patterns_are_split_into_five_named_groups(self):
         expected_groups = {
-            "pairedPatternGroup": "Colon and plain counterparts",
-            "textPatternGroup": "Other text errors",
-            "httpStatusGroup": "HTTP status codes",
+            "pairedPatternGroup": "Colon / plain error pairs",
+            "textPatternGroup": "Other errors",
+            "httpStatusGroup": "HTTP codes",
+            "customPatternGroup": "Plain text search",
+            "regexPatternGroup": "Regex search",
         }
 
         for object_name, title in expected_groups.items():
@@ -250,14 +269,157 @@ class LogreaderQtTests(unittest.TestCase):
                 self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
             )
 
+    def test_custom_patterns_are_added_to_the_list_before_configuration(self):
+        input_box = self.window.findChild(QLineEdit, "customPattern")
+        add_button = self.window.findChild(
+            QPushButton,
+            "customPatternAddButton",
+        )
+        pattern_list = self.window.findChild(QListWidget, "customPatternList")
+
+        self.assertEqual(add_button.text(), "+add")
+        self.assertEqual(input_box.placeholderText(), "Enter item")
+        self.assertEqual(
+            input_box.palette()
+            .color(QPalette.ColorRole.PlaceholderText)
+            .alpha(),
+            90,
+        )
+        input_box.setText(" timeout ")
+        self.assertEqual(self.window.build_config().custom_patterns, ())
+
+        add_button.click()
+        self.assertEqual(input_box.text(), "")
+        self.assertEqual(pattern_list.count(), 1)
+        self.assertEqual(pattern_list.item(0).text(), "")
+        self.assertEqual(
+            pattern_list.item(0).data(Qt.ItemDataRole.UserRole),
+            "timeout",
+        )
+        item_label = pattern_list.itemWidget(pattern_list.item(0)).findChild(QLabel)
+        self.assertEqual(item_label.text(), "timeout")
+        self.assertFalse(item_label.font().bold())
+
+        input_box.setText("connection refused")
+        input_box.returnPressed.emit()
+        self.assertEqual(pattern_list.count(), 2)
+        self.assertEqual(pattern_list.spacing(), 0)
+        self.assertTrue(pattern_list.uniformItemSizes())
+        self.assertEqual(
+            [
+                pattern_list.item(index).sizeHint().height()
+                for index in range(pattern_list.count())
+            ],
+            [18, 18],
+        )
+        self.assertEqual(
+            self.window.build_config().custom_patterns,
+            ("timeout", "connection refused"),
+        )
+
+        remove_buttons = pattern_list.findChildren(
+            QPushButton,
+            "customPatternRemoveButton",
+        )
+        self.assertEqual([button.text() for button in remove_buttons], ["-", "-"])
+        self.assertEqual(remove_buttons[0].accessibleName(), "Remove timeout")
+        remove_buttons[0].click()
+        self.assertEqual(pattern_list.count(), 1)
+        self.assertEqual(
+            pattern_list.item(0).data(Qt.ItemDataRole.UserRole),
+            "connection refused",
+        )
+        self.assertEqual(
+            self.window.build_config().custom_patterns,
+            ("connection refused",),
+        )
+
+        input_box.setText("   ")
+        add_button.click()
+        self.assertEqual(pattern_list.count(), 1)
+
+    def test_regex_patterns_use_the_same_managed_list_ui(self):
+        input_box = self.window.findChild(QLineEdit, "regexPattern")
+        add_button = self.window.findChild(
+            QPushButton,
+            "regexPatternAddButton",
+        )
+        pattern_list = self.window.findChild(QListWidget, "regexPatternList")
+
+        self.assertEqual(input_box.placeholderText(), "Enter item")
+        self.assertEqual(
+            input_box.palette()
+            .color(QPalette.ColorRole.PlaceholderText)
+            .alpha(),
+            90,
+        )
+        self.assertEqual(add_button.text(), "+add")
+        self.assertEqual(pattern_list.spacing(), 0)
+        self.assertTrue(pattern_list.uniformItemSizes())
+
+        input_box.setText(r"^ERROR:\s+[0-9]+$")
+        self.assertEqual(self.window.build_config().regex_patterns, ())
+        add_button.click()
+
+        config = self.window.build_config()
+        self.assertEqual(config.regex_patterns, (r"^ERROR:\s+[0-9]+$",))
+        self.assertEqual(pattern_list.item(0).sizeHint().height(), 18)
+        item_label = pattern_list.itemWidget(pattern_list.item(0)).findChild(QLabel)
+        self.assertFalse(item_label.font().bold())
+
+        analysis = analyze_lines(
+            ["ERROR: 42", "error: 42"],
+            config.search_patterns(),
+        )
+        self.assertEqual(analysis.category("regex_1").match_count, 1)
+        self.assertEqual(
+            [
+                line.number
+                for excerpt in analysis.category("regex_1").excerpts
+                for line in excerpt.lines
+                if line.is_match
+            ],
+            [1],
+        )
+
+        remove_button = pattern_list.findChild(
+            QPushButton,
+            "regexPatternRemoveButton",
+        )
+        self.assertEqual(remove_button.text(), "-")
+        remove_button.click()
+        self.assertEqual(pattern_list.count(), 0)
+        self.assertEqual(self.window.build_config().regex_patterns, ())
+
     def test_pattern_groups_are_compact_aligned_and_evenly_spaced(self):
         text_groups = self.window.findChild(QWidget, "textPatternGroupsRow")
         paired_group = self.window.findChild(QGroupBox, "pairedPatternGroup")
         text_group = self.window.findChild(QGroupBox, "textPatternGroup")
         http_group = self.window.findChild(QGroupBox, "httpStatusGroup")
+        custom_group = self.window.findChild(QGroupBox, "customPatternGroup")
+        regex_group = self.window.findChild(QGroupBox, "regexPatternGroup")
+        http_row = self.window.findChild(QWidget, "httpStatusRow")
 
         self.assertIs(paired_group.parentWidget(), text_groups)
         self.assertIs(text_group.parentWidget(), text_groups)
+        self.assertIs(http_group.parentWidget(), http_row)
+        self.assertIs(custom_group.parentWidget(), http_row)
+        self.assertIs(regex_group.parentWidget(), http_row)
+        self.assertIs(http_row.layout().itemAt(0).widget(), custom_group)
+        self.assertIs(http_row.layout().itemAt(1).widget(), regex_group)
+        self.assertIs(http_row.layout().itemAt(2).widget(), http_group)
+        self.assertTrue(
+            http_row.layout().itemAt(0).alignment()
+            & Qt.AlignmentFlag.AlignTop
+        )
+        self.assertTrue(
+            http_row.layout().itemAt(1).alignment()
+            & Qt.AlignmentFlag.AlignTop
+        )
+        self.assertTrue(
+            http_row.layout().itemAt(2).alignment()
+            & Qt.AlignmentFlag.AlignTop
+        )
         self.assertEqual(
             paired_group.sizePolicy().horizontalPolicy(),
             QSizePolicy.Policy.Maximum,
@@ -280,10 +442,7 @@ class LogreaderQtTests(unittest.TestCase):
             {text_layout.columnMinimumWidth(column) for column in range(4)},
             {text_layout.columnMinimumWidth(0)},
         )
-        self.assertEqual(
-            http_layout.columnMinimumWidth(0),
-            http_layout.columnMinimumWidth(1),
-        )
+        self.assertGreater(http_layout.columnMinimumWidth(0), 0)
 
         paired_rows = {
             paired_layout.getItemPosition(
@@ -312,7 +471,7 @@ class LogreaderQtTests(unittest.TestCase):
             )[:2]
             for key in HTTP_STATUS_PATTERN_KEYS
         ]
-        self.assertEqual(http_positions, [(0, 0), (0, 1)])
+        self.assertEqual(http_positions, [(0, 0), (1, 0)])
 
     def test_toggle_all_enables_every_pattern_then_disables_every_pattern(self):
         button = self.window.findChild(QPushButton, "toggleAllButton")

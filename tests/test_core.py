@@ -112,6 +112,50 @@ class AnalyzeLinesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid search pattern regex"):
             SearchPattern("invalid", "[", is_regex=True)
 
+    def test_regex_is_case_sensitive_unless_inline_flags_enable_folding(self):
+        result = analyze_lines(
+            ["error ERROR"],
+            [
+                SearchPattern("sensitive", "error", is_regex=True),
+                SearchPattern("insensitive", "(?i)error", is_regex=True),
+            ],
+        )
+
+        sensitive_line = result.category("sensitive").excerpts[0].lines[0]
+        insensitive_line = result.category("insensitive").excerpts[0].lines[0]
+        self.assertEqual(
+            [(span.start, span.end) for span in sensitive_line.match_spans],
+            [(0, 5)],
+        )
+        self.assertEqual(
+            [(span.start, span.end) for span in insensitive_line.match_spans],
+            [(0, 5), (6, 11)],
+        )
+
+    def test_zero_width_regex_matches_are_ignored(self):
+        result = analyze_lines(
+            ["ERROR"],
+            [
+                SearchPattern("anchors_only", r"^|$", is_regex=True),
+                SearchPattern(
+                    "consuming_lookaround",
+                    r"^(?=ERROR)ERROR(?=$)",
+                    is_regex=True,
+                ),
+            ],
+        )
+
+        self.assertEqual(result.category("anchors_only").match_count, 0)
+        consuming = result.category("consuming_lookaround")
+        self.assertEqual(consuming.match_count, 1)
+        self.assertEqual(
+            [
+                (span.start, span.end)
+                for span in consuming.excerpts[0].lines[0].match_spans
+            ],
+            [(0, 5)],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,7 @@ MatchValidator = Callable[[str, int, int], bool]
 
 @dataclass(frozen=True, slots=True)
 class SearchPattern:
-    """Configuration for one case-insensitive literal or fixed-regex search."""
+    """Configuration for one case-insensitive literal or case-sensitive regex."""
 
     key: str
     needle: str
@@ -36,7 +36,7 @@ class SearchPattern:
             raise ValueError("Search pattern match validator must be callable")
         if self.is_regex:
             try:
-                re.compile(self.needle, re.IGNORECASE)
+                re.compile(self.needle)
             except re.error as error:
                 raise ValueError(f"Invalid search pattern regex: {error}") from error
 
@@ -97,7 +97,7 @@ def analyze_lines(
     lines: Sequence[str] | Iterable[str],
     patterns: Iterable[SearchPattern],
 ) -> AnalysisResult:
-    """Analyze lines using case-insensitive literal or fixed-regex patterns.
+    """Analyze lines using case-insensitive literals or case-sensitive regexes.
 
     Context ranges that overlap or touch are merged into a single excerpt.  The
     returned objects retain the original text, match spans, and one-based source
@@ -125,7 +125,7 @@ def _analyze_pattern(
 ) -> CategoryResult:
     expression = re.compile(
         pattern.needle if pattern.is_regex else re.escape(pattern.needle),
-        re.IGNORECASE,
+        0 if pattern.is_regex else re.IGNORECASE,
     )
     match_spans = tuple(
         _find_match_spans(
@@ -214,6 +214,9 @@ def _find_match_spans(
     return tuple(
         MatchSpan(match.start(), match.end())
         for match in expression.finditer(line)
-        if match_validator is None
-        or match_validator(line, match.start(), match.end())
+        if match.start() < match.end()
+        and (
+            match_validator is None
+            or match_validator(line, match.start(), match.end())
+        )
     )
