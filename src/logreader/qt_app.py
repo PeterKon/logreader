@@ -4,9 +4,20 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from time import perf_counter
 from typing import Callable, Sequence
 
-from PySide6.QtCore import QPointF, QSize, Qt
+from PySide6.QtCore import (
+    QObject,
+    QPointF,
+    QRunnable,
+    QSize,
+    Qt,
+    QThreadPool,
+    QTimer,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -53,7 +64,13 @@ from .config import (
     TEXT_PATTERN_KEYS,
     LogreaderConfig,
 )
-from .core import AnalysisResult, CategoryResult, ResultLine, analyze_lines
+from .core import (
+    AnalysisResult,
+    CategoryResult,
+    ResultLine,
+    SearchPattern,
+    analyze_lines,
+)
 from .file_loader import LogDecodeError, load_log
 from .presentation import CategoryPresentation, build_category_presentations
 from .theme import THEME_COLORS
@@ -63,6 +80,7 @@ COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
 RULE = "─" * 72
 ENTRY_SEPARATOR = "-------->"
 FILTER_ALIGNMENT_EXTRA_WIDTH = 115
+ANALYSIS_BUSY_DELAY_MS = 1_000
 
 INTERFACE_STYLE_SHEET = f"""
 QMainWindow {{
@@ -490,8 +508,48 @@ class UnclippedPushButton(QPushButton):
         )
 
 
+class AnalysisWorkerSignals(QObject):
+    """Cross-thread completion signals for one analysis request."""
+
+    completed = Signal(int, object, float)
+    failed = Signal(int, str)
+
+
+class AnalysisWorker(QRunnable):
+    """Run the pure log analysis engine outside Qt's GUI thread."""
+
+    def __init__(
+        self,
+        request_id: int,
+        lines: tuple[str, ...],
+        patterns: tuple[SearchPattern, ...],
+    ) -> None:
+        super().__init__()
+        self.request_id = request_id
+        self.lines = lines
+        self.patterns = patterns
+        self.signals = AnalysisWorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        started = perf_counter()
+        try:
+            analysis = analyze_lines(self.lines, self.patterns)
+        except Exception as error:  # Keep worker failures from stranding the UI.
+            self.signals.failed.emit(self.request_id, str(error))
+            return
+
+        self.signals.completed.emit(
+            self.request_id,
+            analysis,
+            perf_counter() - started,
+        )
+
+
 class LogreaderWindow(QMainWindow):
     """Small desktop shell around the shared Logreader engine."""
+
+    analysis_finished = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -500,6 +558,18 @@ class LogreaderWindow(QMainWindow):
         self._source_encoding: str | None = None
         self._pattern_checkboxes: dict[str, QCheckBox] = {}
         self._results_maximized = False
+        self._analysis_busy = False
+        self._analysis_busy_visible = False
+        self._analysis_request_id = 0
+        self._analysis_worker: AnalysisWorker | None = None
+        self._analysis_config: LogreaderConfig | None = None
+        self._analysis_source_path: Path | None = None
+        self._analysis_pattern_count = 0
+        self._analysis_pool = QThreadPool.globalInstance()
+        self._analysis_busy_timer = QTimer(self)
+        self._analysis_busy_timer.setSingleShot(True)
+        self._analysis_busy_timer.setInterval(ANALYSIS_BUSY_DELAY_MS)
+        self._analysis_busy_timer.timeout.connect(self._show_analysis_busy)
 
         self._apply_interface_palette()
         self.setStyleSheet(INTERFACE_STYLE_SHEET)
@@ -1207,6 +1277,10 @@ class LogreaderWindow(QMainWindow):
             self.statusBar().showMessage(f"Unable to read {path.name}")
             return False
 
+        if self._analysis_busy:
+            self._analysis_request_id += 1
+            self._finish_analysis_request()
+
         self._source_path = path
         self._source_lines = loaded.lines
         self._source_encoding = loaded.encoding
@@ -1227,34 +1301,127 @@ class LogreaderWindow(QMainWindow):
     def analyze_current(self) -> None:
         """Analyze the loaded file using the current controls."""
 
-        if self._source_path is None:
+        if self._source_path is None or self._analysis_busy:
             return
 
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             config = self.build_config()
-            analysis = analyze_lines(self._source_lines, config.search_patterns())
-            render_analysis(
-                self._results,
-                str(self._source_path),
-                analysis,
-                config,
-            )
+            patterns = config.search_patterns()
         except ValueError as error:
             QMessageBox.warning(self, "Invalid filters", str(error))
             self.statusBar().showMessage("Analysis could not be completed")
             return
-        finally:
-            QApplication.restoreOverrideCursor()
+
+        self._analysis_request_id += 1
+        request_id = self._analysis_request_id
+        worker = AnalysisWorker(
+            request_id,
+            self._source_lines,
+            patterns,
+        )
+        worker.signals.completed.connect(self._complete_analysis)
+        worker.signals.failed.connect(self._fail_analysis)
+        self._analysis_worker = worker
+        self._analysis_config = config
+        self._analysis_source_path = self._source_path
+        self._analysis_pattern_count = len(patterns)
+        self._set_analysis_busy(True)
+        self._analysis_pool.start(worker)
+
+    @Slot(int, object, float)
+    def _complete_analysis(
+        self,
+        request_id: int,
+        analysis: AnalysisResult,
+        analysis_seconds: float,
+    ) -> None:
+        """Render the current worker result back on Qt's GUI thread."""
+
+        if request_id != self._analysis_request_id:
+            return
+
+        config = self._analysis_config
+        source_path = self._analysis_source_path
+        if config is None or source_path is None:
+            self._finish_analysis_request()
+            return
+
+        rendering_started = perf_counter()
+        render_analysis(
+            self._results,
+            str(source_path),
+            analysis,
+            config,
+        )
+        rendering_seconds = perf_counter() - rendering_started
+        prepend_performance_timings(
+            self._results,
+            analysis_seconds,
+            rendering_seconds,
+        )
 
         match_count = sum(
             result.match_count for result in analysis.categories.values()
         )
+        self._finish_analysis_request()
         self.statusBar().showMessage(
             f"{analysis.line_count:,} lines  •  {match_count:,} matches  •  "
             f"{len(analysis.categories)} active patterns  •  "
             f"{self._source_encoding or 'unknown encoding'}"
         )
+        self.analysis_finished.emit()
+
+    @Slot(int, str)
+    def _fail_analysis(self, request_id: int, message: str) -> None:
+        """Restore the interface after a worker-side analysis failure."""
+
+        if request_id != self._analysis_request_id:
+            return
+
+        self._finish_analysis_request()
+        QMessageBox.warning(self, "Invalid filters", message)
+        self.statusBar().showMessage("Analysis could not be completed")
+
+    def _set_analysis_busy(self, busy: bool) -> None:
+        self._analysis_busy = busy
+        if busy:
+            self._analysis_busy_visible = False
+            self._results.setFocus(Qt.FocusReason.OtherFocusReason)
+            self._analyze_button.setEnabled(False)
+            self._analyze_button.setText("Analyzing…")
+            self._analysis_busy_timer.start()
+            return
+
+        self._analysis_busy_timer.stop()
+        self._analyze_button.setEnabled(self._source_path is not None)
+        self._analyze_button.setText("&Analyze")
+        if self._analysis_busy_visible:
+            self._analysis_busy_visible = False
+            self.unsetCursor()
+
+    @Slot()
+    def _show_analysis_busy(self) -> None:
+        if not self._analysis_busy:
+            return
+
+        self._analysis_busy_visible = True
+        self.setCursor(Qt.CursorShape.WaitCursor)
+        source_name = (
+            self._analysis_source_path.name
+            if self._analysis_source_path is not None
+            else "log"
+        )
+        self.statusBar().showMessage(
+            f"Analyzing {source_name} with "
+            f"{self._analysis_pattern_count} active patterns…"
+        )
+
+    def _finish_analysis_request(self) -> None:
+        self._analysis_worker = None
+        self._analysis_config = None
+        self._analysis_source_path = None
+        self._analysis_pattern_count = 0
+        self._set_analysis_busy(False)
 
 
 def render_analysis(
@@ -1288,6 +1455,32 @@ def render_analysis(
         for presentation in build_category_presentations(analysis, config.limit):
             _render_category(cursor, presentation, config)
 
+        cursor.endEditBlock()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        view.setTextCursor(cursor)
+    finally:
+        view.setUpdatesEnabled(True)
+
+
+def prepend_performance_timings(
+    view: QPlainTextEdit,
+    analysis_seconds: float,
+    rendering_seconds: float,
+) -> None:
+    """Place diagnostic analysis and rendering durations above the results."""
+
+    view.setUpdatesEnabled(False)
+    try:
+        cursor = QTextCursor(view.document())
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        cursor.beginEditBlock()
+        _insert(cursor, "Performance timing\n", "heading", bold=True)
+        _insert(cursor, f"Analysis time: {analysis_seconds:.3f} s\n", "muted")
+        _insert(
+            cursor,
+            f"Result rendering time: {rendering_seconds:.3f} s\n\n",
+            "muted",
+        )
         cursor.endEditBlock()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         view.setTextCursor(cursor)

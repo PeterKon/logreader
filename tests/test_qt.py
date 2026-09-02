@@ -2,6 +2,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from threading import Event
+from unittest.mock import patch
 
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -9,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
@@ -63,6 +66,23 @@ class LogreaderQtTests(unittest.TestCase):
     def tearDown(self):
         self.window.close()
         self.app.processEvents()
+
+    def _click_analyze_and_wait(self, timeout: int = 5_000) -> None:
+        completed = QSignalSpy(self.window.analysis_finished)
+        self.window.findChild(QPushButton, "analyzeButton").click()
+        self._wait_for_signal(completed, timeout)
+
+    def _wait_for_signal(
+        self,
+        signal_spy: QSignalSpy,
+        timeout: int = 5_000,
+    ) -> None:
+        for _ in range(max(1, timeout // 10)):
+            self.app.processEvents()
+            if signal_spy.count():
+                return
+            QTest.qWait(10)
+        self.fail("Analysis did not finish")
 
     def test_default_controls_build_the_shared_configuration(self):
         config = self.window.build_config()
@@ -905,7 +925,11 @@ class LogreaderQtTests(unittest.TestCase):
             self.window.findChild(QLineEdit, "customPattern").returnPressed.emit()
             output_after_return = results.toPlainText()
 
-            self.window.findChild(QPushButton, "analyzeButton").click()
+            with patch(
+                "logreader.qt_app.perf_counter",
+                side_effect=(10.0, 12.3456, 20.0, 24.5678),
+            ):
+                self._click_analyze_and_wait()
             output = results.toPlainText()
             html = results.document().toHtml()
 
@@ -914,6 +938,13 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(output_after_return, "")
         self.assertIn("3 lines loaded as UTF-8", staged_status)
         self.assertIn("press Analyze to begin", staged_status)
+        self.assertTrue(
+            output.startswith(
+                "Performance timing\n"
+                "Analysis time: 2.346 s\n"
+                "Result rendering time: 4.568 s\n\n"
+            )
+        )
         self.assertIn("ERROR: boom", output)
         self.assertNotIn("\033[", output)
         self.assertIn(COLORS["match"].name(), html)
@@ -921,13 +952,94 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIn(COLORS["line_number"].name(), html)
         self.assertIn("UTF-8", self.window.statusBar().currentMessage())
 
+    def test_analysis_runs_in_background_and_restores_controls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "background.log"
+            log_path.write_text("ERROR: boom\n", encoding="utf-8")
+            self.window.load_file(log_path)
+            self.window.show()
+            self.app.processEvents()
+
+            started = Event()
+            release = Event()
+
+            def blocking_analysis(lines, patterns):
+                started.set()
+                if not release.wait(2):
+                    raise TimeoutError("Test analysis was not released")
+                return analyze_lines(lines, patterns)
+
+            completed = QSignalSpy(self.window.analysis_finished)
+            analyze_button = self.window.findChild(
+                QPushButton,
+                "analyzeButton",
+            )
+            open_button = self.window.findChild(QPushButton, "openButton")
+            filter_group = self.window.findChild(QGroupBox, "filterGroup")
+            line_wrap = self.window.findChild(QCheckBox, "lineWrapCheck")
+
+            try:
+                with patch(
+                    "logreader.qt_app.analyze_lines",
+                    side_effect=blocking_analysis,
+                ) as mocked_analysis:
+                    analyze_button.click()
+                    self.assertTrue(started.wait(1))
+                    self.assertFalse(analyze_button.isEnabled())
+                    self.assertEqual(analyze_button.text(), "Analyzing…")
+                    self.assertIs(
+                        self.app.focusWidget(),
+                        self.window.findChild(QPlainTextEdit, "resultsView"),
+                    )
+                    self.assertTrue(open_button.isEnabled())
+                    self.assertTrue(filter_group.isEnabled())
+                    self.assertNotIn(
+                        "Analyzing",
+                        self.window.statusBar().currentMessage(),
+                    )
+                    self.assertTrue(self.window._analysis_busy_timer.isActive())
+                    self.assertEqual(
+                        self.window._analysis_busy_timer.interval(),
+                        1_000,
+                    )
+
+                    analyze_button.click()
+                    self.assertEqual(mocked_analysis.call_count, 1)
+
+                    self.window._show_analysis_busy()
+                    self.assertFalse(analyze_button.isEnabled())
+                    self.assertEqual(analyze_button.text(), "Analyzing…")
+                    self.assertTrue(open_button.isEnabled())
+                    self.assertTrue(filter_group.isEnabled())
+                    self.assertIn(
+                        "Analyzing background.log",
+                        self.window.statusBar().currentMessage(),
+                    )
+
+                    line_wrap.click()
+                    self.assertTrue(line_wrap.isChecked())
+
+                    release.set()
+                    self._wait_for_signal(completed)
+            finally:
+                release.set()
+
+        self.assertTrue(analyze_button.isEnabled())
+        self.assertEqual(analyze_button.text(), "&Analyze")
+        self.assertTrue(open_button.isEnabled())
+        self.assertTrue(filter_group.isEnabled())
+        self.assertIn(
+            "ERROR: boom",
+            self.window.findChild(QPlainTextEdit, "resultsView").toPlainText(),
+        )
+
     def test_zero_match_patterns_stay_in_summary_without_blank_sections(self):
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "summary.log"
             log_path.write_text("ERROR: boom\n", encoding="utf-8")
 
             self.window.load_file(log_path)
-            self.window.findChild(QPushButton, "analyzeButton").click()
+            self._click_analyze_and_wait()
             output = self.window.findChild(
                 QPlainTextEdit,
                 "resultsView",
@@ -952,7 +1064,7 @@ class LogreaderQtTests(unittest.TestCase):
             )
 
             self.window.load_file(log_path)
-            self.window.findChild(QPushButton, "analyzeButton").click()
+            self._click_analyze_and_wait()
             output = self.window.findChild(
                 QPlainTextEdit,
                 "resultsView",
@@ -974,14 +1086,14 @@ class LogreaderQtTests(unittest.TestCase):
 
             self.window.load_file(log_path)
             results = self.window.findChild(QPlainTextEdit, "resultsView")
-            self.window.findChild(QPushButton, "analyzeButton").click()
+            self._click_analyze_and_wait()
             without_separator = results.toPlainText()
 
             self.window.findChild(
                 QCheckBox,
                 "separateEntriesCheck",
             ).setChecked(True)
-            self.window.analyze_current()
+            self._click_analyze_and_wait()
             with_separator = results.toPlainText()
 
         adjacent_results = (
