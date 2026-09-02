@@ -83,6 +83,83 @@ class AnalyzeLinesTests(unittest.TestCase):
             [1],
         )
 
+    def test_exclusions_collect_spans_and_raw_matches_in_one_pass(self):
+        validator_calls = []
+
+        def validator(line, start, end):
+            validator_calls.append((line, start, end))
+            return not line.startswith("ERROR:") or start > 0
+
+        result = analyze_lines(
+            [
+                "generic error and error",
+                "ERROR: rejected error accepted",
+                "plain context",
+            ],
+            [
+                SearchPattern(
+                    "error",
+                    "error",
+                    context=2,
+                    excluded_substrings=("error:",),
+                    match_validator=validator,
+                )
+            ],
+        ).category("error")
+
+        self.assertEqual(result.match_count, 1)
+        self.assertEqual(
+            [line.number for line in result.excerpts[0].lines],
+            [1],
+        )
+        self.assertEqual(
+            [
+                (span.start, span.end)
+                for span in result.excerpts[0].lines[0].match_spans
+            ],
+            [(8, 13), (18, 23)],
+        )
+        self.assertEqual(
+            validator_calls,
+            [
+                ("generic error and error", 8, 13),
+                ("generic error and error", 18, 23),
+                ("ERROR: rejected error accepted", 0, 5),
+                ("ERROR: rejected error accepted", 16, 21),
+            ],
+        )
+
+    def test_sparse_matches_preserve_large_line_numbers_and_context(self):
+        lines = ["neutral"] * 10_000
+        lines[5_000] = "generic error"
+        lines[5_002] = "ERROR: explicit"
+
+        result = analyze_lines(
+            lines,
+            [
+                SearchPattern(
+                    "error",
+                    "error",
+                    context=2,
+                    excluded_substrings=("error:",),
+                )
+            ],
+        ).category("error")
+
+        self.assertEqual(result.match_count, 1)
+        self.assertEqual(
+            [line.number for line in result.excerpts[0].lines],
+            [4_999, 5_000, 5_001, 5_002],
+        )
+        self.assertEqual(
+            [
+                line.number
+                for line in result.excerpts[0].lines
+                if line.is_match
+            ],
+            [5_001],
+        )
+
     def test_duplicate_pattern_keys_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "Duplicate search pattern key"):
             analyze_lines(

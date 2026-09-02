@@ -32,6 +32,7 @@ try:
     )
 
     from logreader.config import (
+        APP_VERSION,
         HTTP_STATUS_PATTERN_KEYS,
         PAIRED_PATTERN_KEYS,
         PATTERN_KEYS,
@@ -41,6 +42,7 @@ try:
     from logreader.qt_app import (
         COLORS,
         ENTRY_SEPARATOR,
+        IncrementalAnalysisRenderer,
         RULE,
         LogreaderWindow,
         UnclippedPushButton,
@@ -1032,6 +1034,46 @@ class LogreaderQtTests(unittest.TestCase):
             "ERROR: boom",
             self.window.findChild(QPlainTextEdit, "resultsView").toPlainText(),
         )
+
+    def test_result_rendering_yields_between_formatted_batches(self):
+        config = self.window.build_config()
+        analysis = analyze_lines(
+            ("before", "ERROR: boom", "after"),
+            config.search_patterns(),
+        )
+        results = self.window.findChild(QPlainTextEdit, "resultsView")
+        line_wrap = self.window.findChild(QCheckBox, "lineWrapCheck")
+        renderer = IncrementalAnalysisRenderer(
+            17,
+            results,
+            "incremental.log",
+            analysis,
+            config,
+            self.window,
+        )
+        completed = QSignalSpy(renderer.completed)
+
+        with patch("logreader.qt_app.INCREMENTAL_RENDER_BATCH_MS", 0):
+            renderer.start()
+            self.assertTrue(renderer._timer.isActive())
+            self.assertEqual(results.toPlainText(), "")
+            self.assertFalse(results.updatesEnabled())
+
+            renderer._timer.stop()
+            renderer._render_next_batch()
+            renderer._timer.stop()
+            self.assertEqual(results.toPlainText(), f"{APP_VERSION}\n")
+            self.assertEqual(completed.count(), 0)
+
+            line_wrap.click()
+            self.assertTrue(line_wrap.isChecked())
+
+            renderer._timer.start(0)
+            self._wait_for_signal(completed)
+
+        self.assertTrue(results.updatesEnabled())
+        self.assertIn("incremental.log", results.toPlainText())
+        self.assertIn("ERROR: boom", results.toPlainText())
 
     def test_zero_match_patterns_stay_in_summary_without_blank_sections(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -5,9 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from time import perf_counter
-from typing import Callable, Sequence
+from typing import Callable, Iterator, Sequence
 
 from PySide6.QtCore import (
+    QElapsedTimer,
     QObject,
     QPointF,
     QRunnable,
@@ -81,6 +82,9 @@ RULE = "─" * 72
 ENTRY_SEPARATOR = "-------->"
 FILTER_ALIGNMENT_EXTRA_WIDTH = 115
 ANALYSIS_BUSY_DELAY_MS = 1_000
+INCREMENTAL_RENDER_BATCH_MS = 8
+
+RenderOperation = tuple[str, str, bool]
 
 INTERFACE_STYLE_SHEET = f"""
 QMainWindow {{
@@ -546,6 +550,92 @@ class AnalysisWorker(QRunnable):
         )
 
 
+class IncrementalAnalysisRenderer(QObject):
+    """Build a formatted results document in event-loop-sized batches."""
+
+    completed = Signal(int, float)
+    failed = Signal(int, str)
+
+    def __init__(
+        self,
+        request_id: int,
+        view: QPlainTextEdit,
+        source_name: str,
+        analysis: AnalysisResult,
+        config: LogreaderConfig,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.request_id = request_id
+        self._view = view
+        self._operations = _iter_analysis_render_operations(
+            source_name,
+            analysis,
+            config,
+        )
+        self._cursor: QTextCursor | None = None
+        self._started = 0.0
+        self._cancelled = False
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._render_next_batch)
+
+    def start(self) -> None:
+        """Clear the previous document and schedule the first render batch."""
+
+        self._started = perf_counter()
+        self._view.setUpdatesEnabled(False)
+        self._view.clear()
+        self._cursor = QTextCursor(self._view.document())
+        self._timer.start(0)
+
+    def cancel(self) -> None:
+        """Stop future batches and restore painting for the results view."""
+
+        self._cancelled = True
+        self._timer.stop()
+        self._view.setUpdatesEnabled(True)
+
+    @Slot()
+    def _render_next_batch(self) -> None:
+        if self._cancelled or self._cursor is None:
+            return
+
+        batch_elapsed = QElapsedTimer()
+        batch_elapsed.start()
+        finished = False
+        self._cursor.beginEditBlock()
+        try:
+            while True:
+                try:
+                    text, role, bold = next(self._operations)
+                except StopIteration:
+                    finished = True
+                    break
+
+                _insert(self._cursor, text, role, bold=bold)
+                if batch_elapsed.elapsed() >= INCREMENTAL_RENDER_BATCH_MS:
+                    break
+        except Exception as error:
+            self._cursor.endEditBlock()
+            self._view.setUpdatesEnabled(True)
+            self.failed.emit(self.request_id, str(error))
+            return
+        self._cursor.endEditBlock()
+
+        if not finished:
+            self._timer.start(0)
+            return
+
+        self._cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self._view.setTextCursor(self._cursor)
+        self._view.setUpdatesEnabled(True)
+        self.completed.emit(
+            self.request_id,
+            perf_counter() - self._started,
+        )
+
+
 class LogreaderWindow(QMainWindow):
     """Small desktop shell around the shared Logreader engine."""
 
@@ -560,8 +650,12 @@ class LogreaderWindow(QMainWindow):
         self._results_maximized = False
         self._analysis_busy = False
         self._analysis_busy_visible = False
+        self._analysis_phase = "idle"
         self._analysis_request_id = 0
         self._analysis_worker: AnalysisWorker | None = None
+        self._analysis_renderer: IncrementalAnalysisRenderer | None = None
+        self._analysis_result: AnalysisResult | None = None
+        self._analysis_seconds = 0.0
         self._analysis_config: LogreaderConfig | None = None
         self._analysis_source_path: Path | None = None
         self._analysis_pattern_count = 0
@@ -1346,17 +1440,47 @@ class LogreaderWindow(QMainWindow):
             self._finish_analysis_request()
             return
 
-        rendering_started = perf_counter()
-        render_analysis(
+        self._analysis_worker = None
+        self._analysis_result = analysis
+        self._analysis_seconds = analysis_seconds
+        renderer = IncrementalAnalysisRenderer(
+            request_id,
             self._results,
             str(source_path),
             analysis,
             config,
+            self,
         )
-        rendering_seconds = perf_counter() - rendering_started
+        renderer.completed.connect(self._complete_rendering)
+        renderer.failed.connect(self._fail_analysis)
+        self._analysis_renderer = renderer
+        self._analysis_phase = "rendering"
+        self._analyze_button.setText("Rendering…")
+        if self._analysis_busy_visible:
+            self.statusBar().showMessage(
+                f"Rendering results for {source_path.name}…"
+            )
+        renderer.start()
+
+    @Slot(int, float)
+    def _complete_rendering(
+        self,
+        request_id: int,
+        rendering_seconds: float,
+    ) -> None:
+        """Finalize timings and status after all render batches complete."""
+
+        if request_id != self._analysis_request_id:
+            return
+
+        analysis = self._analysis_result
+        if analysis is None:
+            self._finish_analysis_request()
+            return
+
         prepend_performance_timings(
             self._results,
-            analysis_seconds,
+            self._analysis_seconds,
             rendering_seconds,
         )
 
@@ -1386,6 +1510,7 @@ class LogreaderWindow(QMainWindow):
         self._analysis_busy = busy
         if busy:
             self._analysis_busy_visible = False
+            self._analysis_phase = "analysis"
             self._results.setFocus(Qt.FocusReason.OtherFocusReason)
             self._analyze_button.setEnabled(False)
             self._analyze_button.setText("Analyzing…")
@@ -1393,6 +1518,7 @@ class LogreaderWindow(QMainWindow):
             return
 
         self._analysis_busy_timer.stop()
+        self._analysis_phase = "idle"
         self._analyze_button.setEnabled(self._source_path is not None)
         self._analyze_button.setText("&Analyze")
         if self._analysis_busy_visible:
@@ -1411,13 +1537,25 @@ class LogreaderWindow(QMainWindow):
             if self._analysis_source_path is not None
             else "log"
         )
-        self.statusBar().showMessage(
-            f"Analyzing {source_name} with "
-            f"{self._analysis_pattern_count} active patterns…"
-        )
+        if self._analysis_phase == "rendering":
+            self.statusBar().showMessage(
+                f"Rendering results for {source_name}…"
+            )
+        else:
+            self.statusBar().showMessage(
+                f"Analyzing {source_name} with "
+                f"{self._analysis_pattern_count} active patterns…"
+            )
 
     def _finish_analysis_request(self) -> None:
+        renderer = self._analysis_renderer
+        self._analysis_renderer = None
+        if renderer is not None:
+            renderer.cancel()
+            renderer.deleteLater()
         self._analysis_worker = None
+        self._analysis_result = None
+        self._analysis_seconds = 0.0
         self._analysis_config = None
         self._analysis_source_path = None
         self._analysis_pattern_count = 0
@@ -1437,23 +1575,12 @@ def render_analysis(
         view.clear()
         cursor = QTextCursor(view.document())
         cursor.beginEditBlock()
-
-        _insert(cursor, f"{APP_VERSION}\n", "heading", bold=True)
-        _insert(cursor, f"{source_name}\n\n", "muted")
-        for key, result in analysis.categories.items():
-            label = config.label_for(key)
-            _insert(cursor, f"{label:<20}", "body")
-            _insert(cursor, f"{result.match_count:>8} matches\n", _count_role(result))
-
-        _insert(
-            cursor,
-            f"\n{analysis.line_count:,} source lines  •  "
-            f"context {config.context}\n",
-            "muted",
-        )
-
-        for presentation in build_category_presentations(analysis, config.limit):
-            _render_category(cursor, presentation, config)
+        for text, role, bold in _iter_analysis_render_operations(
+            source_name,
+            analysis,
+            config,
+        ):
+            _insert(cursor, text, role, bold=bold)
 
         cursor.endEditBlock()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
@@ -1488,53 +1615,75 @@ def prepend_performance_timings(
         view.setUpdatesEnabled(True)
 
 
-def _render_category(
-    cursor: QTextCursor,
+def _iter_analysis_render_operations(
+    source_name: str,
+    analysis: AnalysisResult,
+    config: LogreaderConfig,
+) -> Iterator[RenderOperation]:
+    """Yield ordered formatting operations without touching Qt widgets."""
+
+    yield f"{APP_VERSION}\n", "heading", True
+    yield f"{source_name}\n\n", "muted", False
+    for key, result in analysis.categories.items():
+        label = config.label_for(key)
+        yield f"{label:<20}", "body", False
+        yield (
+            f"{result.match_count:>8} matches\n",
+            _count_role(result),
+            False,
+        )
+
+    yield (
+        f"\n{analysis.line_count:,} source lines  •  "
+        f"context {config.context}\n",
+        "muted",
+        False,
+    )
+
+    for presentation in build_category_presentations(analysis, config.limit):
+        yield from _iter_category_render_operations(presentation, config)
+
+
+def _iter_category_render_operations(
     presentation: CategoryPresentation,
     config: LogreaderConfig,
-) -> None:
+) -> Iterator[RenderOperation]:
     label = config.label_for(presentation.key)
-    _insert(cursor, f"\n{RULE}\n", "muted")
-    _insert(cursor, f"{presentation.heading(label)}\n", "heading", bold=True)
-    _insert(cursor, f"{RULE}\n", "muted")
+    yield f"\n{RULE}\n", "muted", False
+    yield f"{presentation.heading(label)}\n", "heading", True
+    yield f"{RULE}\n", "muted", False
 
     for excerpt_index, excerpt in enumerate(presentation.excerpts):
         for line in excerpt.lines:
-            _render_result_line(cursor, line)
+            yield from _iter_result_line_render_operations(line)
 
         if (
             config.separate_entries
             and excerpt_index < len(presentation.excerpts) - 1
         ):
-            _insert(cursor, f"{ENTRY_SEPARATOR}\n", "body")
+            yield f"{ENTRY_SEPARATOR}\n", "body", False
 
     limit_message = presentation.limit_message()
     if limit_message is not None:
-        _insert(
-            cursor,
-            f"{limit_message}\n",
-            "limit_notice",
-            bold=True,
-        )
+        yield f"{limit_message}\n", "limit_notice", True
 
 
-def _render_result_line(
-    cursor: QTextCursor,
+def _iter_result_line_render_operations(
     line: ResultLine,
-) -> None:
+) -> Iterator[RenderOperation]:
     line_number = f"{line.number:<7}-> "
     if not line.is_match:
-        _insert(cursor, line_number, "line_number", bold=True)
-        _insert(cursor, f"{line.text}\n", "body")
+        yield line_number, "line_number", True
+        yield f"{line.text}\n", "body", False
         return
 
-    _insert(cursor, line_number, "match", bold=True)
+    yield line_number, "match", True
     position = 0
     for span in line.match_spans:
-        _insert(cursor, line.text[position : span.start], "matched_text")
-        _insert(cursor, line.text[span.start : span.end], "match", bold=True)
+        yield line.text[position : span.start], "matched_text", False
+        yield line.text[span.start : span.end], "match", True
         position = span.end
-    _insert(cursor, f"{line.text[position:]}\n", "matched_text")
+    yield f"{line.text[position:]}\n", "matched_text", False
 
 
 def _count_role(result: CategoryResult) -> str:

@@ -127,36 +127,22 @@ def _analyze_pattern(
         pattern.needle if pattern.is_regex else re.escape(pattern.needle),
         0 if pattern.is_regex else re.IGNORECASE,
     )
-    match_spans = tuple(
-        _find_match_spans(
+    match_spans_by_index: dict[int, tuple[MatchSpan, ...]] = {}
+    raw_only_match_indexes: set[int] = set()
+    for index, line in enumerate(source_lines):
+        spans, has_raw_match = _find_line_matches(
             line,
             expression,
             pattern.excluded_substrings,
             pattern.match_validator,
         )
-        for line in source_lines
-    )
-    if pattern.excluded_substrings:
-        raw_matches = tuple(
-            bool(
-                _find_match_spans(
-                    line,
-                    expression,
-                    match_validator=pattern.match_validator,
-                )
-            )
-            for line in source_lines
-        )
-    else:
-        raw_matches = tuple(bool(spans) for spans in match_spans)
-    match_indexes = tuple(
-        index
-        for index, spans in enumerate(match_spans)
-        if spans
-    )
+        if spans:
+            match_spans_by_index[index] = spans
+        elif has_raw_match:
+            raw_only_match_indexes.add(index)
 
     ranges: list[tuple[int, int]] = []
-    for match_index in match_indexes:
+    for match_index in match_spans_by_index:
         start = max(0, match_index - pattern.context)
         end = match_index
 
@@ -166,7 +152,10 @@ def _analyze_pattern(
         ):
             # Preserve the original reader's behavior: following context stops
             # before the next occurrence of the searched term.
-            if raw_matches[candidate]:
+            if (
+                candidate in match_spans_by_index
+                or candidate in raw_only_match_indexes
+            ):
                 break
             end = candidate
 
@@ -182,7 +171,7 @@ def _analyze_pattern(
                 ResultLine(
                     number=index + 1,
                     text=source_lines[index],
-                    match_spans=match_spans[index],
+                    match_spans=match_spans_by_index.get(index, ()),
                 )
                 for index in range(start, end + 1)
             )
@@ -192,31 +181,40 @@ def _analyze_pattern(
 
     return CategoryResult(
         pattern=pattern,
-        match_count=len(match_indexes),
+        match_count=len(match_spans_by_index),
         excerpts=excerpts,
     )
 
 
-def _find_match_spans(
+def _find_line_matches(
     line: str,
     expression: re.Pattern[str],
     excluded_substrings: tuple[str, ...] = (),
     match_validator: MatchValidator | None = None,
-) -> tuple[MatchSpan, ...]:
+) -> tuple[tuple[MatchSpan, ...], bool]:
+    """Return accepted spans and whether the line has any raw occurrence."""
+
+    is_excluded = False
     if excluded_substrings:
         folded_line = line.casefold()
-        if any(
+        is_excluded = any(
             exclusion.casefold() in folded_line
             for exclusion in excluded_substrings
-        ):
-            return ()
-
-    return tuple(
-        MatchSpan(match.start(), match.end())
-        for match in expression.finditer(line)
-        if match.start() < match.end()
-        and (
-            match_validator is None
-            or match_validator(line, match.start(), match.end())
         )
-    )
+
+    spans = []
+    for match in expression.finditer(line):
+        start, end = match.start(), match.end()
+        if start == end:
+            continue
+        if (
+            match_validator is not None
+            and not match_validator(line, start, end)
+        ):
+            continue
+        if is_excluded:
+            return (), True
+        spans.append(MatchSpan(start, end))
+
+    accepted_spans = tuple(spans)
+    return accepted_spans, bool(accepted_spans)
