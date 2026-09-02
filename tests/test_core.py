@@ -103,7 +103,8 @@ class AnalyzeLinesTests(unittest.TestCase):
                     context=2,
                     excluded_substrings=("error:",),
                     match_validator=validator,
-                )
+                ),
+                SearchPattern("unused", "unused"),
             ],
         ).category("error")
 
@@ -185,6 +186,38 @@ class AnalyzeLinesTests(unittest.TestCase):
             ("ERROR", "error"),
         )
 
+    def test_shared_literal_scan_preserves_overlapping_pattern_spans(self):
+        result = analyze_lines(
+            ["ababa ERROR: K"],
+            [
+                SearchPattern("aba", "aba"),
+                SearchPattern("bab", "bab"),
+                SearchPattern("error", "error"),
+                SearchPattern("error_colon", "error:"),
+                SearchPattern("kelvin", "k"),
+            ],
+        )
+
+        self.assertEqual(
+            tuple(result.categories),
+            ("aba", "bab", "error", "error_colon", "kelvin"),
+        )
+        expected_spans = {
+            "aba": [(0, 3)],
+            "bab": [(1, 4)],
+            "error": [(6, 11)],
+            "error_colon": [(6, 12)],
+            "kelvin": [(13, 14)],
+        }
+        for key, spans in expected_spans.items():
+            self.assertEqual(
+                [
+                    (span.start, span.end)
+                    for span in result.category(key).excerpts[0].lines[0].match_spans
+                ],
+                spans,
+            )
+
     def test_invalid_fixed_regex_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Invalid search pattern regex"):
             SearchPattern("invalid", "[", is_regex=True)
@@ -195,6 +228,8 @@ class AnalyzeLinesTests(unittest.TestCase):
             [
                 SearchPattern("sensitive", "error", is_regex=True),
                 SearchPattern("insensitive", "(?i)error", is_regex=True),
+                SearchPattern("literal_failure", "failure"),
+                SearchPattern("literal_fatal", "fatal"),
             ],
         )
 

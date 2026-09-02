@@ -93,6 +93,17 @@ class AnalysisResult:
         return self.categories[key]
 
 
+@dataclass(slots=True)
+class _PatternMatchState:
+    """Compiled pattern and its sparse, mutable scan results."""
+
+    pattern: SearchPattern
+    expression: re.Pattern[str]
+    folded_exclusions: tuple[str, ...]
+    match_spans_by_index: dict[int, tuple[MatchSpan, ...]]
+    raw_only_match_indexes: set[int]
+
+
 def analyze_lines(
     lines: Sequence[str] | Iterable[str],
     patterns: Iterable[SearchPattern],
@@ -106,40 +117,156 @@ def analyze_lines(
     """
 
     source_lines = tuple(lines)
-    categories: dict[str, CategoryResult] = {}
-
+    states = []
+    pattern_keys = set()
     for pattern in patterns:
-        if pattern.key in categories:
+        if pattern.key in pattern_keys:
             raise ValueError(f"Duplicate search pattern key: {pattern.key}")
-        categories[pattern.key] = _analyze_pattern(
-            source_lines,
-            pattern,
-        )
+        pattern_keys.add(pattern.key)
+        states.append(_compile_pattern_state(pattern))
+
+    _collect_pattern_matches(source_lines, states)
+    categories = {
+        state.pattern.key: _build_category_result(source_lines, state)
+        for state in states
+    }
 
     return AnalysisResult(line_count=len(source_lines), categories=categories)
 
 
-def _analyze_pattern(
-    source_lines: tuple[str, ...],
-    pattern: SearchPattern,
-) -> CategoryResult:
+def _compile_pattern_state(pattern: SearchPattern) -> _PatternMatchState:
     expression = re.compile(
         pattern.needle if pattern.is_regex else re.escape(pattern.needle),
         0 if pattern.is_regex else re.IGNORECASE,
     )
-    match_spans_by_index: dict[int, tuple[MatchSpan, ...]] = {}
-    raw_only_match_indexes: set[int] = set()
-    for index, line in enumerate(source_lines):
-        spans, has_raw_match = _find_line_matches(
-            line,
-            expression,
-            pattern.excluded_substrings,
-            pattern.match_validator,
+    return _PatternMatchState(
+        pattern=pattern,
+        expression=expression,
+        folded_exclusions=tuple(
+            exclusion.casefold() for exclusion in pattern.excluded_substrings
+        ),
+        match_spans_by_index={},
+        raw_only_match_indexes=set(),
+    )
+
+
+def _collect_pattern_matches(
+    source_lines: tuple[str, ...],
+    states: list[_PatternMatchState],
+) -> None:
+    literal_states = [state for state in states if not state.pattern.is_regex]
+    independent_states = [state for state in states if state.pattern.is_regex]
+    literal_candidates: re.Pattern[str] | None = None
+    if len(literal_states) == 1:
+        independent_states.extend(literal_states)
+        literal_states = []
+    elif literal_states:
+        alternatives = "|".join(
+            dict.fromkeys(
+                re.escape(state.pattern.needle) for state in literal_states
+            )
         )
-        if spans:
-            match_spans_by_index[index] = spans
-        elif has_raw_match:
-            raw_only_match_indexes.add(index)
+        literal_candidates = re.compile(
+            rf"(?=(?:{alternatives}))",
+            re.IGNORECASE,
+        )
+
+    for line_index, line in enumerate(source_lines):
+        if literal_candidates is not None:
+            _collect_shared_literal_matches(
+                line_index,
+                line,
+                literal_states,
+                literal_candidates,
+            )
+        for state in independent_states:
+            spans, has_raw_match = _find_line_matches(
+                line,
+                state.expression,
+                state.folded_exclusions,
+                state.pattern.match_validator,
+            )
+            _record_line_matches(
+                state,
+                line_index,
+                spans,
+                has_raw_match,
+            )
+
+
+def _collect_shared_literal_matches(
+    line_index: int,
+    line: str,
+    states: list[_PatternMatchState],
+    candidate_expression: re.Pattern[str],
+) -> None:
+    line_spans: dict[int, list[MatchSpan]] = {}
+    next_search_start: dict[int, int] = {}
+    completed_exclusions: set[int] = set()
+    excluded_state_indexes: set[int] | None = None
+
+    for candidate in candidate_expression.finditer(line):
+        start = candidate.start()
+        if excluded_state_indexes is None:
+            folded_line = line.casefold()
+            excluded_state_indexes = {
+                index
+                for index, state in enumerate(states)
+                if state.folded_exclusions
+                and any(
+                    exclusion in folded_line
+                    for exclusion in state.folded_exclusions
+                )
+            }
+
+        for state_index, state in enumerate(states):
+            if state_index in completed_exclusions:
+                continue
+            if start < next_search_start.get(state_index, 0):
+                continue
+
+            match = state.expression.match(line, start)
+            if match is None:
+                continue
+            end = match.end()
+            next_search_start[state_index] = end
+            if (
+                state.pattern.match_validator is not None
+                and not state.pattern.match_validator(line, start, end)
+            ):
+                continue
+
+            if state_index in excluded_state_indexes:
+                state.raw_only_match_indexes.add(line_index)
+                completed_exclusions.add(state_index)
+                continue
+            line_spans.setdefault(state_index, []).append(
+                MatchSpan(start, end)
+            )
+
+    for state_index, spans in line_spans.items():
+        states[state_index].match_spans_by_index[line_index] = tuple(spans)
+
+
+def _record_line_matches(
+    state: _PatternMatchState,
+    line_index: int,
+    spans: tuple[MatchSpan, ...],
+    has_raw_match: bool,
+) -> None:
+    if spans:
+        state.match_spans_by_index[line_index] = spans
+    elif has_raw_match:
+        state.raw_only_match_indexes.add(line_index)
+
+
+def _build_category_result(
+    source_lines: tuple[str, ...],
+    state: _PatternMatchState,
+) -> CategoryResult:
+    pattern = state.pattern
+    match_spans_by_index = state.match_spans_by_index
+    raw_only_match_indexes = state.raw_only_match_indexes
 
     ranges: list[tuple[int, int]] = []
     for match_index in match_spans_by_index:
@@ -189,17 +316,16 @@ def _analyze_pattern(
 def _find_line_matches(
     line: str,
     expression: re.Pattern[str],
-    excluded_substrings: tuple[str, ...] = (),
+    folded_exclusions: tuple[str, ...] = (),
     match_validator: MatchValidator | None = None,
 ) -> tuple[tuple[MatchSpan, ...], bool]:
     """Return accepted spans and whether the line has any raw occurrence."""
 
     is_excluded = False
-    if excluded_substrings:
+    if folded_exclusions:
         folded_line = line.casefold()
         is_excluded = any(
-            exclusion.casefold() in folded_line
-            for exclusion in excluded_substrings
+            exclusion in folded_line for exclusion in folded_exclusions
         )
 
     spans = []

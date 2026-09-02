@@ -41,14 +41,12 @@ try:
     from logreader.core import analyze_lines
     from logreader.qt_app import (
         COLORS,
-        ENTRY_SEPARATOR,
-        IncrementalAnalysisRenderer,
-        RULE,
         LogreaderWindow,
         UnclippedPushButton,
         VisibleCheckBox,
         VisibleSpinBox,
     )
+    from logreader.results_view import ENTRY_SEPARATOR, RULE, ResultsView
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -385,6 +383,7 @@ class LogreaderQtTests(unittest.TestCase):
         controls_container = self.window.findChild(QWidget, "controlsContainer")
         button = self.window.findChild(QPushButton, "maximizeResultsButton")
 
+        self.assertIsInstance(results_panel, ResultsView)
         self.assertFalse(file_controls.isHidden())
         self.assertFalse(filter_group.isHidden())
         self.assertFalse(results_header.isHidden())
@@ -927,9 +926,15 @@ class LogreaderQtTests(unittest.TestCase):
             self.window.findChild(QLineEdit, "customPattern").returnPressed.emit()
             output_after_return = results.toPlainText()
 
-            with patch(
-                "logreader.qt_app.perf_counter",
-                side_effect=(10.0, 12.3456, 20.0, 24.5678),
+            with (
+                patch(
+                    "logreader.qt_app.perf_counter",
+                    side_effect=(10.0, 12.3456),
+                ),
+                patch(
+                    "logreader.results_view.perf_counter",
+                    side_effect=(20.0, 24.5678),
+                ),
             ):
                 self._click_analyze_and_wait()
             output = results.toPlainText()
@@ -1041,20 +1046,20 @@ class LogreaderQtTests(unittest.TestCase):
             ("before", "ERROR: boom", "after"),
             config.search_patterns(),
         )
+        results_view = self.window.findChild(ResultsView, "resultsPanel")
         results = self.window.findChild(QPlainTextEdit, "resultsView")
         line_wrap = self.window.findChild(QCheckBox, "lineWrapCheck")
-        renderer = IncrementalAnalysisRenderer(
-            17,
-            results,
-            "incremental.log",
-            analysis,
-            config,
-            self.window,
-        )
-        completed = QSignalSpy(renderer.completed)
+        completed = QSignalSpy(results_view.rendering_completed)
 
-        with patch("logreader.qt_app.INCREMENTAL_RENDER_BATCH_MS", 0):
-            renderer.start()
+        with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
+            results_view.start_rendering(
+                17,
+                "incremental.log",
+                analysis,
+                config,
+            )
+            renderer = results_view._renderer
+            self.assertIsNotNone(renderer)
             self.assertTrue(renderer._timer.isActive())
             self.assertEqual(results.toPlainText(), "")
             self.assertFalse(results.updatesEnabled())
@@ -1074,6 +1079,58 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertTrue(results.updatesEnabled())
         self.assertIn("incremental.log", results.toPlainText())
         self.assertIn("ERROR: boom", results.toPlainText())
+
+    def test_results_view_cancels_incremental_rendering(self):
+        config = self.window.build_config()
+        analysis = analyze_lines(
+            ("before", "ERROR: boom", "after"),
+            config.search_patterns(),
+        )
+        results_view = self.window.findChild(ResultsView, "resultsPanel")
+        results = results_view.editor
+        completed = QSignalSpy(results_view.rendering_completed)
+        failed = QSignalSpy(results_view.rendering_failed)
+
+        with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
+            results_view.start_rendering(
+                23,
+                "cancelled.log",
+                analysis,
+                config,
+            )
+            renderer = results_view._renderer
+            self.assertIsNotNone(renderer)
+            renderer._timer.stop()
+            renderer._render_next_batch()
+            renderer._timer.stop()
+            partial_output = results.toPlainText()
+
+            results_view.cancel_rendering()
+            self.assertFalse(renderer._timer.isActive())
+            self.assertTrue(results.updatesEnabled())
+            renderer._render_next_batch()
+            self.app.processEvents()
+
+        self.assertIsNone(results_view._renderer)
+        self.assertEqual(results.toPlainText(), partial_output)
+        self.assertEqual(completed.count(), 0)
+        self.assertEqual(failed.count(), 0)
+
+    def test_results_view_prepends_performance_timings(self):
+        results_view = self.window.findChild(ResultsView, "resultsPanel")
+        results_view.editor.setPlainText("Rendered output")
+
+        results_view.prepend_performance_timings(1.2345, 6.7894)
+
+        self.assertTrue(
+            results_view.editor.toPlainText().startswith(
+                "Performance timing\n"
+                "Analysis time: 1.234 s\n"
+                "Result rendering time: 6.789 s\n\n"
+                "Rendered output"
+            )
+        )
+        self.assertEqual(results_view.editor.textCursor().position(), 0)
 
     def test_zero_match_patterns_stay_in_summary_without_blank_sections(self):
         with tempfile.TemporaryDirectory() as directory:

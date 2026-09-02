@@ -5,10 +5,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from time import perf_counter
-from typing import Callable, Iterator, Sequence
+from typing import Callable, Sequence
 
 from PySide6.QtCore import (
-    QElapsedTimer,
     QObject,
     QPointF,
     QRunnable,
@@ -22,12 +21,9 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QColor,
     QFont,
-    QFontDatabase,
     QPainter,
     QPalette,
     QPen,
-    QTextCharFormat,
-    QTextCursor,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -43,7 +39,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -67,24 +62,17 @@ from .config import (
 )
 from .core import (
     AnalysisResult,
-    CategoryResult,
-    ResultLine,
     SearchPattern,
     analyze_lines,
 )
 from .file_loader import LogDecodeError, load_log
-from .presentation import CategoryPresentation, build_category_presentations
+from .results_view import ENTRY_SEPARATOR, RULE, ResultsView
 from .theme import THEME_COLORS
 
 
 COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
-RULE = "─" * 72
-ENTRY_SEPARATOR = "-------->"
 FILTER_ALIGNMENT_EXTRA_WIDTH = 115
 ANALYSIS_BUSY_DELAY_MS = 1_000
-INCREMENTAL_RENDER_BATCH_MS = 8
-
-RenderOperation = tuple[str, str, bool]
 
 INTERFACE_STYLE_SHEET = f"""
 QMainWindow {{
@@ -550,92 +538,6 @@ class AnalysisWorker(QRunnable):
         )
 
 
-class IncrementalAnalysisRenderer(QObject):
-    """Build a formatted results document in event-loop-sized batches."""
-
-    completed = Signal(int, float)
-    failed = Signal(int, str)
-
-    def __init__(
-        self,
-        request_id: int,
-        view: QPlainTextEdit,
-        source_name: str,
-        analysis: AnalysisResult,
-        config: LogreaderConfig,
-        parent: QObject | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self.request_id = request_id
-        self._view = view
-        self._operations = _iter_analysis_render_operations(
-            source_name,
-            analysis,
-            config,
-        )
-        self._cursor: QTextCursor | None = None
-        self._started = 0.0
-        self._cancelled = False
-        self._timer = QTimer(self)
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self._render_next_batch)
-
-    def start(self) -> None:
-        """Clear the previous document and schedule the first render batch."""
-
-        self._started = perf_counter()
-        self._view.setUpdatesEnabled(False)
-        self._view.clear()
-        self._cursor = QTextCursor(self._view.document())
-        self._timer.start(0)
-
-    def cancel(self) -> None:
-        """Stop future batches and restore painting for the results view."""
-
-        self._cancelled = True
-        self._timer.stop()
-        self._view.setUpdatesEnabled(True)
-
-    @Slot()
-    def _render_next_batch(self) -> None:
-        if self._cancelled or self._cursor is None:
-            return
-
-        batch_elapsed = QElapsedTimer()
-        batch_elapsed.start()
-        finished = False
-        self._cursor.beginEditBlock()
-        try:
-            while True:
-                try:
-                    text, role, bold = next(self._operations)
-                except StopIteration:
-                    finished = True
-                    break
-
-                _insert(self._cursor, text, role, bold=bold)
-                if batch_elapsed.elapsed() >= INCREMENTAL_RENDER_BATCH_MS:
-                    break
-        except Exception as error:
-            self._cursor.endEditBlock()
-            self._view.setUpdatesEnabled(True)
-            self.failed.emit(self.request_id, str(error))
-            return
-        self._cursor.endEditBlock()
-
-        if not finished:
-            self._timer.start(0)
-            return
-
-        self._cursor.movePosition(QTextCursor.MoveOperation.Start)
-        self._view.setTextCursor(self._cursor)
-        self._view.setUpdatesEnabled(True)
-        self.completed.emit(
-            self.request_id,
-            perf_counter() - self._started,
-        )
-
-
 class LogreaderWindow(QMainWindow):
     """Small desktop shell around the shared Logreader engine."""
 
@@ -647,13 +549,11 @@ class LogreaderWindow(QMainWindow):
         self._source_lines: tuple[str, ...] = ()
         self._source_encoding: str | None = None
         self._pattern_checkboxes: dict[str, QCheckBox] = {}
-        self._results_maximized = False
         self._analysis_busy = False
         self._analysis_busy_visible = False
         self._analysis_phase = "idle"
         self._analysis_request_id = 0
         self._analysis_worker: AnalysisWorker | None = None
-        self._analysis_renderer: IncrementalAnalysisRenderer | None = None
         self._analysis_result: AnalysisResult | None = None
         self._analysis_seconds = 0.0
         self._analysis_config: LogreaderConfig | None = None
@@ -718,112 +618,18 @@ class LogreaderWindow(QMainWindow):
         controls_layout.addWidget(self._filter_group)
         root_layout.addWidget(self._controls_container)
 
-        self._results_panel = QWidget(central_widget)
-        self._results_panel.setObjectName("resultsPanel")
-        results_panel_layout = QVBoxLayout(self._results_panel)
-        results_panel_layout.setContentsMargins(0, 0, 0, 0)
-        results_panel_layout.setSpacing(0)
-
-        results_header = QWidget(self._results_panel)
-        results_header.setObjectName("resultsHeader")
-        results_header.setMinimumHeight(36)
-        results_header_layout = QHBoxLayout(results_header)
-        results_header_layout.setContentsMargins(8, 5, 8, 5)
-        results_header_layout.setSpacing(8)
-
-        self._maximize_results_button = QPushButton("▲")
-        self._maximize_results_button.setObjectName("maximizeResultsButton")
-        self._maximize_results_button.setAccessibleName("Maximize results")
-        self._maximize_results_button.setFixedSize(38, 26)
-        self._maximize_results_button.setStyleSheet(
-            "QPushButton#maximizeResultsButton {"
-            " font-size: 14px; font-weight: 700; padding: 0;"
-            "}"
-            "QToolTip { font-weight: 400; }"
+        self._results_view = ResultsView(
+            central_widget,
+            checkbox_factory=VisibleCheckBox,
         )
-        self._maximize_results_button.setToolTip("Expand results window")
-        self._maximize_results_button.clicked.connect(
-            self.toggle_results_maximized
+        self._results_view.maximized_changed.connect(
+            self._set_results_maximized
         )
-        results_header_layout.addWidget(self._maximize_results_button)
-        results_header_layout.addStretch(1)
-
-        line_wrap_label = QLabel("Line wrapping")
-        line_wrap_label.setObjectName("lineWrapLabel")
-        results_header_layout.addWidget(line_wrap_label)
-
-        self._line_wrap_check = VisibleCheckBox()
-        self._line_wrap_check.setObjectName("lineWrapCheck")
-        self._line_wrap_check.setAccessibleName("Line wrapping")
-        self._line_wrap_check.setToolTip(
-            "Wrap long result lines to the width of the results window."
+        self._results_view.rendering_completed.connect(
+            self._complete_rendering
         )
-        self._line_wrap_check.toggled.connect(self.set_results_line_wrapping)
-        results_header_layout.addWidget(self._line_wrap_check)
-        results_panel_layout.addWidget(results_header)
-
-        self._results = QPlainTextEdit(self._results_panel)
-        self._results.setObjectName("resultsView")
-        self._results.setReadOnly(True)
-        self._results.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self._results.setPlaceholderText(
-            "Open a log file to display the analyzed results here."
-        )
-        self._results.setFont(
-            QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-        )
-        self._results.setStyleSheet(
-            f"QPlainTextEdit {{"
-            f" background: {THEME_COLORS['background']};"
-            f" color: {THEME_COLORS['body']};"
-            " border: none;"
-            f" selection-background-color: {THEME_COLORS['selection']};"
-            " padding: 8px;"
-            "}"
-            "QPlainTextEdit QScrollBar:vertical {"
-            f" background: {THEME_COLORS['scrollbar_track']};"
-            " width: 12px;"
-            " margin: 0;"
-            "}"
-            "QPlainTextEdit QScrollBar:horizontal {"
-            f" background: {THEME_COLORS['scrollbar_track']};"
-            " height: 12px;"
-            " margin: 0;"
-            "}"
-            "QPlainTextEdit QScrollBar::handle:vertical {"
-            f" background: {THEME_COLORS['scrollbar_handle']};"
-            " min-height: 28px;"
-            " border-radius: 5px;"
-            " margin: 2px;"
-            "}"
-            "QPlainTextEdit QScrollBar::handle:vertical:hover {"
-            f" background: {THEME_COLORS['scrollbar_handle_hover']};"
-            "}"
-            "QPlainTextEdit QScrollBar::handle:horizontal {"
-            f" background: {THEME_COLORS['scrollbar_handle']};"
-            " min-width: 28px;"
-            " border-radius: 5px;"
-            " margin: 2px;"
-            "}"
-            "QPlainTextEdit QScrollBar::handle:horizontal:hover {"
-            f" background: {THEME_COLORS['scrollbar_handle_hover']};"
-            "}"
-            "QPlainTextEdit QScrollBar::add-line:vertical,"
-            "QPlainTextEdit QScrollBar::sub-line:vertical,"
-            "QPlainTextEdit QScrollBar::add-line:horizontal,"
-            "QPlainTextEdit QScrollBar::sub-line:horizontal {"
-            " height: 0;"
-            " width: 0;"
-            "}"
-            "QPlainTextEdit QScrollBar::add-page:vertical,"
-            "QPlainTextEdit QScrollBar::sub-page:vertical,"
-            "QPlainTextEdit QScrollBar::add-page:horizontal,"
-            "QPlainTextEdit QScrollBar::sub-page:horizontal {"
-            " background: transparent;"
-            "}"
-        )
-        results_panel_layout.addWidget(self._results, 1)
-        root_layout.addWidget(self._results_panel, 1)
+        self._results_view.rendering_failed.connect(self._fail_analysis)
+        root_layout.addWidget(self._results_view, 1)
         self.setCentralWidget(central_widget)
 
     def _apply_interface_palette(self) -> None:
@@ -1304,33 +1110,14 @@ class LogreaderWindow(QMainWindow):
 
         self.toggle_patterns(PATTERN_KEYS)
 
-    def toggle_results_maximized(self) -> None:
-        """Toggle between the normal controls and an expanded results view."""
+    @Slot(bool)
+    def _set_results_maximized(self, maximized: bool) -> None:
+        """Show or hide the window controls around the results panel."""
 
-        self._results_maximized = not self._results_maximized
-        controls_visible = not self._results_maximized
+        controls_visible = not maximized
         self._controls_container.setVisible(controls_visible)
         self._file_controls.setVisible(controls_visible)
         self._filter_group.setVisible(controls_visible)
-
-        if self._results_maximized:
-            self._maximize_results_button.setText("▼")
-            self._maximize_results_button.setAccessibleName("Restore layout")
-            self._maximize_results_button.setToolTip("Show menu and filters")
-        else:
-            self._maximize_results_button.setText("▲")
-            self._maximize_results_button.setAccessibleName("Maximize results")
-            self._maximize_results_button.setToolTip("Expand results window")
-
-    def set_results_line_wrapping(self, enabled: bool) -> None:
-        """Enable or disable wrapping of long lines in the results view."""
-
-        line_wrap_mode = (
-            QPlainTextEdit.LineWrapMode.WidgetWidth
-            if enabled
-            else QPlainTextEdit.LineWrapMode.NoWrap
-        )
-        self._results.setLineWrapMode(line_wrap_mode)
 
     def toggle_patterns(self, pattern_keys: tuple[str, ...]) -> None:
         """Toggle every checkbox in one pattern category as a unit."""
@@ -1382,10 +1169,7 @@ class LogreaderWindow(QMainWindow):
         self._path_label.setToolTip(str(path))
         self._analyze_button.setEnabled(True)
         self.setWindowTitle(f"{APP_VERSION} — {path.name}")
-        self._results.clear()
-        self._results.setPlaceholderText(
-            f"{path.name} is loaded. Choose Analyze to display results."
-        )
+        self._results_view.reset_for_loaded_file(path.name)
         self.statusBar().showMessage(
             f"{len(loaded.lines):,} lines loaded as {loaded.encoding}  •  "
             "press Analyze to begin"
@@ -1443,24 +1227,18 @@ class LogreaderWindow(QMainWindow):
         self._analysis_worker = None
         self._analysis_result = analysis
         self._analysis_seconds = analysis_seconds
-        renderer = IncrementalAnalysisRenderer(
+        self._results_view.start_rendering(
             request_id,
-            self._results,
             str(source_path),
             analysis,
             config,
-            self,
         )
-        renderer.completed.connect(self._complete_rendering)
-        renderer.failed.connect(self._fail_analysis)
-        self._analysis_renderer = renderer
         self._analysis_phase = "rendering"
         self._analyze_button.setText("Rendering…")
         if self._analysis_busy_visible:
             self.statusBar().showMessage(
                 f"Rendering results for {source_path.name}…"
             )
-        renderer.start()
 
     @Slot(int, float)
     def _complete_rendering(
@@ -1478,8 +1256,7 @@ class LogreaderWindow(QMainWindow):
             self._finish_analysis_request()
             return
 
-        prepend_performance_timings(
-            self._results,
+        self._results_view.prepend_performance_timings(
             self._analysis_seconds,
             rendering_seconds,
         )
@@ -1511,7 +1288,7 @@ class LogreaderWindow(QMainWindow):
         if busy:
             self._analysis_busy_visible = False
             self._analysis_phase = "analysis"
-            self._results.setFocus(Qt.FocusReason.OtherFocusReason)
+            self._results_view.editor.setFocus(Qt.FocusReason.OtherFocusReason)
             self._analyze_button.setEnabled(False)
             self._analyze_button.setText("Analyzing…")
             self._analysis_busy_timer.start()
@@ -1548,11 +1325,7 @@ class LogreaderWindow(QMainWindow):
             )
 
     def _finish_analysis_request(self) -> None:
-        renderer = self._analysis_renderer
-        self._analysis_renderer = None
-        if renderer is not None:
-            renderer.cancel()
-            renderer.deleteLater()
+        self._results_view.cancel_rendering()
         self._analysis_worker = None
         self._analysis_result = None
         self._analysis_seconds = 0.0
@@ -1560,148 +1333,6 @@ class LogreaderWindow(QMainWindow):
         self._analysis_source_path = None
         self._analysis_pattern_count = 0
         self._set_analysis_busy(False)
-
-
-def render_analysis(
-    view: QPlainTextEdit,
-    source_name: str,
-    analysis: AnalysisResult,
-    config: LogreaderConfig,
-) -> None:
-    """Render a structured analysis result into a colored Qt text view."""
-
-    view.setUpdatesEnabled(False)
-    try:
-        view.clear()
-        cursor = QTextCursor(view.document())
-        cursor.beginEditBlock()
-        for text, role, bold in _iter_analysis_render_operations(
-            source_name,
-            analysis,
-            config,
-        ):
-            _insert(cursor, text, role, bold=bold)
-
-        cursor.endEditBlock()
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-        view.setTextCursor(cursor)
-    finally:
-        view.setUpdatesEnabled(True)
-
-
-def prepend_performance_timings(
-    view: QPlainTextEdit,
-    analysis_seconds: float,
-    rendering_seconds: float,
-) -> None:
-    """Place diagnostic analysis and rendering durations above the results."""
-
-    view.setUpdatesEnabled(False)
-    try:
-        cursor = QTextCursor(view.document())
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-        cursor.beginEditBlock()
-        _insert(cursor, "Performance timing\n", "heading", bold=True)
-        _insert(cursor, f"Analysis time: {analysis_seconds:.3f} s\n", "muted")
-        _insert(
-            cursor,
-            f"Result rendering time: {rendering_seconds:.3f} s\n\n",
-            "muted",
-        )
-        cursor.endEditBlock()
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-        view.setTextCursor(cursor)
-    finally:
-        view.setUpdatesEnabled(True)
-
-
-def _iter_analysis_render_operations(
-    source_name: str,
-    analysis: AnalysisResult,
-    config: LogreaderConfig,
-) -> Iterator[RenderOperation]:
-    """Yield ordered formatting operations without touching Qt widgets."""
-
-    yield f"{APP_VERSION}\n", "heading", True
-    yield f"{source_name}\n\n", "muted", False
-    for key, result in analysis.categories.items():
-        label = config.label_for(key)
-        yield f"{label:<20}", "body", False
-        yield (
-            f"{result.match_count:>8} matches\n",
-            _count_role(result),
-            False,
-        )
-
-    yield (
-        f"\n{analysis.line_count:,} source lines  •  "
-        f"context {config.context}\n",
-        "muted",
-        False,
-    )
-
-    for presentation in build_category_presentations(analysis, config.limit):
-        yield from _iter_category_render_operations(presentation, config)
-
-
-def _iter_category_render_operations(
-    presentation: CategoryPresentation,
-    config: LogreaderConfig,
-) -> Iterator[RenderOperation]:
-    label = config.label_for(presentation.key)
-    yield f"\n{RULE}\n", "muted", False
-    yield f"{presentation.heading(label)}\n", "heading", True
-    yield f"{RULE}\n", "muted", False
-
-    for excerpt_index, excerpt in enumerate(presentation.excerpts):
-        for line in excerpt.lines:
-            yield from _iter_result_line_render_operations(line)
-
-        if (
-            config.separate_entries
-            and excerpt_index < len(presentation.excerpts) - 1
-        ):
-            yield f"{ENTRY_SEPARATOR}\n", "body", False
-
-    limit_message = presentation.limit_message()
-    if limit_message is not None:
-        yield f"{limit_message}\n", "limit_notice", True
-
-
-def _iter_result_line_render_operations(
-    line: ResultLine,
-) -> Iterator[RenderOperation]:
-    line_number = f"{line.number:<7}-> "
-    if not line.is_match:
-        yield line_number, "line_number", True
-        yield f"{line.text}\n", "body", False
-        return
-
-    yield line_number, "match", True
-    position = 0
-    for span in line.match_spans:
-        yield line.text[position : span.start], "matched_text", False
-        yield line.text[span.start : span.end], "match", True
-        position = span.end
-    yield f"{line.text[position:]}\n", "matched_text", False
-
-
-def _count_role(result: CategoryResult) -> str:
-    return "hit_count" if result.match_count else "muted"
-
-
-def _insert(
-    cursor: QTextCursor,
-    text: str,
-    role: str,
-    *,
-    bold: bool = False,
-) -> None:
-    text_format = QTextCharFormat()
-    text_format.setForeground(COLORS[role])
-    if bold:
-        text_format.setFontWeight(QFont.Weight.Bold)
-    cursor.insertText(text, text_format)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
