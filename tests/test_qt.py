@@ -117,8 +117,12 @@ class LogreaderQtTests(unittest.TestCase):
             palette.color(QPalette.ColorRole.WindowText).name(),
             COLORS["ui_text"].name(),
         )
+        self.assertEqual(COLORS["ui_canvas"], QColor("#202b38"))
         self.assertEqual(COLORS["ui_surface"], COLORS["ui_canvas"])
-        self.assertEqual(COLORS["ui_field"], COLORS["background"])
+        self.assertEqual(COLORS["ui_field"], COLORS["ui_canvas"])
+        self.assertEqual(COLORS["ui_island"], QColor("#2f3e50"))
+        self.assertEqual(COLORS["background"], QColor("#0d1117"))
+        self.assertNotEqual(COLORS["ui_field"], COLORS["background"])
         self.assertNotEqual(COLORS["ui_surface"], COLORS["ui_island"])
         self.assertNotEqual(COLORS["ui_island"], COLORS["ui_field"])
         self.assertGreater(
