@@ -39,12 +39,15 @@ try:
         TEXT_PATTERN_KEYS,
     )
     from logreader.core import analyze_lines
-    from logreader.qt_app import (
-        COLORS,
-        LogreaderWindow,
+    from logreader.filter_panel import (
+        FilterPanel,
         UnclippedPushButton,
         VisibleCheckBox,
         VisibleSpinBox,
+    )
+    from logreader.qt_app import (
+        COLORS,
+        LogreaderWindow,
     )
     from logreader.results_view import ENTRY_SEPARATOR, RULE, ResultsView
 except ModuleNotFoundError:
@@ -85,8 +88,10 @@ class LogreaderQtTests(unittest.TestCase):
         self.fail("Analysis did not finish")
 
     def test_default_controls_build_the_shared_configuration(self):
-        config = self.window.build_config()
+        filter_panel = self.window.findChild(FilterPanel, "filterGroup")
+        config = filter_panel.build_config()
 
+        self.assertEqual(self.window.build_config(), config)
         self.assertEqual(config.context, 3)
         self.assertIsNone(config.limit)
         self.assertEqual(
