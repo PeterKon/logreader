@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from time import perf_counter
 from typing import Sequence
 
 from PySide6.QtCore import (
-    QObject,
-    QRunnable,
     Qt,
     QThreadPool,
     QTimer,
@@ -33,12 +30,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .analysis_worker import AnalysisWorker
 from .config import APP_VERSION, LogreaderConfig
-from .core import (
-    AnalysisResult,
-    SearchPattern,
-    analyze_lines,
-)
+from .core import AnalysisResult
 from .document_session import AnalysisPhase, DocumentSession
 from .file_loader import LogDecodeError, load_log
 from .filter_panel import FilterPanel, VisibleCheckBox
@@ -332,44 +326,6 @@ QToolTip {{
     padding: 4px;
 }}
 """
-
-
-class AnalysisWorkerSignals(QObject):
-    """Cross-thread completion signals for one analysis request."""
-
-    completed = Signal(int, object, float)
-    failed = Signal(int, str)
-
-
-class AnalysisWorker(QRunnable):
-    """Run the pure log analysis engine outside Qt's GUI thread."""
-
-    def __init__(
-        self,
-        request_id: int,
-        lines: tuple[str, ...],
-        patterns: tuple[SearchPattern, ...],
-    ) -> None:
-        super().__init__()
-        self.request_id = request_id
-        self.lines = lines
-        self.patterns = patterns
-        self.signals = AnalysisWorkerSignals()
-
-    @Slot()
-    def run(self) -> None:
-        started = perf_counter()
-        try:
-            analysis = analyze_lines(self.lines, self.patterns)
-        except Exception as error:  # Keep worker failures from stranding the UI.
-            self.signals.failed.emit(self.request_id, str(error))
-            return
-
-        self.signals.completed.emit(
-            self.request_id,
-            analysis,
-            perf_counter() - started,
-        )
 
 
 class LogreaderWindow(QMainWindow):

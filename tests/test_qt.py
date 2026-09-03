@@ -942,7 +942,7 @@ class LogreaderQtTests(unittest.TestCase):
 
             with (
                 patch(
-                    "logreader.qt_app.perf_counter",
+                    "logreader.analysis_worker.perf_counter",
                     side_effect=(10.0, 12.3456),
                 ),
                 patch(
@@ -1010,7 +1010,7 @@ class LogreaderQtTests(unittest.TestCase):
 
             try:
                 with patch(
-                    "logreader.qt_app.analyze_lines",
+                    "logreader.analysis_worker.analyze_lines",
                     side_effect=blocking_analysis,
                 ) as mocked_analysis:
                     analyze_button.click()
