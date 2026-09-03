@@ -39,6 +39,7 @@ try:
         TEXT_PATTERN_KEYS,
     )
     from logreader.core import analyze_lines
+    from logreader.document_session import AnalysisPhase
     from logreader.filter_panel import (
         FilterPanel,
         UnclippedPushButton,
@@ -928,6 +929,14 @@ class LogreaderQtTests(unittest.TestCase):
             staged_output = results.toPlainText()
             staged_status = self.window.statusBar().currentMessage()
 
+            self.assertEqual(self.window._session.path, log_path)
+            self.assertEqual(
+                self.window._session.lines,
+                ("before", "ERROR: boom", "after"),
+            )
+            self.assertEqual(self.window._session.encoding, "UTF-8")
+            self.assertEqual(self.window._session.phase, AnalysisPhase.IDLE)
+
             self.window.findChild(QLineEdit, "customPattern").returnPressed.emit()
             output_after_return = results.toPlainText()
 
@@ -944,6 +953,15 @@ class LogreaderQtTests(unittest.TestCase):
                 self._click_analyze_and_wait()
             output = results.toPlainText()
             html = results.document().toHtml()
+
+            self.assertEqual(self.window._session.phase, AnalysisPhase.IDLE)
+            self.assertIsNotNone(self.window._session.analysis)
+            self.assertIsNotNone(self.window._session.analysis_config)
+            self.assertAlmostEqual(self.window._session.analysis_seconds, 2.3456)
+            self.assertAlmostEqual(
+                self.window._session.rendering_seconds,
+                4.5678,
+            )
 
         self.assertTrue(loaded)
         self.assertEqual(staged_output, "")

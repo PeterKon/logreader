@@ -39,6 +39,7 @@ from .core import (
     SearchPattern,
     analyze_lines,
 )
+from .document_session import AnalysisPhase, DocumentSession
 from .file_loader import LogDecodeError, load_log
 from .filter_panel import FilterPanel, VisibleCheckBox
 from .results_view import ResultsView
@@ -378,19 +379,9 @@ class LogreaderWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self._source_path: Path | None = None
-        self._source_lines: tuple[str, ...] = ()
-        self._source_encoding: str | None = None
-        self._analysis_busy = False
+        self._session = DocumentSession()
         self._analysis_busy_visible = False
-        self._analysis_phase = "idle"
-        self._analysis_request_id = 0
         self._analysis_worker: AnalysisWorker | None = None
-        self._analysis_result: AnalysisResult | None = None
-        self._analysis_seconds = 0.0
-        self._analysis_config: LogreaderConfig | None = None
-        self._analysis_source_path: Path | None = None
-        self._analysis_pattern_count = 0
         self._analysis_pool = QThreadPool.globalInstance()
         self._analysis_busy_timer = QTimer(self)
         self._analysis_busy_timer.setSingleShot(True)
@@ -506,7 +497,9 @@ class LogreaderWindow(QMainWindow):
         """Prompt for a local log file and stage it for analysis."""
 
         initial_directory = (
-            self._source_path.parent if self._source_path is not None else Path.home()
+            self._session.path.parent
+            if self._session.path is not None
+            else Path.home()
         )
         filename, _ = QFileDialog.getOpenFileName(
             self,
@@ -532,13 +525,11 @@ class LogreaderWindow(QMainWindow):
             self.statusBar().showMessage(f"Unable to read {path.name}")
             return False
 
-        if self._analysis_busy:
-            self._analysis_request_id += 1
+        was_busy = self._session.is_busy
+        self._session.stage_loaded_log(path, loaded)
+        if was_busy:
             self._finish_analysis_request()
 
-        self._source_path = path
-        self._source_lines = loaded.lines
-        self._source_encoding = loaded.encoding
         self._path_label.setText(path.name)
         self._path_label.setToolTip(str(path))
         self._analyze_button.setEnabled(True)
@@ -553,7 +544,7 @@ class LogreaderWindow(QMainWindow):
     def analyze_current(self) -> None:
         """Analyze the loaded file using the current controls."""
 
-        if self._source_path is None or self._analysis_busy:
+        if not self._session.has_document or self._session.is_busy:
             return
 
         try:
@@ -564,19 +555,15 @@ class LogreaderWindow(QMainWindow):
             self.statusBar().showMessage("Analysis could not be completed")
             return
 
-        self._analysis_request_id += 1
-        request_id = self._analysis_request_id
+        request = self._session.begin_analysis(config, len(patterns))
         worker = AnalysisWorker(
-            request_id,
-            self._source_lines,
+            request.request_id,
+            self._session.lines,
             patterns,
         )
         worker.signals.completed.connect(self._complete_analysis)
         worker.signals.failed.connect(self._fail_analysis)
         self._analysis_worker = worker
-        self._analysis_config = config
-        self._analysis_source_path = self._source_path
-        self._analysis_pattern_count = len(patterns)
         self._set_analysis_busy(True)
         self._analysis_pool.start(worker)
 
@@ -589,29 +576,29 @@ class LogreaderWindow(QMainWindow):
     ) -> None:
         """Render the current worker result back on Qt's GUI thread."""
 
-        if request_id != self._analysis_request_id:
+        if not self._session.begin_rendering(
+            request_id,
+            analysis,
+            analysis_seconds,
+        ):
             return
 
-        config = self._analysis_config
-        source_path = self._analysis_source_path
-        if config is None or source_path is None:
+        request = self._session.active_request
+        if request is None:
             self._finish_analysis_request()
             return
 
         self._analysis_worker = None
-        self._analysis_result = analysis
-        self._analysis_seconds = analysis_seconds
         self._results_view.start_rendering(
             request_id,
-            str(source_path),
+            str(request.source_path),
             analysis,
-            config,
+            request.config,
         )
-        self._analysis_phase = "rendering"
         self._analyze_button.setText("Rendering…")
         if self._analysis_busy_visible:
             self.statusBar().showMessage(
-                f"Rendering results for {source_path.name}…"
+                f"Rendering results for {request.source_path.name}…"
             )
 
     @Slot(int, float)
@@ -622,16 +609,20 @@ class LogreaderWindow(QMainWindow):
     ) -> None:
         """Finalize timings and status after all render batches complete."""
 
-        if request_id != self._analysis_request_id:
+        if not self._session.complete_rendering(
+            request_id,
+            rendering_seconds,
+        ):
             return
 
-        analysis = self._analysis_result
-        if analysis is None:
+        analysis = self._session.analysis
+        analysis_seconds = self._session.analysis_seconds
+        if analysis is None or analysis_seconds is None:
             self._finish_analysis_request()
             return
 
         self._results_view.prepend_performance_timings(
-            self._analysis_seconds,
+            analysis_seconds,
             rendering_seconds,
         )
 
@@ -642,7 +633,7 @@ class LogreaderWindow(QMainWindow):
         self.statusBar().showMessage(
             f"{analysis.line_count:,} lines  •  {match_count:,} matches  •  "
             f"{len(analysis.categories)} active patterns  •  "
-            f"{self._source_encoding or 'unknown encoding'}"
+            f"{self._session.encoding or 'unknown encoding'}"
         )
         self.analysis_finished.emit()
 
@@ -650,7 +641,7 @@ class LogreaderWindow(QMainWindow):
     def _fail_analysis(self, request_id: int, message: str) -> None:
         """Restore the interface after a worker-side analysis failure."""
 
-        if request_id != self._analysis_request_id:
+        if not self._session.fail_request(request_id):
             return
 
         self._finish_analysis_request()
@@ -658,10 +649,8 @@ class LogreaderWindow(QMainWindow):
         self.statusBar().showMessage("Analysis could not be completed")
 
     def _set_analysis_busy(self, busy: bool) -> None:
-        self._analysis_busy = busy
         if busy:
             self._analysis_busy_visible = False
-            self._analysis_phase = "analysis"
             self._results_view.editor.setFocus(Qt.FocusReason.OtherFocusReason)
             self._analyze_button.setEnabled(False)
             self._analyze_button.setText("Analyzing…")
@@ -669,8 +658,7 @@ class LogreaderWindow(QMainWindow):
             return
 
         self._analysis_busy_timer.stop()
-        self._analysis_phase = "idle"
-        self._analyze_button.setEnabled(self._source_path is not None)
+        self._analyze_button.setEnabled(self._session.has_document)
         self._analyze_button.setText("&Analyze")
         if self._analysis_busy_visible:
             self._analysis_busy_visible = False
@@ -678,34 +666,27 @@ class LogreaderWindow(QMainWindow):
 
     @Slot()
     def _show_analysis_busy(self) -> None:
-        if not self._analysis_busy:
+        if not self._session.is_busy:
             return
 
         self._analysis_busy_visible = True
         self.setCursor(Qt.CursorShape.WaitCursor)
-        source_name = (
-            self._analysis_source_path.name
-            if self._analysis_source_path is not None
-            else "log"
-        )
-        if self._analysis_phase == "rendering":
+        request = self._session.active_request
+        source_name = request.source_path.name if request is not None else "log"
+        if self._session.phase is AnalysisPhase.RENDERING:
             self.statusBar().showMessage(
                 f"Rendering results for {source_name}…"
             )
         else:
+            pattern_count = request.pattern_count if request is not None else 0
             self.statusBar().showMessage(
                 f"Analyzing {source_name} with "
-                f"{self._analysis_pattern_count} active patterns…"
+                f"{pattern_count} active patterns…"
             )
 
     def _finish_analysis_request(self) -> None:
         self._results_view.cancel_rendering()
         self._analysis_worker = None
-        self._analysis_result = None
-        self._analysis_seconds = 0.0
-        self._analysis_config = None
-        self._analysis_source_path = None
-        self._analysis_pattern_count = 0
         self._set_analysis_busy(False)
 
 
