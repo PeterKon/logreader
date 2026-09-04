@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from time import perf_counter
 from typing import Callable, Iterator
 
@@ -18,8 +19,10 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QFontDatabase,
+    QSyntaxHighlighter,
     QTextCharFormat,
     QTextCursor,
+    QTextDocument,
 )
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -49,6 +52,51 @@ INCREMENTAL_RENDER_BATCH_MS = 8
 RenderOperation = tuple[str, str, bool]
 CheckBoxFactory = Callable[[], QCheckBox]
 SpinBoxFactory = Callable[[], QSpinBox]
+
+
+class SearchMatchHighlighter(QSyntaxHighlighter):
+    """Paint result-search matches without retaining text cursors."""
+
+    def __init__(self, document: QTextDocument) -> None:
+        super().__init__(document)
+        self._matches: tuple[tuple[int, int], ...] = ()
+        self._match_ends: tuple[int, ...] = ()
+        self._match_format = QTextCharFormat()
+        self._match_format.setBackground(QColor(THEME_COLORS["ui_primary"]))
+        self._match_format.setForeground(QColor("#ffffff"))
+
+    def set_matches(self, matches: tuple[tuple[int, int], ...]) -> None:
+        """Replace the integer match ranges used for block highlighting."""
+
+        if matches == self._matches:
+            return
+        self._matches = matches
+        self._match_ends = tuple(end for _start, end in matches)
+        self.rehighlight()
+
+    def highlightBlock(self, text: str) -> None:  # noqa: N802
+        """Apply the ordinary match format to ranges in the current block."""
+
+        if not self._matches or not text:
+            return
+
+        block_start = self.currentBlock().position()
+        block_end = block_start + len(text)
+        match_index = bisect_right(self._match_ends, block_start)
+        while match_index < len(self._matches):
+            start, end = self._matches[match_index]
+            if start >= block_end:
+                break
+
+            visible_start = max(start, block_start)
+            visible_end = min(end, block_end)
+            if visible_end > visible_start:
+                self.setFormat(
+                    visible_start - block_start,
+                    visible_end - visible_start,
+                    self._match_format,
+                )
+            match_index += 1
 
 
 class IncrementalAnalysisRenderer(QObject):
@@ -296,6 +344,9 @@ class ResultsView(QWidget):
             QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         )
         self._editor.setStyleSheet(_results_editor_style_sheet())
+        self._search_highlighter = SearchMatchHighlighter(
+            self._editor.document()
+        )
         panel_layout.addWidget(self._editor, 1)
 
     @property
@@ -395,13 +446,15 @@ class ResultsView(QWidget):
         else:
             self._search_count_label.setText("No matches")
             self._search_count_label.show()
-        self._update_search_highlights()
+        self._search_highlighter.set_matches(self._search_matches)
+        self._update_current_search_highlight()
 
     def _clear_search_results(self) -> None:
         self._search_matches = ()
         self._current_search_match = None
         self._searched_query = None
         self._search_count_label.hide()
+        self._search_highlighter.set_matches(())
         self._editor.setExtraSelections([])
 
     @Slot()
@@ -456,7 +509,7 @@ class ResultsView(QWidget):
         self._search_count_label.setText(
             f"{current + 1} / {len(self._search_matches)}"
         )
-        self._update_search_highlights()
+        self._update_current_search_highlight()
 
         start, _end = self._search_matches[current]
         cursor = QTextCursor(self._editor.document())
@@ -475,29 +528,22 @@ class ResultsView(QWidget):
         self._search_navigation.setValue(0)
         del blocker
 
-    def _update_search_highlights(self) -> None:
-        selections = []
-        document = self._editor.document()
-        for index, (start, end) in enumerate(self._search_matches):
-            selection = QTextEdit.ExtraSelection()
-            cursor = QTextCursor(document)
-            cursor.setPosition(start)
-            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-            selection.cursor = cursor
-            if index == self._current_search_match:
-                selection.format.setBackground(
-                    QColor(THEME_COLORS["search_current"])
-                )
-                selection.format.setForeground(
-                    QColor(THEME_COLORS["background"])
-                )
-            else:
-                selection.format.setBackground(
-                    QColor(THEME_COLORS["ui_primary"])
-                )
-                selection.format.setForeground(QColor("#ffffff"))
-            selections.append(selection)
-        self._editor.setExtraSelections(selections)
+    def _update_current_search_highlight(self) -> None:
+        if self._current_search_match is None:
+            self._editor.setExtraSelections([])
+            return
+
+        start, end = self._search_matches[self._current_search_match]
+        selection = QTextEdit.ExtraSelection()
+        cursor = QTextCursor(self._editor.document())
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        selection.cursor = cursor
+        selection.format.setBackground(
+            QColor(THEME_COLORS["search_current"])
+        )
+        selection.format.setForeground(QColor(THEME_COLORS["background"]))
+        self._editor.setExtraSelections([selection])
 
     def start_rendering(
         self,

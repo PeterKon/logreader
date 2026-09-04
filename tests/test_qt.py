@@ -597,32 +597,43 @@ class LogreaderQtTests(unittest.TestCase):
 
         self.assertEqual(count.text(), "1 / 3")
         self.assertEqual(results.textCursor().position(), 7)
-        self.assertEqual(len(results.extraSelections()), 3)
+        self.assertEqual(len(results.extraSelections()), 1)
         self.assertEqual(
             [
                 selection.cursor.selectedText()
                 for selection in results.extraSelections()
             ],
-            ["ERROR", "error", "ERROR"],
+            ["ERROR"],
         )
         search_highlights = results.extraSelections()
         self.assertEqual(
             search_highlights[0].format.background().color().name(),
             COLORS["search_current"].name(),
         )
-        self.assertTrue(
-            all(
-                selection.format.background().color().name()
-                == COLORS["ui_primary"].name()
-                for selection in search_highlights[1:]
+        block_highlights = [
+            format_range
+            for block in (
+                results.document().findBlockByNumber(block_number)
+                for block_number in range(results.document().blockCount())
             )
+            for format_range in block.layout().formats()
+            if format_range.format.background().color().name()
+            == COLORS["ui_primary"].name()
+        ]
+        self.assertEqual(len(block_highlights), 3)
+        self.assertTrue(
+            all(format_range.length == 5 for format_range in block_highlights)
         )
 
         navigation.stepDown()
         self.assertEqual(count.text(), "2 / 3")
         search_highlights = results.extraSelections()
         self.assertEqual(
-            search_highlights[1].format.background().color().name(),
+            search_highlights[0].cursor.selectedText(),
+            "error",
+        )
+        self.assertEqual(
+            search_highlights[0].format.background().color().name(),
             COLORS["search_current"].name(),
         )
 
@@ -642,6 +653,35 @@ class LogreaderQtTests(unittest.TestCase):
         navigation.stepDown()
         self.assertEqual(count.text(), "1 / 1")
         self.assertEqual(results.textCursor().position(), 20)
+
+    def test_results_search_retains_only_the_current_match_cursor(self):
+        results_view = self.window.findChild(ResultsView, "resultsPanel")
+        results = results_view.editor
+        search = self.window.findChild(QLineEdit, "resultsSearch")
+        match_count = 5_000
+        results.setPlainText("error\n" * match_count)
+
+        search.setText("error")
+        search.returnPressed.emit()
+
+        self.assertEqual(len(results_view._search_matches), match_count)
+        current_highlights = results.extraSelections()
+        self.assertEqual(len(current_highlights), 1)
+        self.assertEqual(
+            current_highlights[0].cursor.selectedText(),
+            "error",
+        )
+        self.assertTrue(
+            all(
+                isinstance(position, int)
+                for match in results_view._search_matches
+                for position in match
+            )
+        )
+
+        search.clear()
+        self.assertEqual(results.extraSelections(), [])
+        self.assertEqual(results_view._search_highlighter._matches, ())
 
     def test_search_entry_clear_buttons_use_white_glyphs(self):
         for input_name in ("customPattern", "regexPattern", "resultsSearch"):
