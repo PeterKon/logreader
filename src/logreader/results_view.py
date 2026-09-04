@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from array import array
 from bisect import bisect_right
 from time import perf_counter
 from typing import Callable, Iterator
@@ -19,6 +20,7 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QFontDatabase,
+    QPainter,
     QSyntaxHighlighter,
     QTextCharFormat,
     QTextCursor,
@@ -32,7 +34,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QScrollBar,
     QSpinBox,
+    QStyle,
+    QStyleOptionSlider,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -97,6 +102,130 @@ class SearchMatchHighlighter(QSyntaxHighlighter):
                     self._match_format,
                 )
             match_index += 1
+
+
+class SearchMarkerScrollBar(QScrollBar):
+    """Paint compact result-search markers behind the scrollbar thumb."""
+
+    def __init__(
+        self,
+        orientation: Qt.Orientation,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(orientation, parent)
+        self._match_blocks = array("I")
+        self._document: QTextDocument | None = None
+        self._marker_rows: tuple[int, ...] = ()
+        self._marker_cache_key: tuple[int, ...] | None = None
+        self.rangeChanged.connect(self._invalidate_marker_rows)
+
+    def set_match_blocks(
+        self,
+        match_blocks: array,
+        document: QTextDocument | None,
+    ) -> None:
+        """Set compact matching block numbers without copying their array."""
+
+        self._match_blocks = match_blocks
+        self._document = document
+        self._invalidate_marker_rows()
+
+    @Slot()
+    def _invalidate_marker_rows(self, *_args) -> None:
+        self._marker_rows = ()
+        self._marker_cache_key = None
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        if (
+            not self._match_blocks
+            or self._document is None
+            or self.orientation() != Qt.Orientation.Vertical
+        ):
+            return
+
+        option = QStyleOptionSlider()
+        self.initStyleOption(option)
+        groove = self.style().subControlRect(
+            QStyle.ComplexControl.CC_ScrollBar,
+            option,
+            QStyle.SubControl.SC_ScrollBarGroove,
+            self,
+        )
+        if groove.isEmpty():
+            return
+
+        slider = self.style().subControlRect(
+            QStyle.ComplexControl.CC_ScrollBar,
+            option,
+            QStyle.SubControl.SC_ScrollBarSlider,
+            self,
+        )
+        marker_rows = self._marker_rows_for_groove(groove)
+        marker_left = groove.left() + 2
+        marker_width = max(1, groove.width() - 4)
+
+        painter = QPainter(self)
+        painter.setClipRect(groove)
+        marker_color = QColor(THEME_COLORS["ui_primary"])
+        for row in marker_rows:
+            if slider.top() <= row <= slider.bottom():
+                continue
+            painter.fillRect(marker_left, row, marker_width, 1, marker_color)
+
+    def _marker_rows_for_groove(self, groove) -> tuple[int, ...]:
+        document_block_count = (
+            self._document.blockCount() if self._document is not None else 0
+        )
+        document_width = (
+            round(self._document.documentLayout().documentSize().width())
+            if self._document is not None
+            else 0
+        )
+        cache_key = (
+            *groove.getRect(),
+            self.minimum(),
+            self.maximum(),
+            self.pageStep(),
+            document_block_count,
+            document_width,
+        )
+        if cache_key == self._marker_cache_key:
+            return self._marker_rows
+
+        self._marker_cache_key = cache_key
+        height = groove.height()
+        if (
+            height <= 0
+            or not self._match_blocks
+            or self._document is None
+        ):
+            self._marker_rows = ()
+            return self._marker_rows
+
+        row_span = max(0, height - 1)
+        scroll_extent = self.maximum() - self.minimum() + self.pageStep()
+        document_extent = max(document_block_count, scroll_extent)
+        document_span = max(1, document_extent - 1)
+        use_visual_lines = scroll_extent > document_block_count
+        occupied_rows = bytearray(height)
+        for block_number in self._match_blocks:
+            position = block_number
+            if use_visual_lines:
+                block = self._document.findBlockByNumber(block_number)
+                first_line = block.firstLineNumber() if block.isValid() else -1
+                if first_line >= 0:
+                    position = first_line
+            relative_row = min(row_span, position * row_span // document_span)
+            occupied_rows[relative_row] = 1
+
+        self._marker_rows = tuple(
+            groove.top() + row
+            for row, occupied in enumerate(occupied_rows)
+            if occupied
+        )
+        return self._marker_rows
 
 
 class IncrementalAnalysisRenderer(QObject):
@@ -207,6 +336,7 @@ class ResultsView(QWidget):
         self._maximized = False
         self._renderer: IncrementalAnalysisRenderer | None = None
         self._search_matches: tuple[tuple[int, int], ...] = ()
+        self._search_match_blocks = array("I")
         self._current_search_match: int | None = None
         self._searched_query: str | None = None
 
@@ -344,6 +474,11 @@ class ResultsView(QWidget):
             QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         )
         self._editor.setStyleSheet(_results_editor_style_sheet())
+        self._search_marker_scrollbar = SearchMarkerScrollBar(
+            Qt.Orientation.Vertical,
+            self._editor,
+        )
+        self._editor.setVerticalScrollBar(self._search_marker_scrollbar)
         self._search_highlighter = SearchMatchHighlighter(
             self._editor.document()
         )
@@ -425,6 +560,8 @@ class ResultsView(QWidget):
 
         document = self._editor.document()
         matches = []
+        match_blocks = array("I")
+        previous_block = -1
         search_position = 0
         while True:
             match_cursor = document.find(query, search_position)
@@ -436,9 +573,14 @@ class ResultsView(QWidget):
             if end <= start:
                 break
             matches.append((start, end))
+            block_number = match_cursor.blockNumber()
+            if block_number != previous_block:
+                match_blocks.append(block_number)
+                previous_block = block_number
             search_position = end
 
         self._search_matches = tuple(matches)
+        self._search_match_blocks = match_blocks
         self._current_search_match = None
         if matches:
             self._search_count_label.setText(f"0 / {len(matches)}")
@@ -447,14 +589,23 @@ class ResultsView(QWidget):
             self._search_count_label.setText("No matches")
             self._search_count_label.show()
         self._search_highlighter.set_matches(self._search_matches)
+        self._search_marker_scrollbar.set_match_blocks(
+            self._search_match_blocks,
+            document,
+        )
         self._update_current_search_highlight()
 
     def _clear_search_results(self) -> None:
         self._search_matches = ()
+        self._search_match_blocks = array("I")
         self._current_search_match = None
         self._searched_query = None
         self._search_count_label.hide()
         self._search_highlighter.set_matches(())
+        self._search_marker_scrollbar.set_match_blocks(
+            self._search_match_blocks,
+            None,
+        )
         self._editor.setExtraSelections([])
 
     @Slot()

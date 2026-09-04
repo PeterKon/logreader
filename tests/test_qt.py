@@ -27,6 +27,7 @@ try:
         QSpinBox,
         QStyle,
         QStyleOptionButton,
+        QStyleOptionSlider,
         QStyleOptionSpinBox,
         QToolButton,
         QWidget,
@@ -55,6 +56,7 @@ try:
         ENTRY_SEPARATOR,
         RULE,
         ResultsView,
+        SearchMarkerScrollBar,
     )
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
@@ -682,6 +684,153 @@ class LogreaderQtTests(unittest.TestCase):
         search.clear()
         self.assertEqual(results.extraSelections(), [])
         self.assertEqual(results_view._search_highlighter._matches, ())
+
+    def test_results_search_marks_each_occupied_scrollbar_row_once(self):
+        results_view = self.window.findChild(ResultsView, "resultsPanel")
+        results = results_view.editor
+        search = self.window.findChild(QLineEdit, "resultsSearch")
+        scrollbar = results.verticalScrollBar()
+
+        self.assertIsInstance(scrollbar, SearchMarkerScrollBar)
+        match_count = 5_000
+        results.setPlainText("error\n" * match_count)
+        search.setText("error")
+        search.returnPressed.emit()
+
+        self.window.resize(1_000, 700)
+        self.window.show()
+        self.app.processEvents()
+        option = QStyleOptionSlider()
+        scrollbar.initStyleOption(option)
+        groove = scrollbar.style().subControlRect(
+            QStyle.ComplexControl.CC_ScrollBar,
+            option,
+            QStyle.SubControl.SC_ScrollBarGroove,
+            scrollbar,
+        )
+        marker_rows = scrollbar._marker_rows_for_groove(groove)
+
+        self.assertIs(
+            scrollbar._match_blocks,
+            results_view._search_match_blocks,
+        )
+        self.assertEqual(marker_rows, tuple(sorted(set(marker_rows))))
+        self.assertLessEqual(len(marker_rows), groove.height())
+        self.assertTrue(
+            all(groove.top() <= row <= groove.bottom() for row in marker_rows)
+        )
+
+        slider = scrollbar.style().subControlRect(
+            QStyle.ComplexControl.CC_ScrollBar,
+            option,
+            QStyle.SubControl.SC_ScrollBarSlider,
+            scrollbar,
+        )
+        scrollbar_image = scrollbar.grab().toImage()
+        visible_marker_pixels = [
+            (x, y)
+            for y in range(scrollbar_image.height())
+            for x in range(scrollbar_image.width())
+            if scrollbar_image.pixelColor(x, y).name()
+            == COLORS["ui_primary"].name()
+        ]
+        self.assertTrue(visible_marker_pixels)
+        self.assertTrue(
+            all(not slider.contains(x, y) for x, y in visible_marker_pixels)
+        )
+
+        cached_rows = scrollbar._marker_rows
+        results_view.find_next()
+        self.assertIs(scrollbar._marker_rows, cached_rows)
+
+        search.clear()
+        self.assertEqual(scrollbar._match_blocks.tolist(), [])
+        self.assertEqual(scrollbar._marker_rows, ())
+
+    def test_results_search_marker_alignment_uses_blocks_after_resize(self):
+        results_view = self.window.findChild(ResultsView, "resultsPanel")
+        results = results_view.editor
+        search = self.window.findChild(QLineEdit, "resultsSearch")
+        lines = ["ordinary"] * 2_001
+        lines[100] = "TARGET short"
+        lines[1_000] = f"{'x' * 100_000} TARGET"
+        lines[1_900] = "TARGET short"
+        results.setPlainText("\n".join(lines))
+        search.setText("TARGET")
+        search.returnPressed.emit()
+
+        for height in (700, 350):
+            with self.subTest(height=height):
+                self.window.resize(1_000, height)
+                self.window.show()
+                self.app.processEvents()
+                scrollbar = results.verticalScrollBar()
+                option = QStyleOptionSlider()
+                scrollbar.initStyleOption(option)
+                groove = scrollbar.style().subControlRect(
+                    QStyle.ComplexControl.CC_ScrollBar,
+                    option,
+                    QStyle.SubControl.SC_ScrollBarGroove,
+                    scrollbar,
+                )
+
+                marker_rows = scrollbar._marker_rows_for_groove(groove)
+                row_span = groove.height() - 1
+                block_span = results.blockCount() - 1
+                expected_rows = tuple(
+                    groove.top() + block * row_span // block_span
+                    for block in (100, 1_000, 1_900)
+                )
+                self.assertEqual(marker_rows, expected_rows)
+
+    def test_wrapped_search_markers_follow_visual_line_layout(self):
+        results_view = self.window.findChild(ResultsView, "resultsPanel")
+        results = results_view.editor
+        search = self.window.findChild(QLineEdit, "resultsSearch")
+        lines = ["ordinary"] * 201
+        lines[20] = "TARGET short"
+        lines[100] = f"{'x' * 4_000} TARGET"
+        lines[180] = "TARGET short"
+        results.setPlainText("\n".join(lines))
+        results_view.set_line_wrapping(True)
+        search.setText("TARGET")
+        search.returnPressed.emit()
+        results_view.find_next()
+
+        for width in (1_200, 650):
+            with self.subTest(width=width):
+                self.window.resize(width, 400)
+                self.window.show()
+                self.app.processEvents()
+                results.ensureCursorVisible()
+                self.app.processEvents()
+                scrollbar = results.verticalScrollBar()
+                option = QStyleOptionSlider()
+                scrollbar.initStyleOption(option)
+                groove = scrollbar.style().subControlRect(
+                    QStyle.ComplexControl.CC_ScrollBar,
+                    option,
+                    QStyle.SubControl.SC_ScrollBarGroove,
+                    scrollbar,
+                )
+
+                scroll_extent = scrollbar.maximum() + scrollbar.pageStep()
+                self.assertGreater(scroll_extent, results.blockCount())
+                visual_lines = tuple(
+                    results.document()
+                    .findBlockByNumber(block)
+                    .firstLineNumber()
+                    for block in (20, 100, 180)
+                )
+                expected_rows = tuple(
+                    groove.top()
+                    + line * (groove.height() - 1) // (scroll_extent - 1)
+                    for line in visual_lines
+                )
+                self.assertEqual(
+                    scrollbar._marker_rows_for_groove(groove),
+                    expected_rows,
+                )
 
     def test_search_entry_clear_buttons_use_white_glyphs(self):
         for input_name in ("customPattern", "regexPattern", "resultsSearch"):
