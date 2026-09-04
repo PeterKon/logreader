@@ -212,7 +212,8 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn("QSpinBox:hover", style_sheet)
         self.assertIn(
             "QSpinBox::up-button:hover,\nQSpinBox::down-button:hover {\n"
-            f"    background-color: {COLORS['ui_button_hover'].name()}",
+            f"    background-color: {COLORS['ui_button_hover'].name()};\n"
+            f"    border: 1px solid {COLORS['ui_accent'].name()}",
             style_sheet,
         )
         self.assertIn(
@@ -341,6 +342,49 @@ class LogreaderQtTests(unittest.TestCase):
                     self.assertLess(center.y(), left.y())
                     self.assertLess(center.y(), right.y())
                     self.assertEqual(center.y(), button.center().y() - 0.5)
+
+    def test_spin_arrow_hover_outlines_each_button_on_all_sides(self):
+        self.window.show()
+        self.app.processEvents()
+
+        for object_name in (
+            "contextSpin",
+            "limitSpin",
+            "resultsSearchNavigation",
+        ):
+            spin_box = self.window.findChild(QSpinBox, object_name)
+            for subcontrol in (
+                QStyle.SubControl.SC_SpinBoxUp,
+                QStyle.SubControl.SC_SpinBoxDown,
+            ):
+                with self.subTest(
+                    object_name=object_name,
+                    subcontrol=subcontrol,
+                ):
+                    option = QStyleOptionSpinBox()
+                    spin_box.initStyleOption(option)
+                    button = spin_box.style().subControlRect(
+                        QStyle.ComplexControl.CC_SpinBox,
+                        option,
+                        subcontrol,
+                        spin_box,
+                    )
+                    QTest.mouseMove(spin_box, button.center())
+                    self.app.processEvents()
+                    image = spin_box.grab().toImage()
+
+                    edge_points = {
+                        "top": (button.center().x(), button.top()),
+                        "bottom": (button.center().x(), button.bottom()),
+                        "left": (button.left(), button.center().y()),
+                        "right": (button.right(), button.center().y()),
+                    }
+                    for edge, (x, y) in edge_points.items():
+                        self.assertEqual(
+                            image.pixelColor(x, y),
+                            COLORS["ui_accent"],
+                            f"{object_name} {subcontrol} {edge}",
+                        )
 
     @staticmethod
     def _contrast_ratio(foreground: QColor, background: QColor) -> float:
@@ -1211,6 +1255,47 @@ class LogreaderQtTests(unittest.TestCase):
             "ERROR: boom",
             self.window.findChild(QPlainTextEdit, "resultsView").toPlainText(),
         )
+
+    def test_analyze_button_keeps_analyzing_label_during_rendering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "rendering-label.log"
+            log_path.write_text("ERROR: boom\n", encoding="utf-8")
+            self.window.load_file(log_path)
+
+            config = self.window.build_config()
+            analysis = analyze_lines(
+                self.window._session.lines,
+                config.search_patterns(),
+            )
+            request = self.window._session.begin_analysis(
+                config,
+                len(config.search_patterns()),
+            )
+            self.window._set_analysis_busy(True)
+
+            try:
+                with patch.object(
+                    self.window._results_view,
+                    "start_rendering",
+                ) as start_rendering:
+                    self.window._complete_analysis(
+                        request.request_id,
+                        analysis,
+                        0.1,
+                    )
+
+                self.assertEqual(
+                    self.window._session.phase,
+                    AnalysisPhase.RENDERING,
+                )
+                self.assertEqual(
+                    self.window.findChild(QPushButton, "analyzeButton").text(),
+                    "Analyzing…",
+                )
+                start_rendering.assert_called_once()
+            finally:
+                self.window._session.fail_request(request.request_id)
+                self.window._finish_analysis_request()
 
     def test_result_rendering_yields_between_formatted_batches(self):
         config = self.window.build_config()

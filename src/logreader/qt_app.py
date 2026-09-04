@@ -225,6 +225,7 @@ QSpinBox::down-button {{
 QSpinBox::up-button:hover,
 QSpinBox::down-button:hover {{
     background-color: {THEME_COLORS['ui_button_hover']};
+    border: 1px solid {THEME_COLORS['ui_accent']};
 }}
 QSpinBox::up-arrow {{
     height: 6px;
@@ -552,7 +553,6 @@ class LogreaderWindow(QMainWindow):
             analysis,
             request.config,
         )
-        self._analyze_button.setText("Rendering…")
         if self._analysis_busy_visible:
             self.statusBar().showMessage(
                 f"Rendering results for {request.source_path.name}…"
