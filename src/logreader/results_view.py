@@ -5,7 +5,15 @@ from __future__ import annotations
 from time import perf_counter
 from typing import Callable, Iterator
 
-from PySide6.QtCore import QElapsedTimer, QObject, QTimer, Signal, Slot
+from PySide6.QtCore import (
+    QElapsedTimer,
+    QObject,
+    QSignalBlocker,
+    QTimer,
+    Qt,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -15,10 +23,14 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QSpinBox,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -26,7 +38,7 @@ from PySide6.QtWidgets import (
 from .config import APP_VERSION, LogreaderConfig
 from .core import AnalysisResult, CategoryResult, ResultLine
 from .presentation import CategoryPresentation, build_category_presentations
-from .theme import THEME_COLORS
+from .theme import THEME_COLORS, configure_clear_button
 
 
 RESULT_COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
@@ -36,6 +48,7 @@ INCREMENTAL_RENDER_BATCH_MS = 8
 
 RenderOperation = tuple[str, str, bool]
 CheckBoxFactory = Callable[[], QCheckBox]
+SpinBoxFactory = Callable[[], QSpinBox]
 
 
 class IncrementalAnalysisRenderer(QObject):
@@ -139,11 +152,15 @@ class ResultsView(QWidget):
         parent: QWidget | None = None,
         *,
         checkbox_factory: CheckBoxFactory = QCheckBox,
+        spinbox_factory: SpinBoxFactory = QSpinBox,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("resultsPanel")
         self._maximized = False
         self._renderer: IncrementalAnalysisRenderer | None = None
+        self._search_matches: tuple[tuple[int, int], ...] = ()
+        self._current_search_match: int | None = None
+        self._searched_query: str | None = None
 
         panel_layout = QVBoxLayout(self)
         panel_layout.setContentsMargins(0, 0, 0, 0)
@@ -170,6 +187,89 @@ class ResultsView(QWidget):
         self._maximize_button.clicked.connect(self.toggle_maximized)
         header_layout.addWidget(self._maximize_button)
         header_layout.addStretch(1)
+
+        self._search_count_label = QLabel()
+        self._search_count_label.setObjectName("resultsSearchCount")
+        self._search_count_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._search_count_label.setStyleSheet(
+            f"color: {THEME_COLORS['ui_muted']};"
+        )
+        self._search_count_label.setMinimumWidth(84)
+        count_size_policy = self._search_count_label.sizePolicy()
+        count_size_policy.setRetainSizeWhenHidden(True)
+        self._search_count_label.setSizePolicy(count_size_policy)
+        self._search_count_label.hide()
+        header_layout.addWidget(self._search_count_label)
+
+        search_controls = QWidget(header)
+        search_controls.setObjectName("resultsSearchControls")
+        search_controls_layout = QHBoxLayout(search_controls)
+        search_controls_layout.setContentsMargins(0, 0, 0, 0)
+        search_controls_layout.setSpacing(0)
+
+        self._search_input = QLineEdit()
+        self._search_input.setObjectName("resultsSearch")
+        self._search_input.setAccessibleName("Search results")
+        self._search_input.setPlaceholderText("Press enter to search...")
+        configure_clear_button(self._search_input)
+        self._search_input.setFixedWidth(220)
+        self._search_input.setStyleSheet(
+            "QLineEdit#resultsSearch {"
+            " border-right: none;"
+            " border-top-right-radius: 0;"
+            " border-bottom-right-radius: 0;"
+            "}"
+        )
+        self._search_input.textChanged.connect(self._invalidate_search_results)
+        self._search_input.returnPressed.connect(self.find_next)
+        search_controls_layout.addWidget(self._search_input)
+
+        search_button_separator = QFrame(search_controls)
+        search_button_separator.setObjectName("resultsSearchButtonSeparator")
+        search_button_separator.setFixedSize(1, 28)
+        search_button_separator.setStyleSheet(
+            f"background-color: {THEME_COLORS['ui_border_strong']};"
+            " border: none;"
+        )
+        search_controls_layout.addWidget(search_button_separator)
+
+        self._search_navigation = spinbox_factory()
+        self._search_navigation.setObjectName("resultsSearchNavigation")
+        self._search_navigation.setAccessibleName("Navigate search results")
+        self._search_navigation.setToolTip(
+            "Up: previous result; down: next result."
+        )
+        self._search_navigation.setRange(-1, 1)
+        self._search_navigation.setValue(0)
+        self._search_navigation.setFixedSize(22, 28)
+        self._search_navigation.setStyleSheet(
+            "QSpinBox#resultsSearchNavigation {"
+            " border-left: none;"
+            " border-top-left-radius: 0;"
+            " border-bottom-left-radius: 0;"
+            " padding: 0;"
+            "}"
+        )
+        self._search_navigation.lineEdit().hide()
+        self._search_navigation.valueChanged.connect(
+            self._navigate_from_search_arrows
+        )
+        search_controls_layout.addWidget(self._search_navigation)
+        header_layout.addWidget(search_controls)
+
+        search_separator = QFrame()
+        search_separator.setObjectName("resultsSearchSeparator")
+        search_separator.setFrameShape(QFrame.Shape.VLine)
+        search_separator.setFrameShadow(QFrame.Shadow.Plain)
+        search_separator.setFixedWidth(1)
+        search_separator.setMaximumHeight(22)
+        search_separator.setStyleSheet(
+            f"background-color: {THEME_COLORS['ui_border_strong']};"
+            " border: none;"
+        )
+        header_layout.addWidget(search_separator)
 
         line_wrap_label = QLabel("Line wrapping")
         line_wrap_label.setObjectName("lineWrapLabel")
@@ -212,12 +312,16 @@ class ResultsView(QWidget):
         """Clear old output and describe the newly staged source file."""
 
         self.cancel_rendering()
+        self._search_input.clear()
+        self._clear_search_results()
         self._editor.clear()
         self._editor.setPlaceholderText(
             f"{source_name} is loaded. Choose Analyze to display results."
         )
 
     def focus_editor(self) -> None:
+        self._search_input.deselect()
+        self._search_input.clearFocus()
         self._editor.setFocus()
 
     @Slot()
@@ -252,6 +356,149 @@ class ResultsView(QWidget):
         )
         self._editor.setLineWrapMode(line_wrap_mode)
 
+    @Slot(str)
+    def _invalidate_search_results(self, _query: str) -> None:
+        """Clear stale matches without searching while the user types."""
+
+        self._clear_search_results()
+
+    @Slot()
+    def _refresh_search_matches(self) -> None:
+        """Find and highlight every literal occurrence in rendered results."""
+
+        query = self._search_input.text()
+        self._clear_search_results()
+        self._searched_query = query
+        if not query:
+            return
+
+        document = self._editor.document()
+        matches = []
+        search_position = 0
+        while True:
+            match_cursor = document.find(query, search_position)
+            if match_cursor.isNull():
+                break
+
+            start = match_cursor.selectionStart()
+            end = match_cursor.selectionEnd()
+            if end <= start:
+                break
+            matches.append((start, end))
+            search_position = end
+
+        self._search_matches = tuple(matches)
+        self._current_search_match = None
+        if matches:
+            self._search_count_label.setText(f"0 / {len(matches)}")
+            self._search_count_label.show()
+        else:
+            self._search_count_label.setText("No matches")
+            self._search_count_label.show()
+        self._update_search_highlights()
+
+    def _clear_search_results(self) -> None:
+        self._search_matches = ()
+        self._current_search_match = None
+        self._searched_query = None
+        self._search_count_label.hide()
+        self._editor.setExtraSelections([])
+
+    @Slot()
+    def find_next(self) -> None:
+        """Move to the next result-search match, wrapping at the end."""
+
+        self._navigate_search(forward=True)
+
+    @Slot()
+    def find_previous(self) -> None:
+        """Move to the previous result-search match, wrapping at the start."""
+
+        self._navigate_search(forward=False)
+
+    def _navigate_search(self, *, forward: bool) -> None:
+        if self._renderer is not None:
+            return
+        if self._searched_query != self._search_input.text():
+            self._refresh_search_matches()
+        if not self._search_matches:
+            return
+
+        if self._current_search_match is None:
+            cursor_position = self._editor.textCursor().position()
+            if forward:
+                current = next(
+                    (
+                        index
+                        for index, (start, _end) in enumerate(
+                            self._search_matches
+                        )
+                        if start >= cursor_position
+                    ),
+                    0,
+                )
+            else:
+                current = next(
+                    (
+                        index
+                        for index in range(len(self._search_matches) - 1, -1, -1)
+                        if self._search_matches[index][1] <= cursor_position
+                    ),
+                    len(self._search_matches) - 1,
+                )
+        else:
+            step = 1 if forward else -1
+            current = (self._current_search_match + step) % len(
+                self._search_matches
+            )
+
+        self._current_search_match = current
+        self._search_count_label.setText(
+            f"{current + 1} / {len(self._search_matches)}"
+        )
+        self._update_search_highlights()
+
+        start, _end = self._search_matches[current]
+        cursor = QTextCursor(self._editor.document())
+        cursor.setPosition(start)
+        self._editor.setTextCursor(cursor)
+        self._editor.ensureCursorVisible()
+
+    @Slot(int)
+    def _navigate_from_search_arrows(self, value: int) -> None:
+        if value > 0:
+            self.find_previous()
+        elif value < 0:
+            self.find_next()
+
+        blocker = QSignalBlocker(self._search_navigation)
+        self._search_navigation.setValue(0)
+        del blocker
+
+    def _update_search_highlights(self) -> None:
+        selections = []
+        document = self._editor.document()
+        for index, (start, end) in enumerate(self._search_matches):
+            selection = QTextEdit.ExtraSelection()
+            cursor = QTextCursor(document)
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            selection.cursor = cursor
+            if index == self._current_search_match:
+                selection.format.setBackground(
+                    QColor(THEME_COLORS["search_current"])
+                )
+                selection.format.setForeground(
+                    QColor(THEME_COLORS["background"])
+                )
+            else:
+                selection.format.setBackground(
+                    QColor(THEME_COLORS["ui_primary"])
+                )
+                selection.format.setForeground(QColor("#ffffff"))
+            selections.append(selection)
+        self._editor.setExtraSelections(selections)
+
     def start_rendering(
         self,
         request_id: int,
@@ -262,6 +509,8 @@ class ResultsView(QWidget):
         """Start a new incremental render, cancelling any previous one."""
 
         self.cancel_rendering()
+        self.focus_editor()
+        self._clear_search_results()
         renderer = IncrementalAnalysisRenderer(
             request_id,
             self._editor,

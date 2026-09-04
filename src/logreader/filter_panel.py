@@ -36,7 +36,7 @@ from .config import (
     TEXT_PATTERN_KEYS,
     LogreaderConfig,
 )
-from .theme import THEME_COLORS
+from .theme import THEME_COLORS, configure_clear_button
 
 
 FILTER_ALIGNMENT_EXTRA_WIDTH = 115
@@ -384,7 +384,7 @@ class FilterPanel(QGroupBox):
         entry_row.setSpacing(6)
         input_box = QLineEdit()
         input_box.setObjectName(input_object_name)
-        input_box.setClearButtonEnabled(True)
+        configure_clear_button(input_box)
         input_box.setPlaceholderText("Enter item")
         input_palette = input_box.palette()
         placeholder_color = input_palette.color(

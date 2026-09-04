@@ -35,7 +35,7 @@ from .config import APP_VERSION, LogreaderConfig
 from .core import AnalysisResult
 from .document_session import AnalysisPhase, DocumentSession
 from .file_loader import LogDecodeError, load_log
-from .filter_panel import FilterPanel, VisibleCheckBox
+from .filter_panel import FilterPanel, VisibleCheckBox, VisibleSpinBox
 from .results_view import ResultsView
 from .theme import THEME_COLORS
 
@@ -400,6 +400,7 @@ class LogreaderWindow(QMainWindow):
         self._results_view = ResultsView(
             central_widget,
             checkbox_factory=VisibleCheckBox,
+            spinbox_factory=VisibleSpinBox,
         )
         self._results_view.maximized_changed.connect(
             self._set_results_maximized
@@ -607,7 +608,7 @@ class LogreaderWindow(QMainWindow):
     def _set_analysis_busy(self, busy: bool) -> None:
         if busy:
             self._analysis_busy_visible = False
-            self._results_view.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+            self._results_view.focus_editor()
             self._analyze_button.setEnabled(False)
             self._analyze_button.setText("Analyzing…")
             self._analysis_busy_timer.start()

@@ -28,6 +28,7 @@ try:
         QStyle,
         QStyleOptionButton,
         QStyleOptionSpinBox,
+        QToolButton,
         QWidget,
     )
 
@@ -50,7 +51,11 @@ try:
         COLORS,
         LogreaderWindow,
     )
-    from logreader.results_view import ENTRY_SEPARATOR, RULE, ResultsView
+    from logreader.results_view import (
+        ENTRY_SEPARATOR,
+        RULE,
+        ResultsView,
+    )
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -427,10 +432,22 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(header_layout.stretch(1), 1)
         self.assertEqual(
             header_layout.itemAt(2).widget().objectName(),
-            "lineWrapLabel",
+            "resultsSearchCount",
         )
         self.assertEqual(
             header_layout.itemAt(3).widget().objectName(),
+            "resultsSearchControls",
+        )
+        self.assertEqual(
+            header_layout.itemAt(4).widget().objectName(),
+            "resultsSearchSeparator",
+        )
+        self.assertEqual(
+            header_layout.itemAt(5).widget().objectName(),
+            "lineWrapLabel",
+        )
+        self.assertEqual(
+            header_layout.itemAt(6).widget().objectName(),
             "lineWrapCheck",
         )
 
@@ -477,6 +494,132 @@ class LogreaderQtTests(unittest.TestCase):
             results.lineWrapMode(),
             QPlainTextEdit.LineWrapMode.NoWrap,
         )
+
+    def test_results_search_highlights_without_jumping_and_navigates(self):
+        results = self.window.findChild(QPlainTextEdit, "resultsView")
+        search = self.window.findChild(QLineEdit, "resultsSearch")
+        count = self.window.findChild(QLabel, "resultsSearchCount")
+        navigation = self.window.findChild(QSpinBox, "resultsSearchNavigation")
+        button_separator = self.window.findChild(
+            QFrame,
+            "resultsSearchButtonSeparator",
+        )
+        separator = self.window.findChild(QFrame, "resultsSearchSeparator")
+        search_controls = self.window.findChild(QWidget, "resultsSearchControls")
+
+        self.assertEqual(search.placeholderText(), "Press enter to search...")
+        self.assertTrue(search.isClearButtonEnabled())
+        self.assertIsInstance(navigation, VisibleSpinBox)
+        self.assertFalse(navigation.lineEdit().isVisibleTo(navigation))
+        self.assertEqual(navigation.width(), 22)
+        self.assertEqual(search_controls.layout().spacing(), 0)
+        self.assertEqual(
+            search_controls.layout().contentsMargins().left(),
+            0,
+        )
+        self.assertIs(search_controls.layout().itemAt(0).widget(), search)
+        self.assertIs(
+            search_controls.layout().itemAt(1).widget(),
+            button_separator,
+        )
+        self.assertIs(search_controls.layout().itemAt(2).widget(), navigation)
+        self.assertIn("border-right: none", search.styleSheet())
+        self.assertIn("border-left: none", navigation.styleSheet())
+        self.assertEqual(button_separator.width(), 1)
+        self.assertEqual(button_separator.height(), 28)
+        self.assertIn(
+            f"background-color: {COLORS['ui_border_strong'].name()}",
+            button_separator.styleSheet(),
+        )
+        self.assertEqual(separator.width(), 1)
+        self.assertTrue(count.isHidden())
+        self.assertTrue(count.sizePolicy().retainSizeWhenHidden())
+
+        results.setPlainText(
+            "header\nERROR: first\nneutral\nerror: second\nERROR: third\n"
+        )
+        cursor = results.textCursor()
+        cursor.setPosition(0)
+        results.setTextCursor(cursor)
+        original_position = results.textCursor().position()
+
+        search.setText("error")
+
+        self.assertEqual(results.textCursor().position(), original_position)
+        self.assertTrue(count.isHidden())
+        self.assertEqual(results.extraSelections(), [])
+
+        search.returnPressed.emit()
+
+        self.assertEqual(count.text(), "1 / 3")
+        self.assertEqual(results.textCursor().position(), 7)
+        self.assertEqual(len(results.extraSelections()), 3)
+        self.assertEqual(
+            [
+                selection.cursor.selectedText()
+                for selection in results.extraSelections()
+            ],
+            ["ERROR", "error", "ERROR"],
+        )
+        search_highlights = results.extraSelections()
+        self.assertEqual(
+            search_highlights[0].format.background().color().name(),
+            COLORS["search_current"].name(),
+        )
+        self.assertTrue(
+            all(
+                selection.format.background().color().name()
+                == COLORS["ui_primary"].name()
+                for selection in search_highlights[1:]
+            )
+        )
+
+        navigation.stepDown()
+        self.assertEqual(count.text(), "2 / 3")
+        search_highlights = results.extraSelections()
+        self.assertEqual(
+            search_highlights[1].format.background().color().name(),
+            COLORS["search_current"].name(),
+        )
+
+        navigation.stepUp()
+        self.assertEqual(count.text(), "1 / 3")
+
+        search.setText("missing")
+        self.assertTrue(count.isHidden())
+        self.assertEqual(results.extraSelections(), [])
+
+        search.returnPressed.emit()
+        self.assertFalse(count.isHidden())
+        self.assertEqual(count.text(), "No matches")
+        self.assertEqual(results.extraSelections(), [])
+
+        search.setText("neutral")
+        navigation.stepDown()
+        self.assertEqual(count.text(), "1 / 1")
+        self.assertEqual(results.textCursor().position(), 20)
+
+    def test_search_entry_clear_buttons_use_white_glyphs(self):
+        for input_name in ("customPattern", "regexPattern", "resultsSearch"):
+            with self.subTest(input_name=input_name):
+                input_box = self.window.findChild(QLineEdit, input_name)
+                clear_button = input_box.findChild(
+                    QToolButton,
+                    f"{input_name}ClearButton",
+                )
+                self.assertIsNotNone(clear_button)
+
+                icon_image = clear_button.icon().pixmap(
+                    clear_button.iconSize()
+                ).toImage()
+                opaque_colors = {
+                    icon_image.pixelColor(x, y).getRgb()[:3]
+                    for y in range(icon_image.height())
+                    for x in range(icon_image.width())
+                    if icon_image.pixelColor(x, y).alpha() > 0
+                }
+                self.assertTrue(opaque_colors)
+                self.assertEqual(opaque_colors, {(255, 255, 255)})
 
     def test_top_controls_share_one_compact_row_with_dividers(self):
         top_controls = self.window.findChild(QWidget, "topControlsRow")
@@ -1007,6 +1150,14 @@ class LogreaderQtTests(unittest.TestCase):
             open_button = self.window.findChild(QPushButton, "openButton")
             filter_group = self.window.findChild(QGroupBox, "filterGroup")
             line_wrap = self.window.findChild(QCheckBox, "lineWrapCheck")
+            results = self.window.findChild(QPlainTextEdit, "resultsView")
+            search = self.window.findChild(QLineEdit, "resultsSearch")
+            search.setText("error")
+            search.selectAll()
+            search.setFocus()
+            self.app.processEvents()
+            self.assertIs(self.app.focusWidget(), search)
+            self.assertEqual(search.selectedText(), "error")
 
             try:
                 with patch(
@@ -1017,10 +1168,8 @@ class LogreaderQtTests(unittest.TestCase):
                     self.assertTrue(started.wait(1))
                     self.assertFalse(analyze_button.isEnabled())
                     self.assertEqual(analyze_button.text(), "Analyzing…")
-                    self.assertIs(
-                        self.app.focusWidget(),
-                        self.window.findChild(QPlainTextEdit, "resultsView"),
-                    )
+                    self.assertIs(self.app.focusWidget(), results)
+                    self.assertEqual(search.selectedText(), "")
                     self.assertTrue(open_button.isEnabled())
                     self.assertTrue(filter_group.isEnabled())
                     self.assertNotIn(
@@ -1072,6 +1221,8 @@ class LogreaderQtTests(unittest.TestCase):
         results_view = self.window.findChild(ResultsView, "resultsPanel")
         results = self.window.findChild(QPlainTextEdit, "resultsView")
         line_wrap = self.window.findChild(QCheckBox, "lineWrapCheck")
+        search = self.window.findChild(QLineEdit, "resultsSearch")
+        count = self.window.findChild(QLabel, "resultsSearchCount")
         completed = QSignalSpy(results_view.rendering_completed)
 
         with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
@@ -1093,6 +1244,11 @@ class LogreaderQtTests(unittest.TestCase):
             self.assertEqual(results.toPlainText(), f"{APP_VERSION}\n")
             self.assertEqual(completed.count(), 0)
 
+            search.setText("e")
+            search.returnPressed.emit()
+            self.assertTrue(count.isHidden())
+            self.assertEqual(results.extraSelections(), [])
+
             line_wrap.click()
             self.assertTrue(line_wrap.isChecked())
 
@@ -1102,6 +1258,8 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertTrue(results.updatesEnabled())
         self.assertIn("incremental.log", results.toPlainText())
         self.assertIn("ERROR: boom", results.toPlainText())
+        self.assertTrue(count.isHidden())
+        self.assertEqual(results.extraSelections(), [])
 
     def test_results_view_cancels_incremental_rendering(self):
         config = self.window.build_config()
