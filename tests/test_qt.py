@@ -9,8 +9,8 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QColor, QPalette, QTextCursor, QWheelEvent
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import (
         QApplication,
@@ -597,6 +597,11 @@ class LogreaderQtTests(unittest.TestCase):
 
         search.returnPressed.emit()
 
+        self.assertEqual(count.text(), "0 / 3")
+        self.assertEqual(results.textCursor().position(), original_position)
+        self.assertEqual(results.extraSelections(), [])
+
+        navigation.stepDown()
         self.assertEqual(count.text(), "1 / 3")
         self.assertEqual(results.textCursor().position(), 7)
         self.assertEqual(len(results.extraSelections()), 1)
@@ -656,6 +661,184 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(count.text(), "1 / 1")
         self.assertEqual(results.textCursor().position(), 20)
 
+    def _prepare_positioned_search(self):
+        view = self.window.findChild(ResultsView, "resultsPanel")
+        view.editor.setPlainText("\n".join(
+            f"line {index} " + "padding " * 30
+            + ("error" if index in (100, 110, 500, 510, 900) else "ordinary")
+            for index in range(1_000)
+        ))
+        self.window.show()
+        self.app.processEvents()
+        view._search_input.setText("error")
+        return view
+
+    def test_results_search_in_middle_preserves_view_and_selection(self):
+        view = self._prepare_positioned_search()
+        editor = view.editor
+        for forward, expected_block in ((True, 500), (False, 110)):
+            with self.subTest(forward=forward):
+                view._search_input.clear()
+                view._search_input.setText("error")
+                cursor = editor.textCursor()
+                cursor.setPosition(0)
+                cursor.setPosition(4, QTextCursor.MoveMode.KeepAnchor)
+                editor.setTextCursor(cursor)
+                editor.verticalScrollBar().setValue(450)
+                editor.horizontalScrollBar().setValue(25)
+                before = (
+                    editor.verticalScrollBar().value(),
+                    editor.horizontalScrollBar().value(),
+                    editor.textCursor().selectionStart(),
+                    editor.textCursor().selectionEnd(),
+                )
+
+                view._search_input.returnPressed.emit()
+                self.app.processEvents()
+
+                self.assertEqual(view._search_count_label.text(), "0 / 5")
+                self.assertEqual(editor.extraSelections(), [])
+                self.assertEqual(before, (
+                    editor.verticalScrollBar().value(),
+                    editor.horizontalScrollBar().value(),
+                    editor.textCursor().selectionStart(),
+                    editor.textCursor().selectionEnd(),
+                ))
+                if forward:
+                    view.find_next()
+                else:
+                    view.find_previous()
+                self.assertEqual(editor.textCursor().blockNumber(), expected_block)
+
+    def test_results_search_repeated_enter_navigates_cached_matches(self):
+        view = self._prepare_positioned_search()
+        editor = view.editor
+        scrollbar = editor.verticalScrollBar()
+        scrollbar.setValue(450)
+        view._search_input.returnPressed.emit()
+        self.assertEqual(scrollbar.value(), 450)
+        self.assertEqual(view._search_count_label.text(), "0 / 5")
+
+        with patch.object(view, "_refresh_search_matches") as refresh:
+            for expected_block in (500, 510, 900, 100):
+                view._search_input.returnPressed.emit()
+                self.assertEqual(editor.textCursor().blockNumber(), expected_block)
+            refresh.assert_not_called()
+
+        scrollbar.setValue(850)
+        option = QStyleOptionSlider()
+        scrollbar.initStyleOption(option)
+        thumb = scrollbar.style().subControlRect(
+            QStyle.ComplexControl.CC_ScrollBar, option,
+            QStyle.SubControl.SC_ScrollBarSlider, scrollbar,
+        )
+        QTest.mouseClick(scrollbar, Qt.MouseButton.LeftButton, pos=thumb.center())
+        view._search_input.returnPressed.emit()
+        self.assertEqual(editor.textCursor().blockNumber(), 900)
+
+        # Changing the query starts a fresh search without navigation.
+        before = (scrollbar.value(), editor.textCursor().position())
+        view._search_input.setText("ordinary")
+        view._search_input.returnPressed.emit()
+        self.assertEqual(before, (scrollbar.value(), editor.textCursor().position()))
+        self.assertEqual(editor.extraSelections(), [])
+        for query in ("missing", ""):
+            view._search_input.setText(query)
+            view._search_input.returnPressed.emit()
+            view._search_input.returnPressed.emit()
+            self.assertEqual(before, (scrollbar.value(), editor.textCursor().position()))
+
+    def test_results_search_repeated_arrows_continue_and_wrap(self):
+        view = self._prepare_positioned_search()
+        view.editor.verticalScrollBar().setValue(450)
+        view._search_input.returnPressed.emit()
+        for expected_block in (500, 510, 900, 100):
+            view._search_navigation.stepDown()
+            self.assertEqual(view.editor.textCursor().blockNumber(), expected_block)
+        for expected_block in (900, 510, 500):
+            view._search_navigation.stepUp()
+            self.assertEqual(view.editor.textCursor().blockNumber(), expected_block)
+
+    def test_results_search_thumb_touch_reanchors_without_moving_thumb(self):
+        view = self._prepare_positioned_search()
+        scrollbar = view.editor.verticalScrollBar()
+        view.find_next()
+        self.assertEqual(view.editor.textCursor().blockNumber(), 100)
+
+        # Layout/programmatic scrolling alone must not reset the match sequence.
+        scrollbar.setValue(850)
+        view.find_next()
+        self.assertEqual(view.editor.textCursor().blockNumber(), 110)
+
+        for forward, position, expected in ((True, 850, 900), (False, 450, 110)):
+            with self.subTest(forward=forward):
+                scrollbar.setValue(position)
+                option = QStyleOptionSlider()
+                scrollbar.initStyleOption(option)
+                thumb = scrollbar.style().subControlRect(
+                    QStyle.ComplexControl.CC_ScrollBar, option,
+                    QStyle.SubControl.SC_ScrollBarSlider, scrollbar,
+                )
+                QTest.mouseClick(scrollbar, Qt.MouseButton.LeftButton, pos=thumb.center())
+                self.assertEqual(scrollbar.value(), position)
+                if forward:
+                    view.find_next()
+                else:
+                    view.find_previous()
+                self.assertEqual(view.editor.textCursor().blockNumber(), expected)
+        view.find_previous()
+        self.assertEqual(view.editor.textCursor().blockNumber(), 100)
+
+    def test_results_search_track_drag_and_wheel_scroll_reanchor(self):
+        view = self._prepare_positioned_search()
+        scrollbar = view.editor.verticalScrollBar()
+        for interaction in ("track", "drag", "wheel"):
+            with self.subTest(interaction=interaction):
+                view._search_input.clear()
+                view._search_input.setText("error")
+                scrollbar.setValue(0)
+                view.find_next()
+                self.assertEqual(view.editor.textCursor().blockNumber(), 100)
+                if interaction in ("track", "drag"):
+                    option = QStyleOptionSlider()
+                    scrollbar.initStyleOption(option)
+                    groove = scrollbar.style().subControlRect(
+                        QStyle.ComplexControl.CC_ScrollBar, option,
+                        QStyle.SubControl.SC_ScrollBarGroove, scrollbar,
+                    )
+                    if interaction == "track":
+                        QTest.mouseClick(
+                            scrollbar, Qt.MouseButton.LeftButton, pos=groove.center(),
+                        )
+                    else:
+                        thumb = scrollbar.style().subControlRect(
+                            QStyle.ComplexControl.CC_ScrollBar, option,
+                            QStyle.SubControl.SC_ScrollBarSlider, scrollbar,
+                        )
+                        QTest.mousePress(
+                            scrollbar, Qt.MouseButton.LeftButton, pos=thumb.center(),
+                        )
+                        QTest.mouseMove(scrollbar, groove.center())
+                        QTest.mouseRelease(
+                            scrollbar, Qt.MouseButton.LeftButton, pos=groove.center(),
+                        )
+                else:
+                    scrollbar.setValue(450)
+                    viewport = view.editor.viewport()
+                    position = viewport.rect().center()
+                    wheel = QWheelEvent(
+                        QPointF(position), QPointF(viewport.mapToGlobal(position)),
+                        QPoint(), QPoint(0, -120), Qt.MouseButton.NoButton,
+                        Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False,
+                    )
+                    self.app.sendEvent(viewport, wheel)
+                self.app.processEvents()
+                top = view.editor.firstVisibleBlock().blockNumber()
+                self.assertGreater(top, 110)
+                expected = next(block for block in (500, 510, 900) if block >= top)
+                view.find_next()
+                self.assertEqual(view.editor.textCursor().blockNumber(), expected)
+
     def test_results_search_retains_only_the_current_match_cursor(self):
         results_view = self.window.findChild(ResultsView, "resultsPanel")
         results = results_view.editor
@@ -667,6 +850,8 @@ class LogreaderQtTests(unittest.TestCase):
         search.returnPressed.emit()
 
         self.assertEqual(len(results_view._search_matches), match_count)
+        self.assertEqual(results.extraSelections(), [])
+        results_view.find_next()
         current_highlights = results.extraSelections()
         self.assertEqual(len(current_highlights), 1)
         self.assertEqual(
@@ -796,6 +981,8 @@ class LogreaderQtTests(unittest.TestCase):
         search.setText("TARGET")
         search.returnPressed.emit()
         results_view.find_next()
+        results_view.find_next()
+        self.assertEqual(results.textCursor().blockNumber(), 100)
 
         for width in (1_200, 650):
             with self.subTest(width=width):

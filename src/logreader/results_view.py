@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from array import array
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from time import perf_counter
 from typing import Callable, Iterator
 
@@ -339,6 +339,7 @@ class ResultsView(QWidget):
         self._search_match_blocks = array("I")
         self._current_search_match: int | None = None
         self._searched_query: str | None = None
+        self._search_from_viewport = True
 
         panel_layout = QVBoxLayout(self)
         panel_layout.setContentsMargins(0, 0, 0, 0)
@@ -401,7 +402,7 @@ class ResultsView(QWidget):
             "}"
         )
         self._search_input.textChanged.connect(self._invalidate_search_results)
-        self._search_input.returnPressed.connect(self.find_next)
+        self._search_input.returnPressed.connect(self.search_results)
         search_controls_layout.addWidget(self._search_input)
 
         search_button_separator = QFrame(search_controls)
@@ -479,6 +480,14 @@ class ResultsView(QWidget):
             self._editor,
         )
         self._editor.setVerticalScrollBar(self._search_marker_scrollbar)
+        for scrollbar in (
+            self._search_marker_scrollbar,
+            self._editor.horizontalScrollBar(),
+        ):
+            # User actions re-anchor navigation; ordinary value changes from
+            # revealing a match or laying out the document must not do so.
+            scrollbar.sliderPressed.connect(self._use_viewport_search_anchor)
+            scrollbar.actionTriggered.connect(self._use_viewport_search_anchor)
         self._search_highlighter = SearchMatchHighlighter(
             self._editor.document()
         )
@@ -549,6 +558,23 @@ class ResultsView(QWidget):
         self._clear_search_results()
 
     @Slot()
+    def search_results(self) -> None:
+        """Highlight a new query, or navigate down for an unchanged search."""
+
+        if self._renderer is not None:
+            return
+        if self._searched_query != self._search_input.text():
+            self._refresh_search_matches()
+        else:
+            self.find_next()
+
+    @Slot()
+    def _use_viewport_search_anchor(self) -> None:
+        """Start the next navigation from the top visible text line."""
+
+        self._search_from_viewport = True
+
+    @Slot()
     def _refresh_search_matches(self) -> None:
         """Find and highlight every literal occurrence in rendered results."""
 
@@ -600,6 +626,7 @@ class ResultsView(QWidget):
         self._search_match_blocks = array("I")
         self._current_search_match = None
         self._searched_query = None
+        self._search_from_viewport = True
         self._search_count_label.hide()
         self._search_highlighter.set_matches(())
         self._search_marker_scrollbar.set_match_blocks(
@@ -628,28 +655,19 @@ class ResultsView(QWidget):
         if not self._search_matches:
             return
 
-        if self._current_search_match is None:
-            cursor_position = self._editor.textCursor().position()
-            if forward:
-                current = next(
-                    (
-                        index
-                        for index, (start, _end) in enumerate(
-                            self._search_matches
-                        )
-                        if start >= cursor_position
-                    ),
-                    0,
-                )
-            else:
-                current = next(
-                    (
-                        index
-                        for index in range(len(self._search_matches) - 1, -1, -1)
-                        if self._search_matches[index][1] <= cursor_position
-                    ),
-                    len(self._search_matches) - 1,
-                )
+        if self._current_search_match is None or self._search_from_viewport:
+            anchor = self._editor.cursorForPosition(
+                self._editor.viewport().rect().topLeft()
+            )
+            anchor.movePosition(QTextCursor.MoveOperation.StartOfLine)
+            current = bisect_left(
+                self._search_matches,
+                anchor.position(),
+                key=lambda match: match[0],
+            )
+            if not forward:
+                current -= 1
+            current %= len(self._search_matches)
         else:
             step = 1 if forward else -1
             current = (self._current_search_match + step) % len(
@@ -667,6 +685,7 @@ class ResultsView(QWidget):
         cursor.setPosition(start)
         self._editor.setTextCursor(cursor)
         self._editor.ensureCursorVisible()
+        self._search_from_viewport = False
 
     @Slot(int)
     def _navigate_from_search_arrows(self, value: int) -> None:
@@ -919,6 +938,9 @@ def _results_editor_style_sheet() -> str:
         " border: none;"
         f" selection-background-color: {THEME_COLORS['selection']};"
         " padding: 8px;"
+        "}"
+        "QPlainTextEdit QScrollBar {"
+        " scrollbar-leftclick-absolute-position: 1;"
         "}"
         "QPlainTextEdit QScrollBar:vertical {"
         f" background: {THEME_COLORS['scrollbar_track']};"
