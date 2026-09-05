@@ -1,6 +1,6 @@
 # Logreader
 
-Logreader is a Windows desktop application for finding errors in large log files. It highlights common failure patterns and shows the surrounding lines.
+Logreader is a Windows desktop application for returning matches of common text-patterns for errors/issues in log-files. It highlights the matches and shows the surrounding context.
 
 ## Install
 
@@ -24,11 +24,9 @@ You can also use `python -m logreader`.
 
 ## Use
 
-Open a log file, choose the filters you want, and press **Analyze**. Opening a file does not start the analysis automatically.
+Open a log file, choose filters, then press **Analyze**.
 
-`ERROR:`, `ERROR`, `FAILED`, and `FATAL` are enabled by default. Context defaults to three lines. The other text and HTTP filters are optional.
-
-Logreader reads UTF-8 and byte-order-marked UTF-16/32 files, with Windows-1252 as a fallback.
+Logreader will read UTF-8 and UTF-16/32-BOM files, with Windows-1252 as fallback.
 
 ## Tests
 
