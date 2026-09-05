@@ -16,6 +16,8 @@ python -m pip install -e .
 
 ## Run
 
+Run from commandline:
+
 ```powershell
 logreader
 ```
