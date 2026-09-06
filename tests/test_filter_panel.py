@@ -62,7 +62,17 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(config.limit, 25)
         self.assertEqual(
             config.enabled_patterns,
-            ("error", "warning", "failed", "fatal"),
+            (
+                "error",
+                "exception",
+                "exception_generic",
+                "warning",
+                "failed",
+                "failure",
+                "fatal",
+                "critical",
+                "refused",
+            ),
         )
         self.assertTrue(config.separate_entries)
         self.assertTrue(config.combined_view)

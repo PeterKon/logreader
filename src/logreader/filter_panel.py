@@ -283,6 +283,7 @@ class FilterPanel(QGroupBox):
             object_name="textPatternGroup",
             columns=4,
             toggle_object_name="toggleTextButton",
+            reserve_toggle_cell=True,
         )
         text_pattern_group.setSizePolicy(
             QSizePolicy.Policy.Expanding,
@@ -452,6 +453,7 @@ class FilterPanel(QGroupBox):
         object_name: str,
         columns: int,
         toggle_object_name: str | None = None,
+        reserve_toggle_cell: bool = False,
     ) -> QGroupBox:
         group = QGroupBox(title)
         group.setObjectName(object_name)
@@ -481,11 +483,14 @@ class FilterPanel(QGroupBox):
             )
             self._pattern_checkboxes[key] = checkbox
             checkboxes.append(checkbox)
+            row, column = divmod(index, columns)
+            if reserve_toggle_cell and row == len(pattern_keys) // columns:
+                column += 1
             layout.addWidget(
                 checkbox,
-                index // columns,
-                index % columns,
-                Qt.AlignmentFlag.AlignLeft,
+                row,
+                column,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
             )
 
         column_width = max(checkbox.sizeHint().width() for checkbox in checkboxes)
@@ -506,7 +511,11 @@ class FilterPanel(QGroupBox):
             )
             layout.addWidget(
                 toggle_button,
-                (len(pattern_keys) + columns - 1) // columns,
+                (
+                    len(pattern_keys) // columns
+                    if reserve_toggle_cell
+                    else (len(pattern_keys) + columns - 1) // columns
+                ),
                 0,
                 Qt.AlignmentFlag.AlignLeft,
             )

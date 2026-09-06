@@ -104,7 +104,17 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIsNone(config.limit)
         self.assertEqual(
             config.enabled_patterns,
-            ("error_colon", "error", "failed", "fatal"),
+            (
+                "error_colon",
+                "error",
+                "exception",
+                "exception_generic",
+                "failed",
+                "failure",
+                "fatal",
+                "critical",
+                "refused",
+            ),
         )
         self.assertEqual(config.custom_patterns, ())
         self.assertEqual(config.regex_patterns, ())
@@ -1165,7 +1175,18 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(config.limit, 10)
         self.assertEqual(
             config.enabled_patterns,
-            ("error_colon", "error", "warning", "failed", "fatal"),
+            (
+                "error_colon",
+                "error",
+                "exception",
+                "exception_generic",
+                "warning",
+                "failed",
+                "failure",
+                "fatal",
+                "critical",
+                "refused",
+            ),
         )
         self.assertEqual(config.custom_patterns, ("timeout",))
         self.assertEqual(config.regex_patterns, ())
@@ -1192,6 +1213,9 @@ class LogreaderQtTests(unittest.TestCase):
             "pattern_uninitialized": "Uninitialized",
             "pattern_not_found": "Not found",
             "pattern_denied": "Denied",
+            "pattern_refused": "Refused",
+            "pattern_unauthorized": "Unauthorized",
+            "pattern_expired": "Expired",
             "pattern_http_4xx": "4xx",
             "pattern_http_5xx": "5xx",
         }
@@ -1413,26 +1437,77 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertGreater(http_layout.columnMinimumWidth(0), 0)
 
-        paired_rows = {
-            paired_layout.getItemPosition(
+        paired_positions = {
+            key: paired_layout.getItemPosition(
                 paired_layout.indexOf(
                     self.window.findChild(QCheckBox, f"pattern_{key}")
                 )
-            )[0]
+            )[:2]
             for key in PAIRED_PATTERN_KEYS
         }
         text_positions = {
-            text_layout.getItemPosition(
+            key: text_layout.getItemPosition(
                 text_layout.indexOf(
                     self.window.findChild(QCheckBox, f"pattern_{key}")
                 )
             )[:2]
             for key in TEXT_PATTERN_KEYS
         }
-        self.assertEqual(paired_rows, {0, 1, 2})
+        self.assertEqual(
+            paired_positions,
+            {
+                "error_colon": (0, 0),
+                "error": (0, 1),
+                "exception": (1, 0),
+                "exception_generic": (1, 1),
+                "warning": (2, 0),
+                "warning_generic": (2, 1),
+            },
+        )
         self.assertEqual(
             text_positions,
-            {(row, column) for row in range(3) for column in range(4)},
+            {
+                "failed": (0, 0),
+                "failure": (0, 1),
+                "fatal": (0, 2),
+                "critical": (0, 3),
+                "invalid": (1, 0),
+                "illegal": (1, 1),
+                "not_found": (1, 2),
+                "uninitialized": (1, 3),
+                "refused": (2, 0),
+                "denied": (2, 1),
+                "unauthorized": (2, 2),
+                "expired": (2, 3),
+                "aborted": (3, 1),
+                "terminated": (3, 2),
+                "timeout": (3, 3),
+            },
+        )
+        self.assertEqual(
+            text_layout.getItemPosition(
+                text_layout.indexOf(
+                    self.window.findChild(QPushButton, "toggleTextButton")
+                )
+            )[:2],
+            (3, 0),
+        )
+        self.window.resize(1280, 800)
+        self.window.show()
+        self.app.processEvents()
+        third_row_checkbox = self.window.findChild(
+            QCheckBox,
+            "pattern_refused",
+        )
+        fourth_row_checkbox = self.window.findChild(
+            QCheckBox,
+            "pattern_aborted",
+        )
+        self.assertEqual(
+            fourth_row_checkbox.geometry().top()
+            - third_row_checkbox.geometry().bottom()
+            - 1,
+            4,
         )
 
         http_positions = [
@@ -1848,12 +1923,12 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertRegex(summary, r"panic\s+1 matches")
         self.assertRegex(summary, r"code=\\d\+\s+1 matches")
         self.assertRegex(summary, r"\n\nTotal matches\s+4 matches")
-        self.assertEqual(summary.count(" matches\n"), 6)
+        self.assertEqual(summary.count(" matches\n"), 11)
         self.assertIn("ERROR: failed", output)
         self.assertIn("panic code=42", output)
         self.assertNotIn("FATAL ignored", output)
         self.assertIn(
-            "4 matches  •  5 active patterns",
+            "4 matches  •  10 active patterns",
             self.window.statusBar().currentMessage(),
         )
 

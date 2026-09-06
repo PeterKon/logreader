@@ -41,7 +41,7 @@ class DocumentSessionTests(unittest.TestCase):
         self.assertEqual(request.request_id, 1)
         self.assertEqual(request.source_path, Path("server.log"))
         self.assertIs(request.config, self.config)
-        self.assertEqual(request.pattern_count, 4)
+        self.assertEqual(request.pattern_count, len(self.config.search_patterns()))
 
         analysis = analyze_lines(
             self.loaded.lines,

@@ -14,13 +14,23 @@ from logreader.core import COMBINED_CATEGORY_KEY, analyze_lines
 
 class LogreaderConfigTests(unittest.TestCase):
 
-    def test_defaults_enable_the_four_primary_patterns_with_shared_context(self):
+    def test_defaults_enable_high_signal_patterns_with_shared_context(self):
         config = LogreaderConfig()
         patterns = config.search_patterns()
 
         self.assertEqual(
             [pattern.key for pattern in patterns],
-            ["error_colon", "error", "failed", "fatal"],
+            [
+                "error_colon",
+                "error",
+                "exception",
+                "exception_generic",
+                "failed",
+                "failure",
+                "fatal",
+                "critical",
+                "refused",
+            ],
         )
         self.assertEqual(patterns[0].context, 3)
         self.assertEqual(patterns[1].context, 3)
@@ -42,22 +52,25 @@ class LogreaderConfigTests(unittest.TestCase):
         expected_order = (
             "error_colon",
             "error",
-            "warning",
-            "warning_generic",
             "exception",
             "exception_generic",
+            "warning",
+            "warning_generic",
             "failed",
-            "fatal",
             "failure",
+            "fatal",
             "critical",
-            "illegal",
             "invalid",
+            "illegal",
+            "not_found",
+            "uninitialized",
+            "refused",
+            "denied",
+            "unauthorized",
+            "expired",
             "aborted",
             "terminated",
             "timeout",
-            "uninitialized",
-            "not_found",
-            "denied",
             "http_4xx",
             "http_5xx",
         )
@@ -70,7 +83,17 @@ class LogreaderConfigTests(unittest.TestCase):
         )
         self.assertEqual(
             DEFAULT_ENABLED_PATTERNS,
-            ("error_colon", "error", "failed", "fatal"),
+            (
+                "error_colon",
+                "error",
+                "exception",
+                "exception_generic",
+                "failed",
+                "failure",
+                "fatal",
+                "critical",
+                "refused",
+            ),
         )
         self.assertEqual(
             tuple(pattern.key for pattern in config.search_patterns()),
@@ -173,6 +196,9 @@ class LogreaderConfigTests(unittest.TestCase):
             "uninitialized",
             "not_found",
             "denied",
+            "refused",
+            "unauthorized",
+            "expired",
         )
         config = LogreaderConfig(enabled_patterns=keys)
         analysis = analyze_lines(
@@ -183,6 +209,9 @@ class LogreaderConfigTests(unittest.TestCase):
                 "Variable is uninitialized",
                 "Requested resource not found",
                 "Access denied by policy",
+                "Connection refused by upstream",
+                "Request unauthorized",
+                "Certificate expired",
             ],
             config.search_patterns(),
         )
@@ -229,7 +258,7 @@ class LogreaderConfigTests(unittest.TestCase):
 
         self.assertEqual(
             [pattern.key for pattern in patterns],
-            ["warning", "exception", "custom_1", "regex_1"],
+            ["exception", "warning", "custom_1", "regex_1"],
         )
         self.assertEqual(config.custom_patterns, ("timeout",))
         self.assertEqual(config.regex_patterns, (r"ERROR\s+[0-9]+",))

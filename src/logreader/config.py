@@ -34,13 +34,6 @@ PATTERN_PRESETS = (
         "ERROR",
         excluded_substrings=("error:",),
     ),
-    PatternPreset("warning", "warning:", "WARNING:"),
-    PatternPreset(
-        "warning_generic",
-        "warning",
-        "WARNING",
-        excluded_substrings=("warning:",),
-    ),
     PatternPreset("exception", "exception:", "EXCEPTION:"),
     PatternPreset(
         "exception_generic",
@@ -48,19 +41,29 @@ PATTERN_PRESETS = (
         "EXCEPTION",
         excluded_substrings=("exception:",),
     ),
+    PatternPreset("warning", "warning:", "WARNING:"),
+    PatternPreset(
+        "warning_generic",
+        "warning",
+        "WARNING",
+        excluded_substrings=("warning:",),
+    ),
     # Other text errors.
     PatternPreset("failed", "failed", "FAILED"),
-    PatternPreset("fatal", "fatal", "FATAL"),
     PatternPreset("failure", "failure", "FAILURE"),
+    PatternPreset("fatal", "fatal", "FATAL"),
     PatternPreset("critical", "critical", "CRITICAL"),
-    PatternPreset("illegal", "illegal", "ILLEGAL"),
     PatternPreset("invalid", "invalid", "INVALID"),
+    PatternPreset("illegal", "illegal", "ILLEGAL"),
+    PatternPreset("not_found", "not found", "NOT FOUND"),
+    PatternPreset("uninitialized", "uninitialized", "UNINITIALIZED"),
+    PatternPreset("refused", "refused", "REFUSED"),
+    PatternPreset("denied", "denied", "DENIED"),
+    PatternPreset("unauthorized", "unauthorized", "UNAUTHORIZED"),
+    PatternPreset("expired", "expired", "EXPIRED"),
     PatternPreset("aborted", "aborted", "ABORTED"),
     PatternPreset("terminated", "terminated", "TERMINATED"),
     PatternPreset("timeout", "timeout", "TIMEOUT"),
-    PatternPreset("uninitialized", "uninitialized", "UNINITIALIZED"),
-    PatternPreset("not_found", "not found", "NOT FOUND"),
-    PatternPreset("denied", "denied", "DENIED"),
     # Exact three-digit HTTP status-code ranges. Numeric lookarounds prevent
     # matches inside longer values such as 1404 or 5000.
     PatternPreset(
@@ -83,28 +86,41 @@ PATTERN_PRESETS_BY_KEY = {preset.key: preset for preset in PATTERN_PRESETS}
 PAIRED_PATTERN_KEYS = (
     "error_colon",
     "error",
-    "warning",
-    "warning_generic",
     "exception",
     "exception_generic",
+    "warning",
+    "warning_generic",
 )
 TEXT_PATTERN_KEYS = (
     "failed",
-    "fatal",
     "failure",
+    "fatal",
     "critical",
-    "illegal",
     "invalid",
+    "illegal",
+    "not_found",
+    "uninitialized",
+    "refused",
+    "denied",
+    "unauthorized",
+    "expired",
     "aborted",
     "terminated",
     "timeout",
-    "uninitialized",
-    "not_found",
-    "denied",
 )
 HTTP_STATUS_PATTERN_KEYS = ("http_4xx", "http_5xx")
 PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + HTTP_STATUS_PATTERN_KEYS
-DEFAULT_ENABLED_PATTERNS = ("error_colon", "error", "failed", "fatal")
+DEFAULT_ENABLED_PATTERNS = (
+    "error_colon",
+    "error",
+    "exception",
+    "exception_generic",
+    "failed",
+    "failure",
+    "fatal",
+    "critical",
+    "refused",
+)
 
 
 @dataclass(frozen=True, slots=True)
