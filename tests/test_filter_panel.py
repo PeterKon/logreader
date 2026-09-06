@@ -54,6 +54,7 @@ class FilterPanelTests(unittest.TestCase):
             QCheckBox,
             "separateEntriesCheck",
         ).setChecked(True)
+        self.panel.findChild(QCheckBox, "combinedViewCheck").setChecked(True)
 
         config = self.panel.build_config()
 
@@ -64,6 +65,7 @@ class FilterPanelTests(unittest.TestCase):
             ("error", "warning", "failed", "fatal"),
         )
         self.assertTrue(config.separate_entries)
+        self.assertTrue(config.combined_view)
 
     def test_global_and_category_toggles_are_scoped(self):
         paired_toggle = self.panel.findChild(QPushButton, "togglePairedButton")

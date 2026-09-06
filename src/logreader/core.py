@@ -12,6 +12,7 @@ from typing import Callable, Iterable, Mapping, Sequence
 
 
 MatchValidator = Callable[[str, int, int], bool]
+COMBINED_CATEGORY_KEY = "combined"
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,11 +76,20 @@ class LogExcerpt:
 
 @dataclass(frozen=True, slots=True)
 class CategoryResult:
-    """All excerpts and match metadata for one search pattern."""
+    """All excerpts and match metadata for one result category."""
 
-    pattern: SearchPattern
+    pattern: SearchPattern | None
     match_count: int
     excerpts: tuple[LogExcerpt, ...]
+    matched_line_count: int | None = None
+
+    @property
+    def limit_count(self) -> int:
+        """Return the number of matching lines used by display limits."""
+
+        if self.matched_line_count is None:
+            return self.match_count
+        return self.matched_line_count
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +98,8 @@ class AnalysisResult:
 
     line_count: int
     categories: Mapping[str, CategoryResult]
+    pattern_count: int = 0
+    category_match_counts: Mapping[str, int] | None = None
 
     def category(self, key: str) -> CategoryResult:
         return self.categories[key]
@@ -107,13 +119,16 @@ class _PatternMatchState:
 def analyze_lines(
     lines: Sequence[str] | Iterable[str],
     patterns: Iterable[SearchPattern],
+    *,
+    combined: bool = False,
 ) -> AnalysisResult:
     """Analyze lines using case-insensitive literals or case-sensitive regexes.
 
     Context ranges that overlap or touch are merged into a single excerpt.  The
     returned objects retain the original text, match spans, and one-based source
     line numbers. Patterns may validate individual regex candidates before they
-    become matches.
+    become matches. Combined analysis returns one detail category, retains the
+    individual pattern counts, and includes each matching source line once.
     """
 
     source_lines = tuple(lines)
@@ -126,12 +141,30 @@ def analyze_lines(
         states.append(_compile_pattern_state(pattern))
 
     _collect_pattern_matches(source_lines, states)
-    categories = {
-        state.pattern.key: _build_category_result(source_lines, state)
+    category_match_counts = {
+        state.pattern.key: len(state.match_spans_by_index)
         for state in states
     }
+    if combined:
+        categories = {
+            COMBINED_CATEGORY_KEY: _build_combined_category_result(
+                source_lines,
+                states,
+                match_count=sum(category_match_counts.values()),
+            )
+        }
+    else:
+        categories = {
+            state.pattern.key: _build_category_result(source_lines, state)
+            for state in states
+        }
 
-    return AnalysisResult(line_count=len(source_lines), categories=categories)
+    return AnalysisResult(
+        line_count=len(source_lines),
+        pattern_count=len(states),
+        categories=categories,
+        category_match_counts=category_match_counts,
+    )
 
 
 def _compile_pattern_state(pattern: SearchPattern) -> _PatternMatchState:
@@ -266,16 +299,68 @@ def _build_category_result(
 ) -> CategoryResult:
     pattern = state.pattern
     match_spans_by_index = state.match_spans_by_index
-    raw_only_match_indexes = state.raw_only_match_indexes
+    ranges = _build_excerpt_ranges(
+        len(source_lines),
+        match_spans_by_index,
+        state.raw_only_match_indexes,
+        pattern.context,
+    )
 
+    return _build_result_from_ranges(
+        source_lines,
+        match_spans_by_index,
+        ranges,
+        pattern=pattern,
+    )
+
+
+def _build_combined_category_result(
+    source_lines: tuple[str, ...],
+    states: list[_PatternMatchState],
+    *,
+    match_count: int,
+) -> CategoryResult:
+    combined_spans: dict[int, list[MatchSpan]] = {}
+    ranges = []
+
+    for state in states:
+        for line_index, spans in state.match_spans_by_index.items():
+            combined_spans.setdefault(line_index, []).extend(spans)
+        ranges.extend(
+            _build_excerpt_ranges(
+                len(source_lines),
+                state.match_spans_by_index,
+                state.raw_only_match_indexes,
+                state.pattern.context,
+            )
+        )
+
+    merged_spans = {
+        line_index: _merge_match_spans(spans)
+        for line_index, spans in combined_spans.items()
+    }
+    return _build_result_from_ranges(
+        source_lines,
+        merged_spans,
+        _merge_ranges(ranges),
+        match_count=match_count,
+    )
+
+
+def _build_excerpt_ranges(
+    line_count: int,
+    match_spans_by_index: Mapping[int, tuple[MatchSpan, ...]],
+    raw_only_match_indexes: set[int],
+    context: int,
+) -> list[tuple[int, int]]:
     ranges: list[tuple[int, int]] = []
     for match_index in match_spans_by_index:
-        start = max(0, match_index - pattern.context)
+        start = max(0, match_index - context)
         end = match_index
 
         for candidate in range(
             match_index + 1,
-            min(len(source_lines), match_index + pattern.context + 1),
+            min(line_count, match_index + context + 1),
         ):
             # Preserve the original reader's behavior: following context stops
             # before the next occurrence of the searched term.
@@ -286,12 +371,44 @@ def _build_category_result(
                 break
             end = candidate
 
-        if ranges and start <= ranges[-1][1] + 1:
-            previous_start, previous_end = ranges[-1]
-            ranges[-1] = (previous_start, max(previous_end, end))
-        else:
-            ranges.append((start, end))
+        ranges.append((start, end))
 
+    return _merge_ranges(ranges)
+
+
+def _merge_ranges(ranges: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
+    merged_ranges: list[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        if merged_ranges and start <= merged_ranges[-1][1] + 1:
+            previous_start, previous_end = merged_ranges[-1]
+            merged_ranges[-1] = (previous_start, max(previous_end, end))
+        else:
+            merged_ranges.append((start, end))
+    return merged_ranges
+
+
+def _merge_match_spans(spans: Iterable[MatchSpan]) -> tuple[MatchSpan, ...]:
+    merged_spans: list[MatchSpan] = []
+    for span in sorted(spans, key=lambda item: (item.start, item.end)):
+        if merged_spans and span.start <= merged_spans[-1].end:
+            previous = merged_spans[-1]
+            merged_spans[-1] = MatchSpan(
+                previous.start,
+                max(previous.end, span.end),
+            )
+        else:
+            merged_spans.append(span)
+    return tuple(merged_spans)
+
+
+def _build_result_from_ranges(
+    source_lines: tuple[str, ...],
+    match_spans_by_index: Mapping[int, tuple[MatchSpan, ...]],
+    ranges: Iterable[tuple[int, int]],
+    *,
+    pattern: SearchPattern | None = None,
+    match_count: int | None = None,
+) -> CategoryResult:
     excerpts = tuple(
         LogExcerpt(
             lines=tuple(
@@ -308,8 +425,13 @@ def _build_category_result(
 
     return CategoryResult(
         pattern=pattern,
-        match_count=len(match_spans_by_index),
+        match_count=(
+            len(match_spans_by_index)
+            if match_count is None
+            else match_count
+        ),
         excerpts=excerpts,
+        matched_line_count=len(match_spans_by_index),
     )
 
 

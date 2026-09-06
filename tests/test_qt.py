@@ -109,6 +109,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(config.custom_patterns, ())
         self.assertEqual(config.regex_patterns, ())
         self.assertFalse(config.separate_entries)
+        self.assertFalse(config.combined_view)
         self.assertEqual(
             self.window.findChild(QLabel, "limitLabel").text(),
             "Total errors limit",
@@ -120,6 +121,10 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(
             self.window.findChild(QCheckBox, "separateEntriesCheck").text(),
             "Line-separator",
+        )
+        self.assertEqual(
+            self.window.findChild(QCheckBox, "combinedViewCheck").text(),
+            "Combined view",
         )
         self.assertEqual(
             self.window.statusBar().currentMessage(),
@@ -1075,12 +1080,15 @@ class LogreaderQtTests(unittest.TestCase):
         )
 
         separation = self.window.findChild(QCheckBox, "separateEntriesCheck")
+        combined_view = self.window.findChild(QCheckBox, "combinedViewCheck")
         http_group = self.window.findChild(QGroupBox, "httpStatusGroup")
         http_options = self.window.findChild(QWidget, "httpOptionsColumn")
         self.assertIs(separation.parentWidget(), http_options)
+        self.assertIs(combined_view.parentWidget(), http_options)
         self.assertIs(http_group.parentWidget(), http_options)
         self.assertIs(http_options.layout().itemAt(0).widget(), http_group)
         self.assertIs(http_options.layout().itemAt(1).widget(), separation)
+        self.assertIs(http_options.layout().itemAt(2).widget(), combined_view)
 
         self.window.resize(1280, 800)
         self.window.show()
@@ -1088,6 +1096,10 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(separation.geometry().left(), http_group.geometry().left())
         self.assertEqual(
             separation.geometry().top() - http_group.geometry().bottom() - 1,
+            9,
+        )
+        self.assertEqual(
+            combined_view.geometry().top() - separation.geometry().bottom() - 1,
             9,
         )
         guide_widgets = (
@@ -1143,6 +1155,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.window.findChild(QSpinBox, "limitSpin").setValue(10)
         self.window.findChild(QCheckBox, "pattern_warning").setChecked(True)
         self.window.findChild(QCheckBox, "separateEntriesCheck").setChecked(True)
+        self.window.findChild(QCheckBox, "combinedViewCheck").setChecked(True)
         self.window.findChild(QLineEdit, "customPattern").setText(" timeout ")
         self.window.findChild(QPushButton, "customPatternAddButton").click()
 
@@ -1157,6 +1170,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(config.custom_patterns, ("timeout",))
         self.assertEqual(config.regex_patterns, ())
         self.assertTrue(config.separate_entries)
+        self.assertTrue(config.combined_view)
 
     def test_error_patterns_and_plain_variants_are_available_as_toggles(self):
         expected_labels = {
@@ -1556,11 +1570,11 @@ class LogreaderQtTests(unittest.TestCase):
             started = Event()
             release = Event()
 
-            def blocking_analysis(lines, patterns):
+            def blocking_analysis(lines, patterns, *, combined=False):
                 started.set()
                 if not release.wait(2):
                     raise TimeoutError("Test analysis was not released")
-                return analyze_lines(lines, patterns)
+                return analyze_lines(lines, patterns, combined=combined)
 
             completed = QSignalSpy(self.window.analysis_finished)
             analyze_button = self.window.findChild(
@@ -1792,6 +1806,49 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn("FAILED — 0 matches", output)
         self.assertNotIn("FATAL — 0 matches", output)
         self.assertNotIn("No matches.", output)
+
+    def test_combined_view_replaces_categories_and_includes_enabled_searches(self):
+        self.window.findChild(QSpinBox, "contextSpin").setValue(0)
+        self.window.findChild(QCheckBox, "combinedViewCheck").setChecked(True)
+        self.window.findChild(QCheckBox, "pattern_fatal").setChecked(False)
+        self.window.findChild(QLineEdit, "customPattern").setText("panic")
+        self.window.findChild(QPushButton, "customPatternAddButton").click()
+        self.window.findChild(QLineEdit, "regexPattern").setText(r"code=\d+")
+        self.window.findChild(QPushButton, "regexPatternAddButton").click()
+
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "combined.log"
+            log_path.write_text(
+                "ERROR: failed\npanic code=42\nFATAL ignored\n",
+                encoding="utf-8",
+            )
+
+            self.window.load_file(log_path)
+            self._click_analyze_and_wait()
+            output = self.window.findChild(
+                QPlainTextEdit,
+                "resultsView",
+            ).toPlainText()
+
+        self.assertEqual(
+            tuple(self.window._session.analysis.categories),
+            ("combined",),
+        )
+        summary = output.split(f"\n{RULE}\n", 1)[0]
+        self.assertRegex(summary, r"ERROR:\s+1 matches")
+        self.assertRegex(summary, r"ERROR\s+0 matches")
+        self.assertRegex(summary, r"FAILED\s+1 matches")
+        self.assertRegex(summary, r"panic\s+1 matches")
+        self.assertRegex(summary, r"code=\\d\+\s+1 matches")
+        self.assertRegex(summary, r"\n\nTotal matches\s+4 matches")
+        self.assertEqual(summary.count(" matches\n"), 6)
+        self.assertIn("ERROR: failed", output)
+        self.assertIn("panic code=42", output)
+        self.assertNotIn("FATAL ignored", output)
+        self.assertIn(
+            "4 matches  •  5 active patterns",
+            self.window.statusBar().currentMessage(),
+        )
 
     def test_results_view_respects_the_per_pattern_limit(self):
         self.window.findChild(QSpinBox, "contextSpin").setValue(0)

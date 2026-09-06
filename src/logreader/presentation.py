@@ -18,7 +18,7 @@ class CategoryPresentation:
 
     @property
     def is_limited(self) -> bool:
-        return self.shown_match_count < self.result.match_count
+        return self.shown_match_count < self.result.limit_count
 
     def heading(self, label: str) -> str:
         return f"{label} — {self.result.match_count} matches"
@@ -26,6 +26,11 @@ class CategoryPresentation:
     def limit_message(self) -> str | None:
         if not self.is_limited:
             return None
+        if self.result.limit_count != self.result.match_count:
+            return (
+                f"Showing {self.shown_match_count} of "
+                f"{self.result.limit_count} matching lines."
+            )
         return (
             f"Showing {self.shown_match_count} of "
             f"{self.result.match_count} matches."
@@ -61,8 +66,8 @@ def _limit_excerpts(
     result: CategoryResult,
     limit: int | None,
 ) -> tuple[tuple[LogExcerpt, ...], int]:
-    if limit is None or result.match_count <= limit:
-        return result.excerpts, result.match_count
+    if limit is None or result.limit_count <= limit:
+        return result.excerpts, result.limit_count
 
     visible_excerpts = []
     shown_match_count = 0

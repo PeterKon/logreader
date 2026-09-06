@@ -44,7 +44,12 @@ from PySide6.QtWidgets import (
 )
 
 from .config import APP_VERSION, LogreaderConfig
-from .core import AnalysisResult, CategoryResult, ResultLine
+from .core import (
+    COMBINED_CATEGORY_KEY,
+    AnalysisResult,
+    CategoryResult,
+    ResultLine,
+)
 from .presentation import CategoryPresentation, build_category_presentations
 from .theme import THEME_COLORS, configure_clear_button
 
@@ -850,12 +855,34 @@ def _iter_analysis_render_operations(
 
     yield f"{APP_VERSION}\n", "heading", True
     yield f"{source_name}\n\n", "muted", False
-    for key, result in analysis.categories.items():
+    if config.combined_view:
+        summary_counts = (
+            analysis.category_match_counts.items()
+            if analysis.category_match_counts is not None
+            else ()
+        )
+    else:
+        summary_counts = (
+            (key, result.match_count)
+            for key, result in analysis.categories.items()
+        )
+
+    for key, match_count in summary_counts:
         label = config.label_for(key)
         yield f"{label:<20}", "body", False
         yield (
-            f"{result.match_count:>8} matches\n",
-            _count_role(result),
+            f"{match_count:>8} matches\n",
+            _match_count_role(match_count),
+            False,
+        )
+
+    if config.combined_view:
+        combined_result = analysis.category(COMBINED_CATEGORY_KEY)
+        label = config.label_for(COMBINED_CATEGORY_KEY)
+        yield f"\n{label:<20}", "body", False
+        yield (
+            f"{combined_result.match_count:>8} matches\n",
+            _count_role(combined_result),
             False,
         )
 
@@ -913,7 +940,11 @@ def _iter_result_line_render_operations(
 
 
 def _count_role(result: CategoryResult) -> str:
-    return "hit_count" if result.match_count else "muted"
+    return _match_count_role(result.match_count)
+
+
+def _match_count_role(match_count: int) -> str:
+    return "hit_count" if match_count else "muted"
 
 
 def _insert(

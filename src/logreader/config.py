@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import __version__
-from .core import MatchValidator, SearchPattern
+from .core import COMBINED_CATEGORY_KEY, MatchValidator, SearchPattern
 from .matchers import is_http_status_candidate
 
 
 APP_VERSION = f"Logreader v{__version__}"
+COMBINED_CATEGORY_LABEL = "Total matches"
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +115,7 @@ class LogreaderConfig:
     custom_patterns: tuple[str, ...] = ()
     separate_entries: bool = False
     regex_patterns: tuple[str, ...] = ()
+    combined_view: bool = False
 
     def __post_init__(self) -> None:
         if self.context < 0:
@@ -184,6 +186,9 @@ class LogreaderConfig:
 
     def label_for(self, key: str) -> str:
         """Return a human-readable category label."""
+
+        if key == COMBINED_CATEGORY_KEY:
+            return COMBINED_CATEGORY_LABEL
 
         preset = self.preset(key)
         if preset is not None:

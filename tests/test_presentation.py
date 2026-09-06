@@ -1,11 +1,37 @@
 import unittest
 
 from logreader.config import LogreaderConfig
-from logreader.core import analyze_lines
+from logreader.core import COMBINED_CATEGORY_KEY, SearchPattern, analyze_lines
 from logreader.presentation import build_category_presentations
 
 
 class PresentationTests(unittest.TestCase):
+
+    def test_combined_limit_counts_matching_lines_once(self):
+        analysis = analyze_lines(
+            ["error failed", "neutral", "fatal"],
+            [
+                SearchPattern("error", "error"),
+                SearchPattern("failed", "failed"),
+                SearchPattern("fatal", "fatal"),
+            ],
+            combined=True,
+        )
+
+        presentation = build_category_presentations(analysis, limit=1)[0]
+
+        self.assertEqual(presentation.key, COMBINED_CATEGORY_KEY)
+        self.assertEqual(presentation.result.match_count, 3)
+        self.assertEqual(presentation.result.limit_count, 2)
+        self.assertEqual(presentation.shown_match_count, 1)
+        self.assertEqual(
+            tuple(line.number for line in presentation.excerpts[0].lines),
+            (1,),
+        )
+        self.assertEqual(
+            presentation.limit_message(),
+            "Showing 1 of 2 matching lines.",
+        )
 
     def test_zero_match_categories_are_kept_out_of_detailed_presentations(self):
         config = LogreaderConfig(enabled_patterns=("error_colon", "fatal"))

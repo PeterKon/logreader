@@ -518,6 +518,7 @@ class LogreaderWindow(QMainWindow):
             request.request_id,
             self._session.lines,
             patterns,
+            config.combined_view,
         )
         worker.signals.completed.connect(self._complete_analysis)
         worker.signals.failed.connect(self._fail_analysis)
@@ -589,7 +590,7 @@ class LogreaderWindow(QMainWindow):
         self._finish_analysis_request()
         self.statusBar().showMessage(
             f"{analysis.line_count:,} lines  •  {match_count:,} matches  •  "
-            f"{len(analysis.categories)} active patterns  •  "
+            f"{analysis.pattern_count} active patterns  •  "
             f"{self._session.encoding or 'unknown encoding'}"
         )
         self.analysis_finished.emit()

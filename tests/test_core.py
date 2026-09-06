@@ -1,9 +1,52 @@
 import unittest
 
-from logreader.core import SearchPattern, analyze_lines
+from logreader.core import COMBINED_CATEGORY_KEY, SearchPattern, analyze_lines
 
 
 class AnalyzeLinesTests(unittest.TestCase):
+
+    def test_combined_analysis_builds_only_one_line_counted_category(self):
+        result = analyze_lines(
+            [
+                "ERROR: failed and error again",
+                "context",
+                "FATAL shutdown",
+            ],
+            [
+                SearchPattern("error", "error", context=1),
+                SearchPattern("error_colon", "error:", context=1),
+                SearchPattern("failed", "failed", context=1),
+                SearchPattern("fatal", "fatal", context=1),
+            ],
+            combined=True,
+        )
+
+        self.assertEqual(tuple(result.categories), (COMBINED_CATEGORY_KEY,))
+        self.assertEqual(result.pattern_count, 4)
+        self.assertEqual(
+            result.category_match_counts,
+            {
+                "error": 1,
+                "error_colon": 1,
+                "failed": 1,
+                "fatal": 1,
+            },
+        )
+        combined = result.category(COMBINED_CATEGORY_KEY)
+        self.assertIsNone(combined.pattern)
+        self.assertEqual(combined.match_count, 4)
+        self.assertEqual(combined.limit_count, 2)
+        self.assertEqual(
+            tuple(line.number for line in combined.excerpts[0].lines),
+            (1, 2, 3),
+        )
+        self.assertEqual(
+            tuple(
+                (span.start, span.end)
+                for span in combined.excerpts[0].lines[0].match_spans
+            ),
+            ((0, 6), (7, 13), (18, 23)),
+        )
 
     def test_search_is_case_insensitive_and_supports_exclusions(self):
         lines = [

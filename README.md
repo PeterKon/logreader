@@ -28,6 +28,10 @@ You can also use `python -m logreader`.
 
 Open a log file, choose filters, then press **Analyze**.
 
+Enable **Combined view** to merge every enabled filter into one result category.
+Individual filter counts remain in the summary. The results limit counts each
+matching source line once, even when several filters match it.
+
 Logreader will read UTF-8 and UTF-16/32-BOM files, with Windows-1252 as fallback.
 
 ## Tests

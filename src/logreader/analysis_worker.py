@@ -24,18 +24,24 @@ class AnalysisWorker(QRunnable):
         request_id: int,
         lines: tuple[str, ...],
         patterns: tuple[SearchPattern, ...],
+        combined: bool = False,
     ) -> None:
         super().__init__()
         self.request_id = request_id
         self.lines = lines
         self.patterns = patterns
+        self.combined = combined
         self.signals = AnalysisWorkerSignals()
 
     @Slot()
     def run(self) -> None:
         started = perf_counter()
         try:
-            analysis = analyze_lines(self.lines, self.patterns)
+            analysis = analyze_lines(
+                self.lines,
+                self.patterns,
+                combined=self.combined,
+            )
         except Exception as error:  # Keep worker failures from stranding the UI.
             self.signals.failed.emit(self.request_id, str(error))
             return

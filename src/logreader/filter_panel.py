@@ -253,6 +253,13 @@ class FilterPanel(QGroupBox):
         self._separate_entries.setToolTip(
             "Draw a horizontal rule between non-contiguous result excerpts."
         )
+        self._combined_view = VisibleCheckBox("Combined view")
+        self._combined_view.setObjectName("combinedViewCheck")
+        self._combined_view.setProperty("islandIndicator", True)
+        self._combined_view.setChecked(False)
+        self._combined_view.setToolTip(
+            "Show all enabled patterns in one result category."
+        )
         top_layout.addStretch(1)
         layout.addWidget(top_controls)
 
@@ -321,6 +328,11 @@ class FilterPanel(QGroupBox):
         http_options_layout.addWidget(http_status_group)
         http_options_layout.addWidget(
             self._separate_entries,
+            0,
+            Qt.AlignmentFlag.AlignLeft,
+        )
+        http_options_layout.addWidget(
+            self._combined_view,
             0,
             Qt.AlignmentFlag.AlignLeft,
         )
@@ -532,6 +544,7 @@ class FilterPanel(QGroupBox):
             custom_patterns=self._list_values(self._custom_pattern_list),
             regex_patterns=self._list_values(self._regex_pattern_list),
             separate_entries=self._separate_entries.isChecked(),
+            combined_view=self._combined_view.isChecked(),
         )
 
     @staticmethod

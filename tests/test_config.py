@@ -1,6 +1,7 @@
 import unittest
 
 from logreader.config import (
+    COMBINED_CATEGORY_LABEL,
     DEFAULT_ENABLED_PATTERNS,
     HTTP_STATUS_PATTERN_KEYS,
     PAIRED_PATTERN_KEYS,
@@ -8,7 +9,7 @@ from logreader.config import (
     TEXT_PATTERN_KEYS,
     LogreaderConfig,
 )
-from logreader.core import analyze_lines
+from logreader.core import COMBINED_CATEGORY_KEY, analyze_lines
 
 
 class LogreaderConfigTests(unittest.TestCase):
@@ -25,6 +26,16 @@ class LogreaderConfigTests(unittest.TestCase):
         self.assertEqual(patterns[1].context, 3)
         self.assertEqual(patterns[1].excluded_substrings, ("error:",))
         self.assertEqual(config.regex_patterns, ())
+        self.assertFalse(config.combined_view)
+
+    def test_combined_view_has_a_single_category_label(self):
+        config = LogreaderConfig(combined_view=True)
+
+        self.assertTrue(config.combined_view)
+        self.assertEqual(
+            config.label_for(COMBINED_CATEGORY_KEY),
+            COMBINED_CATEGORY_LABEL,
+        )
 
     def test_patterns_have_a_stable_logical_display_order(self):
         expected_order = (
