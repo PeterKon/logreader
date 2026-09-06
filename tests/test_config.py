@@ -26,7 +26,8 @@ class LogreaderConfigTests(unittest.TestCase):
         self.assertEqual(patterns[1].context, 3)
         self.assertEqual(patterns[1].excluded_substrings, ("error:",))
         self.assertEqual(config.regex_patterns, ())
-        self.assertFalse(config.combined_view)
+        self.assertTrue(config.separate_entries)
+        self.assertTrue(config.combined_view)
 
     def test_combined_view_has_a_single_category_label(self):
         config = LogreaderConfig(combined_view=True)
@@ -56,6 +57,7 @@ class LogreaderConfigTests(unittest.TestCase):
             "timeout",
             "uninitialized",
             "not_found",
+            "denied",
             "http_4xx",
             "http_5xx",
         )
@@ -164,7 +166,14 @@ class LogreaderConfigTests(unittest.TestCase):
         self.assertEqual(analysis.category("http_5xx").match_count, 6)
 
     def test_new_operational_state_patterns_are_searchable(self):
-        keys = ("aborted", "terminated", "timeout", "uninitialized", "not_found")
+        keys = (
+            "aborted",
+            "terminated",
+            "timeout",
+            "uninitialized",
+            "not_found",
+            "denied",
+        )
         config = LogreaderConfig(enabled_patterns=keys)
         analysis = analyze_lines(
             [
@@ -173,6 +182,7 @@ class LogreaderConfigTests(unittest.TestCase):
                 "Connection timeout",
                 "Variable is uninitialized",
                 "Requested resource not found",
+                "Access denied by policy",
             ],
             config.search_patterns(),
         )

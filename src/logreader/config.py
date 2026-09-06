@@ -60,6 +60,7 @@ PATTERN_PRESETS = (
     PatternPreset("timeout", "timeout", "TIMEOUT"),
     PatternPreset("uninitialized", "uninitialized", "UNINITIALIZED"),
     PatternPreset("not_found", "not found", "NOT FOUND"),
+    PatternPreset("denied", "denied", "DENIED"),
     # Exact three-digit HTTP status-code ranges. Numeric lookarounds prevent
     # matches inside longer values such as 1404 or 5000.
     PatternPreset(
@@ -99,6 +100,7 @@ TEXT_PATTERN_KEYS = (
     "timeout",
     "uninitialized",
     "not_found",
+    "denied",
 )
 HTTP_STATUS_PATTERN_KEYS = ("http_4xx", "http_5xx")
 PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + HTTP_STATUS_PATTERN_KEYS
@@ -113,9 +115,9 @@ class LogreaderConfig:
     limit: int | None = None
     enabled_patterns: tuple[str, ...] = DEFAULT_ENABLED_PATTERNS
     custom_patterns: tuple[str, ...] = ()
-    separate_entries: bool = False
+    separate_entries: bool = True
     regex_patterns: tuple[str, ...] = ()
-    combined_view: bool = False
+    combined_view: bool = True
 
     def __post_init__(self) -> None:
         if self.context < 0:

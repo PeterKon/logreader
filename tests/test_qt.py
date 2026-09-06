@@ -108,8 +108,8 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(config.custom_patterns, ())
         self.assertEqual(config.regex_patterns, ())
-        self.assertFalse(config.separate_entries)
-        self.assertFalse(config.combined_view)
+        self.assertTrue(config.separate_entries)
+        self.assertTrue(config.combined_view)
         self.assertEqual(
             self.window.findChild(QLabel, "limitLabel").text(),
             "Total errors limit",
@@ -1191,6 +1191,7 @@ class LogreaderQtTests(unittest.TestCase):
             "pattern_timeout": "Timeout",
             "pattern_uninitialized": "Uninitialized",
             "pattern_not_found": "Not found",
+            "pattern_denied": "Denied",
             "pattern_http_4xx": "4xx",
             "pattern_http_5xx": "5xx",
         }
@@ -1420,16 +1421,19 @@ class LogreaderQtTests(unittest.TestCase):
             )[0]
             for key in PAIRED_PATTERN_KEYS
         }
-        text_rows = {
+        text_positions = {
             text_layout.getItemPosition(
                 text_layout.indexOf(
                     self.window.findChild(QCheckBox, f"pattern_{key}")
                 )
-            )[0]
+            )[:2]
             for key in TEXT_PATTERN_KEYS
         }
         self.assertEqual(paired_rows, {0, 1, 2})
-        self.assertEqual(text_rows, {0, 1, 2})
+        self.assertEqual(
+            text_positions,
+            {(row, column) for row in range(3) for column in range(4)},
+        )
 
         http_positions = [
             http_layout.getItemPosition(
@@ -1656,6 +1660,7 @@ class LogreaderQtTests(unittest.TestCase):
             analysis = analyze_lines(
                 self.window._session.lines,
                 config.search_patterns(),
+                combined=config.combined_view,
             )
             request = self.window._session.begin_analysis(
                 config,
@@ -1692,6 +1697,7 @@ class LogreaderQtTests(unittest.TestCase):
         analysis = analyze_lines(
             ("before", "ERROR: boom", "after"),
             config.search_patterns(),
+            combined=config.combined_view,
         )
         results_view = self.window.findChild(ResultsView, "resultsPanel")
         results = self.window.findChild(QPlainTextEdit, "resultsView")
@@ -1741,6 +1747,7 @@ class LogreaderQtTests(unittest.TestCase):
         analysis = analyze_lines(
             ("before", "ERROR: boom", "after"),
             config.search_patterns(),
+            combined=config.combined_view,
         )
         results_view = self.window.findChild(ResultsView, "resultsPanel")
         results = results_view.editor
@@ -1874,6 +1881,10 @@ class LogreaderQtTests(unittest.TestCase):
 
     def test_entry_separation_is_optional_and_uses_a_short_arrow(self):
         self.window.findChild(QSpinBox, "contextSpin").setValue(0)
+        self.window.findChild(
+            QCheckBox,
+            "separateEntriesCheck",
+        ).setChecked(False)
 
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "separated.log"

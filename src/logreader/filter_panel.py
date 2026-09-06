@@ -249,14 +249,14 @@ class FilterPanel(QGroupBox):
         self._separate_entries = VisibleCheckBox("Line-separator")
         self._separate_entries.setObjectName("separateEntriesCheck")
         self._separate_entries.setProperty("islandIndicator", True)
-        self._separate_entries.setChecked(False)
+        self._separate_entries.setChecked(True)
         self._separate_entries.setToolTip(
             "Draw a horizontal rule between non-contiguous result excerpts."
         )
         self._combined_view = VisibleCheckBox("Combined view")
         self._combined_view.setObjectName("combinedViewCheck")
         self._combined_view.setProperty("islandIndicator", True)
-        self._combined_view.setChecked(False)
+        self._combined_view.setChecked(True)
         self._combined_view.setToolTip(
             "Show all enabled patterns in one result category."
         )
