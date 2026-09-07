@@ -1454,6 +1454,40 @@ class LogreaderQtTests(unittest.TestCase):
         add_button.click()
         self.assertEqual(pattern_list.count(), 1)
 
+    def test_plain_text_match_case_is_per_item_and_controls_analysis(self):
+        input_box = self.window.findChild(QLineEdit, "customPattern")
+        pattern_list = self.window.findChild(QListWidget, "customPatternList")
+        for _ in range(2):
+            input_box.setText("Error")
+            input_box.returnPressed.emit()
+        rows = [pattern_list.itemWidget(pattern_list.item(i)) for i in range(2)]
+        buttons = [row.findChild(QPushButton, "customPatternMatchCaseButton") for row in rows]
+        self.assertTrue(all(button.isEnabled() and not button.isChecked() for button in buttons))
+        buttons[0].click()
+        self.assertEqual(self.window.build_config().custom_pattern_match_case, (True, False))
+        self.window.show()
+        self.app.processEvents()
+        for row, button in zip(rows, buttons):
+            remove = row.findChild(QPushButton, "customPatternRemoveButton")
+            self.assertLess(button.geometry().right(), remove.geometry().left())
+            self.assertTrue(row.rect().contains(button.geometry()))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "case.log"
+            path.write_text("Error\nerror\nERROR\n", encoding="utf-8")
+            self.window.load_file(path)
+            self._click_analyze_and_wait()
+            counts = self.window._session.analysis.category_match_counts
+            self.assertEqual((counts["custom_1"], counts["custom_2"]), (1, 3))
+            buttons[0].click()
+            self._click_analyze_and_wait()
+            self.assertEqual(self.window._session.analysis.category_match_counts["custom_1"], 3)
+        buttons[1].click()
+        rows[0].findChild(QPushButton, "customPatternRemoveButton").click()
+        self.assertEqual(self.window.build_config().custom_pattern_match_case, (True,))
+        input_box.setText("New")
+        input_box.returnPressed.emit()
+        self.assertEqual(self.window.build_config().custom_pattern_match_case, (True, False))
+
     def test_regex_patterns_use_the_same_managed_list_ui(self):
         input_box = self.window.findChild(QLineEdit, "regexPattern")
         add_button = self.window.findChild(

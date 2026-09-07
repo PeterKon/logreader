@@ -14,6 +14,24 @@ from logreader.core import COMBINED_CATEGORY_KEY, analyze_lines
 
 class LogreaderConfigTests(unittest.TestCase):
 
+    def test_custom_match_case_defaults_and_validation(self):
+        config = LogreaderConfig(custom_patterns=("Error", "Error"))
+        self.assertEqual(config.custom_pattern_match_case, (False, False))
+        config = LogreaderConfig(
+            enabled_patterns=(), custom_patterns=("Error", "Error"),
+            custom_pattern_match_case=(True, False),
+        )
+        self.assertEqual(
+            tuple(pattern.case_sensitive for pattern in config.search_patterns()),
+            (True, False),
+        )
+        for flags in ((True,), (True, False, True), (True, "false")):
+            with self.subTest(flags=flags), self.assertRaises(ValueError):
+                LogreaderConfig(
+                    custom_patterns=("Error", "Error"),
+                    custom_pattern_match_case=flags,
+                )
+
     def test_defaults_enable_high_signal_patterns_with_shared_context(self):
         config = LogreaderConfig()
         patterns = config.search_patterns()

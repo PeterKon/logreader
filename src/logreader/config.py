@@ -134,6 +134,7 @@ class LogreaderConfig:
     separate_entries: bool = True
     regex_patterns: tuple[str, ...] = ()
     combined_view: bool = True
+    custom_pattern_match_case: tuple[bool, ...] = ()
 
     def __post_init__(self) -> None:
         if self.context < 0:
@@ -150,6 +151,13 @@ class LogreaderConfig:
         custom_patterns = tuple(pattern.strip() for pattern in self.custom_patterns)
         if any(not pattern for pattern in custom_patterns):
             raise ValueError("Custom patterns cannot be empty")
+        match_case = tuple(self.custom_pattern_match_case)
+        if not match_case:
+            match_case = (False,) * len(custom_patterns)
+        if len(match_case) != len(custom_patterns) or any(
+            not isinstance(value, bool) for value in match_case
+        ):
+            raise ValueError("Match case must provide one boolean per custom pattern")
 
         regex_patterns = tuple(pattern.strip() for pattern in self.regex_patterns)
         if any(not pattern for pattern in regex_patterns):
@@ -157,6 +165,7 @@ class LogreaderConfig:
 
         object.__setattr__(self, "enabled_patterns", enabled_patterns)
         object.__setattr__(self, "custom_patterns", custom_patterns)
+        object.__setattr__(self, "custom_pattern_match_case", match_case)
         object.__setattr__(self, "regex_patterns", regex_patterns)
 
     def search_patterns(self) -> tuple[SearchPattern, ...]:
@@ -183,6 +192,7 @@ class LogreaderConfig:
                 key=f"custom_{index}",
                 needle=needle,
                 context=self.context,
+                case_sensitive=self.custom_pattern_match_case[index - 1],
             )
             for index, needle in enumerate(self.custom_patterns, start=1)
         )

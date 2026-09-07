@@ -17,7 +17,7 @@ COMBINED_CATEGORY_KEY = "combined"
 
 @dataclass(frozen=True, slots=True)
 class SearchPattern:
-    """Configuration for one case-insensitive literal or case-sensitive regex."""
+    """Configuration for a literal (optionally matching case) or regex search."""
 
     key: str
     needle: str
@@ -25,6 +25,7 @@ class SearchPattern:
     excluded_substrings: tuple[str, ...] = ()
     is_regex: bool = False
     match_validator: MatchValidator | None = None
+    case_sensitive: bool = False
 
     def __post_init__(self) -> None:
         if not self.key:
@@ -170,7 +171,7 @@ def analyze_lines(
 def _compile_pattern_state(pattern: SearchPattern) -> _PatternMatchState:
     expression = re.compile(
         pattern.needle if pattern.is_regex else re.escape(pattern.needle),
-        0 if pattern.is_regex else re.IGNORECASE,
+        0 if pattern.is_regex or pattern.case_sensitive else re.IGNORECASE,
     )
     return _PatternMatchState(
         pattern=pattern,

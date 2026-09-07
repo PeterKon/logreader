@@ -40,6 +40,48 @@ from .theme import THEME_COLORS, configure_clear_button
 
 
 FILTER_ALIGNMENT_EXTRA_WIDTH = 115
+MATCH_CASE_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+class MatchCaseButton(QPushButton):
+    """Clickable case toggle with a crossed-out appearance while off."""
+
+    def __init__(self, pattern: str) -> None:
+        super().__init__("Match case")
+        self.setObjectName("customPatternMatchCaseButton")
+        self.setCheckable(True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAccessibleName(f"Match case for {pattern}")
+        self.setFixedSize(self.fontMetrics().horizontalAdvance(self.text()) + 12, 16)
+        self.setStyleSheet(
+            "QPushButton { background: rgba(128, 128, 128, 12);"
+            " color: rgba(170, 170, 170, 115);"
+            " border: 1px solid rgba(150, 150, 150, 55);"
+            " border-radius: 3px; padding: 0 4px; min-height: 0; }"
+            f"QPushButton:!checked:hover {{ background: {THEME_COLORS['ui_button_hover']};"
+            " border-color: #a0a0a0; color: #dddddd; }"
+            f"QPushButton:checked {{ background: {THEME_COLORS['ui_primary']};"
+            f" border-color: {THEME_COLORS['ui_accent']}; color: #ffffff; }}"
+            f"QPushButton:checked:hover {{ background: {THEME_COLORS['ui_primary_hover']}; }}"
+        )
+        self.toggled.connect(self._update_tooltip)
+        self._update_tooltip(False)
+
+    def _update_tooltip(self, checked: bool) -> None:
+        self.setToolTip(
+            "Match case: on — click to ignore capitalization"
+            if checked else "Match case: off — click to match capitalization exactly"
+        )
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API name
+        super().paintEvent(event)
+        if not self.isChecked():
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QPen(QColor(160, 160, 160, 90), 1.0))
+            bounds = self.rect().adjusted(3, 3, -3, -3)
+            painter.drawLine(bounds.topLeft(), bounds.bottomRight())
+            painter.drawLine(bounds.bottomLeft(), bounds.topRight())
 
 
 class VisibleCheckBox(QCheckBox):
@@ -425,6 +467,13 @@ class FilterPanel(QGroupBox):
         pattern_list.setStyleSheet(
             "QListWidget::item { margin: 0; padding: 0; }"
         )
+        if list_object_name == "customPatternList":
+            pattern_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+            pattern_list.setStyleSheet(
+                "QListWidget::item { margin: 0; padding: 0; }"
+                "QListWidget::item:hover, QListWidget::item:selected {"
+                " background: transparent; }"
+            )
         pattern_list.setFixedHeight(64)
         layout.addWidget(pattern_list)
         return group, input_box, pattern_list
@@ -551,6 +600,10 @@ class FilterPanel(QGroupBox):
                 if self._pattern_checkboxes[key].isChecked()
             ),
             custom_patterns=self._list_values(self._custom_pattern_list),
+            custom_pattern_match_case=tuple(
+                bool(self._custom_pattern_list.item(index).data(MATCH_CASE_ROLE))
+                for index in range(self._custom_pattern_list.count())
+            ),
             regex_patterns=self._list_values(self._regex_pattern_list),
             separate_entries=self._separate_entries.isChecked(),
             combined_view=self._combined_view.isChecked(),
@@ -613,6 +666,16 @@ class FilterPanel(QGroupBox):
         item_label_font.setWeight(QFont.Weight.Normal)
         item_label.setFont(item_label_font)
         item_layout.addWidget(item_label, 1)
+
+        if pattern_list is self._custom_pattern_list:
+            item_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            item_label.setToolTip(pattern)
+            item.setData(MATCH_CASE_ROLE, False)
+            match_case_button = MatchCaseButton(pattern)
+            match_case_button.toggled.connect(
+                lambda checked, list_item=item: list_item.setData(MATCH_CASE_ROLE, checked)
+            )
+            item_layout.addWidget(match_case_button)
 
         remove_button = QPushButton("-")
         remove_button.setObjectName(remove_button_object_name)

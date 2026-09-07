@@ -5,6 +5,27 @@ from logreader.core import COMBINED_CATEGORY_KEY, SearchPattern, analyze_lines
 
 class AnalyzeLinesTests(unittest.TestCase):
 
+    def test_literal_match_case_preserves_exact_spans_in_both_search_paths(self):
+        exact = SearchPattern("exact", "Error[1]", case_sensitive=True)
+        folded = SearchPattern("folded", "Error[1]")
+        for patterns in ((exact,), (exact, folded)):
+            for combined in (False, True):
+                with self.subTest(patterns=patterns, combined=combined):
+                    result = analyze_lines(
+                        ["error[1]", "ERROR[1]", "Error[1] error[1]", "Error1"],
+                        patterns, combined=combined,
+                    )
+                    self.assertEqual(result.category_match_counts["exact"], 1)
+                    if len(patterns) > 1:
+                        self.assertEqual(result.category_match_counts["folded"], 3)
+                    if not combined:
+                        line = result.category("exact").excerpts[0].lines[0]
+                        self.assertEqual(line.number, 3)
+                        self.assertEqual(
+                            [(span.start, span.end) for span in line.match_spans],
+                            [(0, 8)],
+                        )
+
     def test_combined_analysis_builds_only_one_line_counted_category(self):
         result = analyze_lines(
             [
