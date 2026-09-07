@@ -11,6 +11,7 @@ from PySide6.QtCore import (
     QElapsedTimer,
     QObject,
     QSignalBlocker,
+    QSize,
     QTimer,
     Qt,
     Signal,
@@ -51,7 +52,7 @@ from .core import (
     ResultLine,
 )
 from .presentation import CategoryPresentation, build_category_presentations
-from .theme import THEME_COLORS, configure_clear_button
+from .theme import THEME_COLORS, configure_clear_button, vertical_resize_icon
 
 
 RESULT_COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
@@ -357,13 +358,17 @@ class ResultsView(QWidget):
         header_layout.setContentsMargins(8, 5, 8, 5)
         header_layout.setSpacing(8)
 
-        self._maximize_button = QPushButton("▲")
+        self._expand_icon = vertical_resize_icon()
+        self._contract_icon = vertical_resize_icon(contract=True)
+        self._maximize_button = QPushButton()
+        self._maximize_button.setIcon(self._expand_icon)
+        self._maximize_button.setIconSize(QSize(18, 18))
         self._maximize_button.setObjectName("maximizeResultsButton")
         self._maximize_button.setAccessibleName("Maximize results")
         self._maximize_button.setFixedSize(38, 26)
         self._maximize_button.setStyleSheet(
             "QPushButton#maximizeResultsButton {"
-            " font-size: 14px; font-weight: 700; padding: 0;"
+            " padding: 0;"
             "}"
             "QToolTip { font-weight: 400; }"
         )
@@ -536,11 +541,11 @@ class ResultsView(QWidget):
 
         self._maximized = maximized
         if maximized:
-            self._maximize_button.setText("▼")
+            self._maximize_button.setIcon(self._contract_icon)
             self._maximize_button.setAccessibleName("Restore layout")
             self._maximize_button.setToolTip("Show menu and filters")
         else:
-            self._maximize_button.setText("▲")
+            self._maximize_button.setIcon(self._expand_icon)
             self._maximize_button.setAccessibleName("Maximize results")
             self._maximize_button.setToolTip("Expand results window")
         self.maximized_changed.emit(maximized)

@@ -41,6 +41,32 @@ THEME_COLORS = {
 }
 
 
+def vertical_resize_icon(*, contract: bool = False) -> QIcon:
+    """Draw opposing vertical arrows, with crisp variants for high-DPI screens."""
+
+    icon = QIcon()
+    for scale in (1, 2, 3):
+        pixmap = QPixmap(18 * scale, 18 * scale)
+        pixmap.setDevicePixelRatio(scale)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor(THEME_COLORS["ui_text"]), 1.5)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        # Expansion arrows share a continuous shaft; contraction arrows retain
+        # a gap between their inward-facing heads so the direction stays clear.
+        arrows = ((7, 1.5), (11, 16.5)) if contract else ((1.5, 9), (16.5, 9))
+        for tip, tail in arrows:
+            wing = tip + (2.5 if tail > tip else -2.5)
+            painter.drawLine(QPointF(9, tail), QPointF(9, tip))
+            painter.drawLine(QPointF(6.5, wing), QPointF(9, tip))
+            painter.drawLine(QPointF(11.5, wing), QPointF(9, tip))
+        painter.end()
+        icon.addPixmap(pixmap)
+    return icon
+
+
 def configure_clear_button(line_edit: QLineEdit) -> None:
     """Enable a line edit's clear action with a high-contrast white glyph."""
 
