@@ -9,8 +9,11 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtCore import QPoint, QPointF, Qt
-    from PySide6.QtGui import QColor, QPalette, QTextCursor, QWheelEvent
+    from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+    from PySide6.QtGui import (
+        QColor, QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent,
+        QPalette, QTextCursor, QWheelEvent,
+    )
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import (
         QApplication,
@@ -94,6 +97,128 @@ class LogreaderQtTests(unittest.TestCase):
                 return
             QTest.qWait(10)
         self.fail("Analysis did not finish")
+
+    def _drop_urls(self, target, urls):
+        mime = QMimeData()
+        mime.setUrls(urls)
+        events = [
+            event_type(
+                position, Qt.DropAction.CopyAction, mime,
+                Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+            )
+            for event_type, position in (
+                (QDragEnterEvent, QPoint(5, 5)),
+                (QDragMoveEvent, QPoint(5, 5)),
+                (QDropEvent, QPointF(5, 5)),
+            )
+        ]
+        for event in events:
+            self.app.sendEvent(target, event)
+        return events
+
+    def test_file_drop_anywhere_clears_results_and_waits_for_analyze(self):
+        self.window.show()
+        self.app.processEvents()
+        results = self.window.findChild(QPlainTextEdit, "resultsView")
+        search = self.window.findChild(QLineEdit, "resultsSearch")
+        custom = self.window.findChild(QLineEdit, "customPattern")
+        custom.setText("keep this filter")
+        targets = (
+            self.window, self.window.centralWidget(),
+            self.window._open_button, self.window._filter_panel,
+            custom, search, results.viewport(), self.window.statusBar(),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            old_path = Path(directory) / "old.log"
+            new_path = Path(directory) / "new.log"
+            old_path.write_text("ERROR: old\n", encoding="utf-8")
+            new_path.write_text("ERROR: new\n", encoding="utf-8")
+            for target in targets:
+                with self.subTest(target=target.objectName()):
+                    self.window.load_file(old_path)
+                    self._click_analyze_and_wait()
+                    self.assertIn("ERROR: old", results.toPlainText())
+                    search.setText("old")
+                    events = self._drop_urls(target, [QUrl.fromLocalFile(str(new_path))])
+                    self.assertTrue(all(event.isAccepted() for event in events))
+                    self.assertEqual(self.window._session.path, new_path)
+                    self.assertIsNone(self.window._session.analysis)
+                    self.assertEqual(results.toPlainText(), "")
+                    self.assertEqual(search.text(), "")
+                    self.assertEqual(custom.text(), "keep this filter")
+                    self.assertTrue(self.window._analyze_button.isEnabled())
+                    self._click_analyze_and_wait()
+                    self.assertIn("ERROR: new", results.toPlainText())
+
+    def test_invalid_drops_preserve_loaded_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "server.log"
+            path.write_text("ERROR: original\n", encoding="utf-8")
+            self.window.load_file(path)
+            self._click_analyze_and_wait()
+            results = self.window.findChild(QPlainTextEdit, "resultsView")
+            original = results.toPlainText()
+            local_url = QUrl.fromLocalFile(str(path))
+            for urls in (
+                [], [QUrl("https://example.com/server.log")],
+                [QUrl.fromLocalFile(directory)], [local_url, local_url],
+                [QUrl.fromLocalFile(str(path.with_name("missing.log")))],
+            ):
+                with self.subTest(urls=urls):
+                    events = self._drop_urls(self.window, urls)
+                    self.assertFalse(any(event.isAccepted() for event in events))
+                    self.assertEqual(self.window._session.path, path)
+                    self.assertEqual(results.toPlainText(), original)
+
+    def test_drop_overlay_tracks_hover_leave_resize_and_drop(self):
+        self.window.show()
+        self.app.processEvents()
+        overlay = self.window.findChild(QLabel, "dropOverlay")
+        self.assertFalse(overlay.isVisible())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hover.log"
+            path.write_text("ERROR: hover\n", encoding="utf-8")
+            mime = QMimeData()
+            mime.setUrls([QUrl.fromLocalFile(str(path))])
+
+            def enter(target):
+                event = QDragEnterEvent(
+                    QPoint(5, 5), Qt.DropAction.CopyAction, mime,
+                    Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                )
+                self.app.sendEvent(target, event)
+                self.assertTrue(event.isAccepted())
+
+            enter(self.window)
+            self.assertTrue(overlay.isVisible())
+            self.assertEqual(overlay.text(), "Drop file")
+            self.assertIsNone(self.window._session.path)
+            self.assertTrue(overlay.testAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents,
+            ))
+            self.window.resize(1200, 850)
+            self.app.processEvents()
+            self.assertEqual(overlay.geometry(), self.window.rect())
+
+            self.app.sendEvent(self.window, QDragLeaveEvent())
+            search = self.window.findChild(QLineEdit, "resultsSearch")
+            enter(search)
+            self.app.processEvents()
+            self.assertTrue(overlay.isVisible())
+            self.app.sendEvent(search, QDragLeaveEvent())
+            self.app.processEvents()
+            self.assertFalse(overlay.isVisible())
+
+            self.window._results_view.set_maximized(True)
+            enter(self.window)
+            self.assertEqual(overlay.geometry(), self.window.rect())
+            self._drop_urls(self.window, [QUrl.fromLocalFile(str(path))])
+            self.assertFalse(overlay.isVisible())
+            self.assertEqual(self.window._session.path, path)
+
+            enter(self.window)
+            self._drop_urls(self.window, [QUrl("https://example.com/file.log")])
+            self.assertFalse(overlay.isVisible())
 
     def test_default_controls_build_the_shared_configuration(self):
         filter_panel = self.window.findChild(FilterPanel, "filterGroup")

@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Sequence
 
 from PySide6.QtCore import (
+    QEvent,
+    QObject,
     Qt,
     QThreadPool,
     QTimer,
@@ -352,6 +354,72 @@ class LogreaderWindow(QMainWindow):
         self.setMinimumSize(820, 560)
         self._build_interface()
         self.statusBar().showMessage("Ready: Open a log file to begin")
+        self._drop_overlay = QLabel("Drop file", self)
+        self._drop_overlay.setObjectName("dropOverlay")
+        self._drop_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._drop_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._drop_overlay.setStyleSheet(
+            "QLabel#dropOverlay { background-color: rgba(90, 94, 100, 205);"
+            " color: #ffffff; font-size: 32px; font-weight: 600;"
+            " border: 2px dashed #d0d3d7; }"
+        )
+        self._drop_overlay.hide()
+        self._drop_leave_timer = QTimer(self)
+        self._drop_leave_timer.setSingleShot(True)
+        self._drop_leave_timer.timeout.connect(self._drop_overlay.hide)
+        self.setAcceptDrops(True)
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """Route file drops over every child control through normal file loading."""
+
+        if watched is self:
+            if event.type() == QEvent.Type.Resize:
+                self._drop_overlay.setGeometry(self.rect())
+            elif event.type() == QEvent.Type.Hide:
+                self._drop_overlay.hide()
+
+        if (
+            event.type() in (
+                QEvent.Type.DragEnter,
+                QEvent.Type.DragMove,
+                QEvent.Type.Drop,
+                QEvent.Type.DragLeave,
+            )
+            and isinstance(watched, QWidget)
+            and watched.window() is self
+        ):
+            if event.type() == QEvent.Type.DragLeave:
+                # A new child target can receive DragEnter in the same event loop.
+                self._drop_leave_timer.start(0)
+                return True
+            self._drop_leave_timer.stop()
+            if event.type() == QEvent.Type.Drop:
+                self._drop_overlay.hide()
+            urls = event.mimeData().urls()
+            path = (
+                Path(urls[0].toLocalFile())
+                if len(urls) == 1 and urls[0].isLocalFile()
+                else None
+            )
+            if (
+                path is None
+                or not path.is_file()
+                or not event.possibleActions() & Qt.DropAction.CopyAction
+            ):
+                self._drop_overlay.hide()
+                event.ignore()
+            elif event.type() != QEvent.Type.Drop or self.load_file(path):
+                if event.type() != QEvent.Type.Drop:
+                    self._drop_overlay.setGeometry(self.rect())
+                    self._drop_overlay.show()
+                    self._drop_overlay.raise_()
+                event.setDropAction(Qt.DropAction.CopyAction)
+                event.accept()
+            else:
+                event.ignore()
+            return True
+        return super().eventFilter(watched, event)
 
     def _build_interface(self) -> None:
         central_widget = QWidget(self)
