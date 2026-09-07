@@ -464,16 +464,13 @@ class FilterPanel(QGroupBox):
         pattern_list.setObjectName(list_object_name)
         pattern_list.setSpacing(0)
         pattern_list.setUniformItemSizes(True)
+        pattern_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        pattern_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         pattern_list.setStyleSheet(
             "QListWidget::item { margin: 0; padding: 0; }"
+            "QListWidget::item:hover, QListWidget::item:selected {"
+            " background: transparent; }"
         )
-        if list_object_name == "customPatternList":
-            pattern_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-            pattern_list.setStyleSheet(
-                "QListWidget::item { margin: 0; padding: 0; }"
-                "QListWidget::item:hover, QListWidget::item:selected {"
-                " background: transparent; }"
-            )
         pattern_list.setFixedHeight(64)
         layout.addWidget(pattern_list)
         return group, input_box, pattern_list
