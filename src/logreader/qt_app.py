@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -10,7 +11,6 @@ from PySide6.QtCore import (
     QEvent,
     QObject,
     Qt,
-    QThreadPool,
     QTimer,
     Signal,
     Slot,
@@ -28,22 +28,19 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
 
-from .analysis_worker import AnalysisWorker
 from .config import APP_VERSION, LogreaderConfig
-from .core import AnalysisResult
-from .document_session import AnalysisPhase, DocumentSession
+from .document_page import DocumentPage
 from .file_loader import LogDecodeError, load_log
-from .filter_panel import FilterPanel, VisibleCheckBox, VisibleSpinBox
-from .results_view import ResultsView
 from .theme import THEME_COLORS
 
 
 COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
-ANALYSIS_BUSY_DELAY_MS = 1_000
 
 INTERFACE_STYLE_SHEET = f"""
 QMainWindow {{
@@ -53,6 +50,28 @@ QMainWindow {{
 QWidget#centralWidget {{
     background-color: {THEME_COLORS['ui_canvas']};
     color: {THEME_COLORS['ui_text']};
+}}
+QStackedWidget#documentWorkspace,
+QStackedWidget#documentPages,
+QTabBar#documentTabs {{
+    background-color: {THEME_COLORS['ui_canvas']};
+}}
+QTabBar::tab {{
+    background-color: {THEME_COLORS['ui_button']};
+    color: {THEME_COLORS['ui_muted']};
+    border: 1px solid {THEME_COLORS['ui_border']};
+    padding: 6px 12px;
+}}
+QTabBar::tab:selected {{
+    background-color: {THEME_COLORS['ui_island']};
+    color: {THEME_COLORS['ui_text']};
+    border-bottom: 2px solid {THEME_COLORS['ui_accent']};
+}}
+QTabBar::tab:hover {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+}}
+QLineEdit#customPattern, QLineEdit#regexPattern {{
+    placeholder-text-color: rgba({COLORS['ui_muted'].red()}, {COLORS['ui_muted'].green()}, {COLORS['ui_muted'].blue()}, 90);
 }}
 QWidget#fileControlsRow {{
     background-color: {THEME_COLORS['ui_canvas']};
@@ -338,15 +357,6 @@ class LogreaderWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self._session = DocumentSession()
-        self._analysis_busy_visible = False
-        self._analysis_worker: AnalysisWorker | None = None
-        self._analysis_pool = QThreadPool.globalInstance()
-        self._analysis_busy_timer = QTimer(self)
-        self._analysis_busy_timer.setSingleShot(True)
-        self._analysis_busy_timer.setInterval(ANALYSIS_BUSY_DELAY_MS)
-        self._analysis_busy_timer.timeout.connect(self._show_analysis_busy)
-
         self._apply_interface_palette()
         self.setStyleSheet(INTERFACE_STYLE_SHEET)
         self.setWindowTitle(APP_VERSION)
@@ -422,19 +432,20 @@ class LogreaderWindow(QMainWindow):
         return super().eventFilter(watched, event)
 
     def _build_interface(self) -> None:
-        central_widget = QWidget(self)
-        central_widget.setObjectName("centralWidget")
-        root_layout = QVBoxLayout(central_widget)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        self._controls_container = QWidget(central_widget)
-        self._controls_container.setObjectName("controlsContainer")
-        controls_layout = QVBoxLayout(self._controls_container)
-        controls_layout.setContentsMargins(12, 12, 12, 10)
-        controls_layout.setSpacing(10)
-
-        self._file_controls = QWidget(self._controls_container)
+        self._documents_by_path: dict[str, DocumentPage] = {}
+        central = QWidget(self)
+        central.setObjectName("centralWidget")
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        self._tabs = QTabBar(central)
+        self._tabs.setObjectName("documentTabs")
+        self._tabs.setDrawBase(False)
+        self._tabs.setExpanding(False)
+        self._tabs.setUsesScrollButtons(True)
+        self._tabs.hide()
+        root.addWidget(self._tabs)
+        self._file_controls = QWidget(central)
         self._file_controls.setObjectName("fileControlsRow")
         file_row = QHBoxLayout(self._file_controls)
         file_row.setContentsMargins(8, 6, 8, 6)
@@ -460,26 +471,73 @@ class LogreaderWindow(QMainWindow):
         self._analyze_button.setEnabled(False)
         self._analyze_button.clicked.connect(self.analyze_current)
         file_row.addWidget(self._analyze_button)
-        controls_layout.addWidget(self._file_controls)
+        action_margin = QWidget(central)
+        action_layout = QVBoxLayout(action_margin)
+        action_layout.setContentsMargins(12, 12, 12, 0)
+        action_layout.addWidget(self._file_controls)
+        root.addWidget(action_margin)
+        self._workspace = QStackedWidget(central)
+        self._workspace.setObjectName("documentWorkspace")
+        self._empty_page = QLabel("Open or drop a log file to begin", self._workspace)
+        self._empty_page.setObjectName("emptyDocumentPage")
+        self._empty_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._workspace.addWidget(self._empty_page)
+        self._pages = QStackedWidget(self._workspace)
+        self._pages.setObjectName("documentPages")
+        self._workspace.addWidget(self._pages)
+        self._tabs.currentChanged.connect(self._current_document_changed)
+        root.addWidget(self._workspace, 1)
+        self.setCentralWidget(central)
 
-        self._filter_panel = FilterPanel()
-        controls_layout.addWidget(self._filter_panel)
-        root_layout.addWidget(self._controls_container)
+    @property
+    def _document(self) -> DocumentPage | None:
+        """The selected page; document callbacks never use this lookup."""
+        return self._pages.currentWidget()
 
-        self._results_view = ResultsView(
-            central_widget,
-            checkbox_factory=VisibleCheckBox,
-            spinbox_factory=VisibleSpinBox,
+    def _select_document(self, page: DocumentPage) -> None:
+        self._tabs.setCurrentIndex(self._pages.indexOf(page))
+
+    @Slot(int)
+    def _current_document_changed(self, index: int) -> None:
+        self._pages.setCurrentIndex(index)
+        self._tabs.setVisible(self._tabs.count() > 0)
+        page = self._document
+        self._workspace.setCurrentWidget(self._pages if page else self._empty_page)
+        path = page.session.path if page else None
+        self._path_label.setText(path.name if path else "No file selected")
+        self._path_label.setToolTip(str(path) if path else "")
+        self.setWindowTitle(f"{APP_VERSION} — {path.name}" if path else APP_VERSION)
+        self.statusBar().showMessage(
+            page.status_message if page else "Ready: Open a log file to begin"
         )
-        self._results_view.maximized_changed.connect(
-            self._set_results_maximized
-        )
-        self._results_view.rendering_completed.connect(
-            self._complete_rendering
-        )
-        self._results_view.rendering_failed.connect(self._fail_analysis)
-        root_layout.addWidget(self._results_view, 1)
-        self.setCentralWidget(central_widget)
+        self._present_analysis_busy()
+
+    @Slot(str)
+    def _present_document_status(self, message: str) -> None:
+        if self.sender() is self._document:
+            self.statusBar().showMessage(message)
+
+    def _refresh_tab_labels(self) -> None:
+        pages = [self._pages.widget(index) for index in range(self._tabs.count())]
+        for index, page in enumerate(pages):
+            path = page.session.path
+            peers = [
+                other.session.path
+                for other in pages
+                if other is not page
+                and other.session.path.name.casefold() == path.name.casefold()
+            ]
+            label = path.name
+            if peers:
+                # Show the shortest parent suffix that distinguishes this file.
+                # The tooltip always retains the full path.
+                for depth in range(1, len(path.parent.parts) + 1):
+                    suffix = Path(*path.parent.parts[-depth:])
+                    if all(suffix != Path(*peer.parent.parts[-depth:]) for peer in peers):
+                        break
+                label = f"{path.name} — {suffix}"
+            self._tabs.setTabText(index, label)
+            self._tabs.setTabToolTip(index, str(path))
 
     def _apply_interface_palette(self) -> None:
         palette = self.palette()
@@ -508,23 +566,14 @@ class LogreaderWindow(QMainWindow):
     def build_config(self) -> LogreaderConfig:
         """Build the shared configuration represented by the controls."""
 
-        return self._filter_panel.build_config()
-
-    @Slot(bool)
-    def _set_results_maximized(self, maximized: bool) -> None:
-        """Show or hide the window controls around the results panel."""
-
-        controls_visible = not maximized
-        self._controls_container.setVisible(controls_visible)
-        self._file_controls.setVisible(controls_visible)
-        self._filter_panel.setVisible(controls_visible)
+        return self._document.build_config() if self._document else LogreaderConfig()
 
     def open_file(self) -> None:
         """Prompt for a local log file and stage it for analysis."""
 
         initial_directory = (
-            self._session.path.parent
-            if self._session.path is not None
+            self._document.session.path.parent
+            if self._document is not None and self._document.session.path is not None
             else Path.home()
         )
         filename, _ = QFileDialog.getOpenFileName(
@@ -541,6 +590,12 @@ class LogreaderWindow(QMainWindow):
 
         path = Path(source_path)
         try:
+            path = path.resolve()
+            key = os.path.normcase(str(path))
+            existing = self._documents_by_path.get(key)
+            if existing is not None:
+                self._select_document(existing)
+                return True
             loaded = load_log(path)
         except (OSError, LogDecodeError) as error:
             QMessageBox.critical(
@@ -551,171 +606,42 @@ class LogreaderWindow(QMainWindow):
             self.statusBar().showMessage(f"Unable to read {path.name}")
             return False
 
-        was_busy = self._session.is_busy
-        self._session.stage_loaded_log(path, loaded)
-        if was_busy:
-            self._finish_analysis_request()
-
-        self._path_label.setText(path.name)
-        self._path_label.setToolTip(str(path))
-        self._analyze_button.setEnabled(True)
-        self.setWindowTitle(f"{APP_VERSION} — {path.name}")
-        self._results_view.reset_for_loaded_file(path.name)
-        self.statusBar().showMessage(
-            f"{len(loaded.lines):,} lines loaded as {loaded.encoding}  •  "
-            "press Analyze to begin"
-        )
+        page = DocumentPage(self._pages)
+        page.stage_loaded_log(path, loaded)
+        page.status_changed.connect(self._present_document_status)
+        page.busy_changed.connect(self._present_analysis_busy)
+        page.analysis_failed.connect(self._present_analysis_failure)
+        page.analysis_finished.connect(self.analysis_finished.emit)
+        self._documents_by_path[key] = page
+        self._pages.addWidget(page)
+        self._tabs.addTab(path.name)
+        self._refresh_tab_labels()
+        self._select_document(page)
         return True
 
     def analyze_current(self) -> None:
-        """Analyze the loaded file using the current controls."""
-
-        if not self._session.has_document or self._session.is_busy:
-            return
-
-        try:
-            config = self.build_config()
-            patterns = config.search_patterns()
-        except ValueError as error:
-            QMessageBox.warning(self, "Invalid filters", str(error))
-            self.statusBar().showMessage("Analysis could not be completed")
-            return
-
-        request = self._session.begin_analysis(
-            config, sum(not pattern.exclude for pattern in patterns),
-        )
-        worker = AnalysisWorker(
-            request.request_id,
-            self._session.lines,
-            patterns,
-            config.combined_view,
-        )
-        worker.signals.completed.connect(self._complete_analysis)
-        worker.signals.failed.connect(self._fail_analysis)
-        self._analysis_worker = worker
-        self._set_analysis_busy(True)
-        self._analysis_pool.start(worker)
-
-    @Slot(int, object, float)
-    def _complete_analysis(
-        self,
-        request_id: int,
-        analysis: AnalysisResult,
-        analysis_seconds: float,
-    ) -> None:
-        """Render the current worker result back on Qt's GUI thread."""
-
-        if not self._session.begin_rendering(
-            request_id,
-            analysis,
-            analysis_seconds,
-        ):
-            return
-
-        request = self._session.active_request
-        if request is None:
-            self._finish_analysis_request()
-            return
-
-        self._analysis_worker = None
-        self._results_view.start_rendering(
-            request_id,
-            str(request.source_path),
-            analysis,
-            request.config,
-        )
-        if self._analysis_busy_visible:
-            self.statusBar().showMessage(
-                f"Rendering results for {request.source_path.name}…"
-            )
-
-    @Slot(int, float)
-    def _complete_rendering(
-        self,
-        request_id: int,
-        rendering_seconds: float,
-    ) -> None:
-        """Finalize timings and status after all render batches complete."""
-
-        if not self._session.complete_rendering(
-            request_id,
-            rendering_seconds,
-        ):
-            return
-
-        analysis = self._session.analysis
-        analysis_seconds = self._session.analysis_seconds
-        if analysis is None or analysis_seconds is None:
-            self._finish_analysis_request()
-            return
-
-        self._results_view.prepend_performance_timings(
-            analysis_seconds,
-            rendering_seconds,
-        )
-
-        match_count = sum(
-            result.match_count for result in analysis.categories.values()
-        )
-        self._finish_analysis_request()
-        self.statusBar().showMessage(
-            f"{analysis.line_count:,} lines  •  {match_count:,} matches  •  "
-            f"{analysis.pattern_count} active patterns  •  "
-            f"{self._session.encoding or 'unknown encoding'}"
-        )
-        self.analysis_finished.emit()
-
-    @Slot(int, str)
-    def _fail_analysis(self, request_id: int, message: str) -> None:
-        """Restore the interface after a worker-side analysis failure."""
-
-        if not self._session.fail_request(request_id):
-            return
-
-        self._finish_analysis_request()
-        QMessageBox.warning(self, "Invalid filters", message)
-        self.statusBar().showMessage("Analysis could not be completed")
-
-    def _set_analysis_busy(self, busy: bool) -> None:
-        if busy:
-            self._analysis_busy_visible = False
-            self._results_view.focus_editor()
-            self._analyze_button.setEnabled(False)
-            self._analyze_button.setText("Analyzing…")
-            self._analysis_busy_timer.start()
-            return
-
-        self._analysis_busy_timer.stop()
-        self._analyze_button.setEnabled(self._session.has_document)
-        self._analyze_button.setText("&Analyze")
-        if self._analysis_busy_visible:
-            self._analysis_busy_visible = False
-            self.unsetCursor()
+        """Dispatch Analyze to the document owning the controls and results."""
+        if self._document is not None:
+            self._document.analyze()
 
     @Slot()
-    def _show_analysis_busy(self) -> None:
-        if not self._session.is_busy:
-            return
-
-        self._analysis_busy_visible = True
-        self.setCursor(Qt.CursorShape.WaitCursor)
-        request = self._session.active_request
-        source_name = request.source_path.name if request is not None else "log"
-        if self._session.phase is AnalysisPhase.RENDERING:
-            self.statusBar().showMessage(
-                f"Rendering results for {source_name}…"
-            )
+    def _present_analysis_busy(self) -> None:
+        page = self._document
+        busy = page is not None and page.session.is_busy
+        self._analyze_button.setEnabled(
+            page is not None and page.session.has_document and not busy
+        )
+        self._analyze_button.setText("Analyzing…" if busy else "&Analyze")
+        if page is not None and page.busy_visible:
+            self.setCursor(Qt.CursorShape.WaitCursor)
         else:
-            pattern_count = request.pattern_count if request is not None else 0
-            self.statusBar().showMessage(
-                f"Analyzing {source_name} with "
-                f"{pattern_count} active patterns…"
-            )
+            self.unsetCursor()
 
-    def _finish_analysis_request(self) -> None:
-        self._results_view.cancel_rendering()
-        self._analysis_worker = None
-        self._set_analysis_busy(False)
+    @Slot(str)
+    def _present_analysis_failure(self, message: str) -> None:
+        page = self.sender()
+        if page is self._document:
+            QMessageBox.warning(self, "Invalid filters", message)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

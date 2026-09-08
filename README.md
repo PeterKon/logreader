@@ -28,6 +28,12 @@ You can also use `python -m logreader`.
 
 Open a log file, choose filters, then press **Analyze**.
 
+Each file opens in its own tab with default filters. Opening or dropping an
+already-open file selects its existing tab. Switching tabs preserves filters,
+unfinished inputs, results, search, selection, scrolling, and line wrapping.
+Tabs with identical filenames include a distinguishing directory suffix; hover
+over a tab to see its full path.
+
 **Combined view** and **Line-separator** are enabled by default. Combined view
 merges every enabled filter into one result category while keeping individual
 filter counts in the summary. The results limit counts each matching source line

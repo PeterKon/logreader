@@ -44,6 +44,7 @@ try:
         TEXT_PATTERN_KEYS,
     )
     from logreader.core import analyze_lines
+    from logreader.file_loader import load_log
     from logreader.document_session import AnalysisPhase
     from logreader.filter_panel import (
         FilterPanel,
@@ -76,10 +77,22 @@ class LogreaderQtTests(unittest.TestCase):
 
     def setUp(self):
         self.window = LogreaderWindow()
+        # These tests exercise one document's controls and rendering. Tab/opening
+        # behavior is covered separately in test_tabs.py.
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        initial_path = Path(self.directory.name) / "initial.log"
+        initial_path.write_text("", encoding="utf-8")
+        self.window.load_file(initial_path)
 
     def tearDown(self):
         self.window.close()
         self.app.processEvents()
+
+    def _stage_file(self, path):
+        self.window._document.stage_loaded_log(Path(path), load_log(path))
+        self.window._current_document_changed(self.window._tabs.currentIndex())
+        return True
 
     def _click_analyze_and_wait(self, timeout: int = 5_000) -> None:
         completed = QSignalSpy(self.window.analysis_finished)
@@ -116,45 +129,39 @@ class LogreaderQtTests(unittest.TestCase):
             self.app.sendEvent(target, event)
         return events
 
-    def test_file_drop_anywhere_clears_results_and_waits_for_analyze(self):
+    def test_file_drop_anywhere_opens_tab_and_waits_for_analyze(self):
         self.window.show()
         self.app.processEvents()
-        results = self.window.findChild(QPlainTextEdit, "resultsView")
-        search = self.window.findChild(QLineEdit, "resultsSearch")
-        custom = self.window.findChild(QLineEdit, "customPattern")
-        custom.setText("keep this filter")
+        page = self.window._document
+        custom = page.findChild(QLineEdit, "customPattern")
+        custom.setText("keep this draft")
         targets = (
-            self.window, self.window.centralWidget(),
-            self.window._open_button, self.window._filter_panel,
-            custom, search, results.viewport(), self.window.statusBar(),
+            self.window, self.window.centralWidget(), self.window._open_button,
+            page.filter_panel, custom,
+            page.findChild(QLineEdit, "resultsSearch"),
+            page.results_view.editor.viewport(), self.window.statusBar(),
         )
-        with tempfile.TemporaryDirectory() as directory:
-            old_path = Path(directory) / "old.log"
-            new_path = Path(directory) / "new.log"
-            old_path.write_text("ERROR: old\n", encoding="utf-8")
-            new_path.write_text("ERROR: new\n", encoding="utf-8")
-            for target in targets:
-                with self.subTest(target=target.objectName()):
-                    self.window.load_file(old_path)
-                    self._click_analyze_and_wait()
-                    self.assertIn("ERROR: old", results.toPlainText())
-                    search.setText("old")
-                    events = self._drop_urls(target, [QUrl.fromLocalFile(str(new_path))])
-                    self.assertTrue(all(event.isAccepted() for event in events))
-                    self.assertEqual(self.window._session.path, new_path)
-                    self.assertIsNone(self.window._session.analysis)
-                    self.assertEqual(results.toPlainText(), "")
-                    self.assertEqual(search.text(), "")
-                    self.assertEqual(custom.text(), "keep this filter")
-                    self.assertTrue(self.window._analyze_button.isEnabled())
-                    self._click_analyze_and_wait()
-                    self.assertIn("ERROR: new", results.toPlainText())
+        for index, target in enumerate(targets):
+            with self.subTest(target=target.objectName()):
+                self.window._select_document(page)
+                path = Path(self.directory.name) / f"drop-{index}.log"
+                path.write_text("ERROR: new\n", encoding="utf-8")
+                events = self._drop_urls(target, [QUrl.fromLocalFile(str(path))])
+                self.assertTrue(all(event.isAccepted() for event in events))
+                current = self.window._document
+                self.assertIsNot(current, page)
+                self.assertEqual(current.session.path, path)
+                self.assertIsNone(current.session.analysis)
+                self.assertEqual(current.results_view.editor.toPlainText(), "")
+                self.assertEqual(current.findChild(QLineEdit, "customPattern").text(), "")
+                self.assertEqual(custom.text(), "keep this draft")
+                self.assertTrue(self.window._analyze_button.isEnabled())
 
     def test_invalid_drops_preserve_loaded_results(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "server.log"
             path.write_text("ERROR: original\n", encoding="utf-8")
-            self.window.load_file(path)
+            self._stage_file(path)
             self._click_analyze_and_wait()
             results = self.window.findChild(QPlainTextEdit, "resultsView")
             original = results.toPlainText()
@@ -167,7 +174,7 @@ class LogreaderQtTests(unittest.TestCase):
                 with self.subTest(urls=urls):
                     events = self._drop_urls(self.window, urls)
                     self.assertFalse(any(event.isAccepted() for event in events))
-                    self.assertEqual(self.window._session.path, path)
+                    self.assertEqual(self.window._document.session.path, path)
                     self.assertEqual(results.toPlainText(), original)
 
     def test_drop_overlay_tracks_hover_leave_resize_and_drop(self):
@@ -192,7 +199,7 @@ class LogreaderQtTests(unittest.TestCase):
             enter(self.window)
             self.assertTrue(overlay.isVisible())
             self.assertEqual(overlay.text(), "Drop file")
-            self.assertIsNone(self.window._session.path)
+            self.assertEqual(self.window._tabs.count(), 1)
             self.assertTrue(overlay.testAttribute(
                 Qt.WidgetAttribute.WA_TransparentForMouseEvents,
             ))
@@ -209,12 +216,12 @@ class LogreaderQtTests(unittest.TestCase):
             self.app.processEvents()
             self.assertFalse(overlay.isVisible())
 
-            self.window._results_view.set_maximized(True)
+            self.window._document.results_view.set_maximized(True)
             enter(self.window)
             self.assertEqual(overlay.geometry(), self.window.rect())
             self._drop_urls(self.window, [QUrl.fromLocalFile(str(path))])
             self.assertFalse(overlay.isVisible())
-            self.assertEqual(self.window._session.path, path)
+            self.assertEqual(self.window._document.session.path, path)
 
             enter(self.window)
             self._drop_urls(self.window, [QUrl("https://example.com/file.log")])
@@ -263,7 +270,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(
             self.window.statusBar().currentMessage(),
-            "Ready: Open a log file to begin",
+            "0 lines loaded as UTF-8  •  press Analyze to begin",
         )
 
     def test_results_scrollbars_use_visible_theme_colors(self):
@@ -603,8 +610,8 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(results.geometry().top(), results_header.geometry().bottom() + 1)
         self.assertIn("border: none", results.styleSheet())
         self.assertEqual(results_panel.geometry().left(), 0)
-        self.assertEqual(results_panel.geometry().right(), self.window.centralWidget().width() - 1)
-        self.assertEqual(results_panel.geometry().bottom(), self.window.centralWidget().height() - 1)
+        self.assertEqual(results_panel.geometry().right(), self.window._document.width() - 1)
+        self.assertEqual(results_panel.geometry().bottom(), self.window._document.height() - 1)
         self.assertFalse(controls_container.isHidden())
         self.assertEqual(button.text(), "")
         self.assertFalse(button.icon().isNull())
@@ -641,7 +648,7 @@ class LogreaderQtTests(unittest.TestCase):
 
         button.click()
 
-        self.assertTrue(file_controls.isHidden())
+        self.assertFalse(file_controls.isHidden())
         self.assertTrue(filter_group.isHidden())
         self.assertTrue(controls_container.isHidden())
         self.assertFalse(results_header.isHidden())
@@ -1474,13 +1481,13 @@ class LogreaderQtTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "case.log"
             path.write_text("Error\nerror\nERROR\n", encoding="utf-8")
-            self.window.load_file(path)
+            self._stage_file(path)
             self._click_analyze_and_wait()
-            counts = self.window._session.analysis.category_match_counts
+            counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual((counts["custom_1"], counts["custom_2"]), (1, 3))
             buttons[0].click()
             self._click_analyze_and_wait()
-            self.assertEqual(self.window._session.analysis.category_match_counts["custom_1"], 3)
+            self.assertEqual(self.window._document.session.analysis.category_match_counts["custom_1"], 3)
         buttons[1].click()
         rows[0].findChild(QPushButton, "customPatternRemoveButton").click()
         self.assertEqual(self.window.build_config().custom_pattern_match_case, (True,))
@@ -1507,15 +1514,15 @@ class LogreaderQtTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "exclude.log"
             path.write_text("ERROR: keep\nERROR: Skip\nERROR: skip\n", encoding="utf-8")
-            self.window.load_file(path)
+            self._stage_file(path)
             self._click_analyze_and_wait()
-            self.assertEqual(self.window._session.analysis.category_match_counts["error_colon"], 1)
+            self.assertEqual(self.window._document.session.analysis.category_match_counts["error_colon"], 1)
             case.click()
             self._click_analyze_and_wait()
-            self.assertEqual(self.window._session.analysis.category_match_counts["error_colon"], 2)
+            self.assertEqual(self.window._document.session.analysis.category_match_counts["error_colon"], 2)
             exclude.click()
             self._click_analyze_and_wait()
-            counts = self.window._session.analysis.category_match_counts
+            counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual(counts["error_colon"], 3)
             self.assertEqual(counts["custom_2"], 1)
         exclude.click()
@@ -1543,17 +1550,17 @@ class LogreaderQtTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "regex-exclude.log"
             path.write_text("ERROR: keep\nERROR: skip42\nERROR: SKIP42\n", encoding="utf-8")
-            self.window.load_file(path)
+            self._stage_file(path)
             QTest.mouseClick(exclude, Qt.MouseButton.LeftButton)
             self.assertFalse(exclude.hasFocus())
             self.assertEqual(exclude.toolTip(), "Click to disable excluding matches")
             self._click_analyze_and_wait()
-            counts = self.window._session.analysis.category_match_counts
+            counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual(counts["error_colon"], 2)
             self.assertNotIn("regex_2", counts)
             exclude.click()
             self._click_analyze_and_wait()
-            counts = self.window._session.analysis.category_match_counts
+            counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual(counts["error_colon"], 3)
             self.assertEqual(counts["regex_2"], 1)
         exclude.click()
@@ -1821,18 +1828,18 @@ class LogreaderQtTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            loaded = self.window.load_file(log_path)
+            loaded = self._stage_file(log_path)
             results = self.window.findChild(QPlainTextEdit, "resultsView")
             staged_output = results.toPlainText()
             staged_status = self.window.statusBar().currentMessage()
 
-            self.assertEqual(self.window._session.path, log_path)
+            self.assertEqual(self.window._document.session.path, log_path)
             self.assertEqual(
-                self.window._session.lines,
+                self.window._document.session.lines,
                 ("before", "ERROR: boom", "after"),
             )
-            self.assertEqual(self.window._session.encoding, "UTF-8")
-            self.assertEqual(self.window._session.phase, AnalysisPhase.IDLE)
+            self.assertEqual(self.window._document.session.encoding, "UTF-8")
+            self.assertEqual(self.window._document.session.phase, AnalysisPhase.IDLE)
 
             self.window.findChild(QLineEdit, "customPattern").returnPressed.emit()
             output_after_return = results.toPlainText()
@@ -1851,12 +1858,12 @@ class LogreaderQtTests(unittest.TestCase):
             output = results.toPlainText()
             html = results.document().toHtml()
 
-            self.assertEqual(self.window._session.phase, AnalysisPhase.IDLE)
-            self.assertIsNotNone(self.window._session.analysis)
-            self.assertIsNotNone(self.window._session.analysis_config)
-            self.assertAlmostEqual(self.window._session.analysis_seconds, 2.3456)
+            self.assertEqual(self.window._document.session.phase, AnalysisPhase.IDLE)
+            self.assertIsNotNone(self.window._document.session.analysis)
+            self.assertIsNotNone(self.window._document.session.analysis_config)
+            self.assertAlmostEqual(self.window._document.session.analysis_seconds, 2.3456)
             self.assertAlmostEqual(
-                self.window._session.rendering_seconds,
+                self.window._document.session.rendering_seconds,
                 4.5678,
             )
 
@@ -1883,7 +1890,7 @@ class LogreaderQtTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "background.log"
             log_path.write_text("ERROR: boom\n", encoding="utf-8")
-            self.window.load_file(log_path)
+            self._stage_file(log_path)
             self.window.show()
             self.app.processEvents()
 
@@ -1930,16 +1937,16 @@ class LogreaderQtTests(unittest.TestCase):
                         "Analyzing",
                         self.window.statusBar().currentMessage(),
                     )
-                    self.assertTrue(self.window._analysis_busy_timer.isActive())
+                    self.assertTrue(self.window._document._analysis_busy_timer.isActive())
                     self.assertEqual(
-                        self.window._analysis_busy_timer.interval(),
+                        self.window._document._analysis_busy_timer.interval(),
                         1_000,
                     )
 
                     analyze_button.click()
                     self.assertEqual(mocked_analysis.call_count, 1)
 
-                    self.window._show_analysis_busy()
+                    self.window._document._show_analysis_busy()
                     self.assertFalse(analyze_button.isEnabled())
                     self.assertEqual(analyze_button.text(), "Analyzing…")
                     self.assertTrue(open_button.isEnabled())
@@ -1970,33 +1977,33 @@ class LogreaderQtTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "rendering-label.log"
             log_path.write_text("ERROR: boom\n", encoding="utf-8")
-            self.window.load_file(log_path)
+            self._stage_file(log_path)
 
             config = self.window.build_config()
             analysis = analyze_lines(
-                self.window._session.lines,
+                self.window._document.session.lines,
                 config.search_patterns(),
                 combined=config.combined_view,
             )
-            request = self.window._session.begin_analysis(
+            request = self.window._document.session.begin_analysis(
                 config,
                 len(config.search_patterns()),
             )
-            self.window._set_analysis_busy(True)
+            self.window._document._set_analysis_busy(True)
 
             try:
                 with patch.object(
-                    self.window._results_view,
+                    self.window._document.results_view,
                     "start_rendering",
                 ) as start_rendering:
-                    self.window._complete_analysis(
+                    self.window._document._complete_analysis(
                         request.request_id,
                         analysis,
                         0.1,
                     )
 
                 self.assertEqual(
-                    self.window._session.phase,
+                    self.window._document.session.phase,
                     AnalysisPhase.RENDERING,
                 )
                 self.assertEqual(
@@ -2005,8 +2012,8 @@ class LogreaderQtTests(unittest.TestCase):
                 )
                 start_rendering.assert_called_once()
             finally:
-                self.window._session.fail_request(request.request_id)
-                self.window._finish_analysis_request()
+                self.window._document.session.fail_request(request.request_id)
+                self.window._document._finish_analysis_request()
 
     def test_result_rendering_yields_between_formatted_batches(self):
         config = self.window.build_config()
@@ -2116,7 +2123,7 @@ class LogreaderQtTests(unittest.TestCase):
             log_path = Path(directory) / "summary.log"
             log_path.write_text("ERROR: boom\n", encoding="utf-8")
 
-            self.window.load_file(log_path)
+            self._stage_file(log_path)
             self._click_analyze_and_wait()
             output = self.window.findChild(
                 QPlainTextEdit,
@@ -2146,7 +2153,7 @@ class LogreaderQtTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            self.window.load_file(log_path)
+            self._stage_file(log_path)
             self._click_analyze_and_wait()
             output = self.window.findChild(
                 QPlainTextEdit,
@@ -2154,7 +2161,7 @@ class LogreaderQtTests(unittest.TestCase):
             ).toPlainText()
 
         self.assertEqual(
-            tuple(self.window._session.analysis.categories),
+            tuple(self.window._document.session.analysis.categories),
             ("combined",),
         )
         summary = output.split(f"\n{RULE}\n", 1)[0]
@@ -2184,7 +2191,7 @@ class LogreaderQtTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            self.window.load_file(log_path)
+            self._stage_file(log_path)
             self._click_analyze_and_wait()
             output = self.window.findChild(
                 QPlainTextEdit,
@@ -2209,7 +2216,7 @@ class LogreaderQtTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            self.window.load_file(log_path)
+            self._stage_file(log_path)
             results = self.window.findChild(QPlainTextEdit, "resultsView")
             self._click_analyze_and_wait()
             without_separator = results.toPlainText()
