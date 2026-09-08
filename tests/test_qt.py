@@ -1488,6 +1488,83 @@ class LogreaderQtTests(unittest.TestCase):
         input_box.returnPressed.emit()
         self.assertEqual(self.window.build_config().custom_pattern_match_case, (True, False))
 
+    def test_exclude_toggle_filters_analysis_and_survives_other_item_deletion(self):
+        entry = self.window.findChild(QLineEdit, "customPattern")
+        pattern_list = self.window.findChild(QListWidget, "customPatternList")
+        for text in ("unused", "Skip"):
+            entry.setText(text)
+            entry.returnPressed.emit()
+        row = pattern_list.itemWidget(pattern_list.item(1))
+        exclude = row.findChild(QPushButton, "customPatternExcludeButton")
+        case = row.findChild(QPushButton, "customPatternMatchCaseButton")
+        self.assertFalse(exclude.isChecked())
+        self.assertEqual(exclude.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        exclude.click()
+        self.assertFalse(case.isChecked())
+        self.window.show()
+        self.app.processEvents()
+        self.assertLess(exclude.geometry().right(), case.geometry().left())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "exclude.log"
+            path.write_text("ERROR: keep\nERROR: Skip\nERROR: skip\n", encoding="utf-8")
+            self.window.load_file(path)
+            self._click_analyze_and_wait()
+            self.assertEqual(self.window._session.analysis.category_match_counts["error_colon"], 1)
+            case.click()
+            self._click_analyze_and_wait()
+            self.assertEqual(self.window._session.analysis.category_match_counts["error_colon"], 2)
+            exclude.click()
+            self._click_analyze_and_wait()
+            counts = self.window._session.analysis.category_match_counts
+            self.assertEqual(counts["error_colon"], 3)
+            self.assertEqual(counts["custom_2"], 1)
+        exclude.click()
+        first_row = pattern_list.itemWidget(pattern_list.item(0))
+        first_row.findChild(QPushButton, "customPatternRemoveButton").click()
+        config = self.window.build_config()
+        self.assertEqual(config.custom_pattern_exclude, (True,))
+        self.assertEqual(config.custom_pattern_match_case, (True,))
+
+    def test_regex_exclude_toggle_controls_analysis_and_stays_with_item(self):
+        entry = self.window.findChild(QLineEdit, "regexPattern")
+        pattern_list = self.window.findChild(QListWidget, "regexPatternList")
+        for text in ("unused", r"skip\d+"):
+            entry.setText(text)
+            entry.returnPressed.emit()
+        row = pattern_list.itemWidget(pattern_list.item(1))
+        exclude = row.findChild(QPushButton, "regexPatternExcludeButton")
+        self.assertFalse(exclude.isChecked())
+        self.assertEqual(exclude.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        self.assertEqual(exclude.toolTip(), "Click to enable excluding matches")
+        self.window.show()
+        self.app.processEvents()
+        remove = row.findChild(QPushButton, "regexPatternRemoveButton")
+        self.assertLess(exclude.geometry().right(), remove.geometry().left())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "regex-exclude.log"
+            path.write_text("ERROR: keep\nERROR: skip42\nERROR: SKIP42\n", encoding="utf-8")
+            self.window.load_file(path)
+            QTest.mouseClick(exclude, Qt.MouseButton.LeftButton)
+            self.assertFalse(exclude.hasFocus())
+            self.assertEqual(exclude.toolTip(), "Click to disable excluding matches")
+            self._click_analyze_and_wait()
+            counts = self.window._session.analysis.category_match_counts
+            self.assertEqual(counts["error_colon"], 2)
+            self.assertNotIn("regex_2", counts)
+            exclude.click()
+            self._click_analyze_and_wait()
+            counts = self.window._session.analysis.category_match_counts
+            self.assertEqual(counts["error_colon"], 3)
+            self.assertEqual(counts["regex_2"], 1)
+        exclude.click()
+        pattern_list.itemWidget(pattern_list.item(0)).findChild(
+            QPushButton, "regexPatternRemoveButton",
+        ).click()
+        self.assertEqual(self.window.build_config().regex_pattern_exclude, (True,))
+        entry.setText("new")
+        entry.returnPressed.emit()
+        self.assertEqual(self.window.build_config().regex_pattern_exclude, (True, False))
+
     def test_regex_patterns_use_the_same_managed_list_ui(self):
         input_box = self.window.findChild(QLineEdit, "regexPattern")
         add_button = self.window.findChild(

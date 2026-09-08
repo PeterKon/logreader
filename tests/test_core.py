@@ -5,6 +5,40 @@ from logreader.core import COMBINED_CATEGORY_KEY, SearchPattern, analyze_lines
 
 class AnalyzeLinesTests(unittest.TestCase):
 
+    def test_global_exclusions_override_all_matches_but_remain_context(self):
+        lines = ["ERROR keep", "ERROR Skip code=500", "ERROR SKIP code=500"]
+        for combined in (False, True):
+            result = analyze_lines(lines, (
+                SearchPattern("error", "ERROR", context=2),
+                SearchPattern("custom", "keep", context=2),
+                SearchPattern("regex", r"code=\d+", is_regex=True, context=2),
+                SearchPattern("exclude", "skip", exclude=True),
+            ), combined=combined)
+            self.assertEqual(result.pattern_count, 3)
+            self.assertEqual(result.category_match_counts, {"error": 1, "custom": 1, "regex": 0})
+            category = result.category("combined" if combined else "error")
+            context = category.excerpts[0].lines
+            self.assertEqual([line.text for line in context], lines)
+            self.assertEqual([line.is_match for line in context], [True, False, False])
+            self.assertNotIn("exclude", result.categories)
+
+    def test_exclusions_respect_case_and_work_without_positive_patterns(self):
+        lines = ["ERROR skip", "ERROR Skip", "ERROR other"]
+        exclusion = SearchPattern("exclude", "Skip", exclude=True, case_sensitive=True)
+        for patterns, expected in (
+            ((exclusion,), {}),
+            ((SearchPattern("error", "ERROR"), exclusion), {"error": 2}),
+            ((SearchPattern("regex", "ERROR", is_regex=True), exclusion), {"regex": 2}),
+            ((SearchPattern("error", "ERROR"), exclusion,
+              SearchPattern("other", "other", exclude=True)), {"error": 1}),
+        ):
+            result = analyze_lines(lines, patterns)
+            self.assertEqual(result.category_match_counts, expected)
+            for category in result.categories.values():
+                self.assertTrue(all(
+                    line.number != 2 for excerpt in category.excerpts for line in excerpt.lines
+                ))
+
     def test_literal_match_case_preserves_exact_spans_in_both_search_paths(self):
         exact = SearchPattern("exact", "Error[1]", case_sensitive=True)
         folded = SearchPattern("folded", "Error[1]")

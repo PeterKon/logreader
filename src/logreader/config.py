@@ -135,6 +135,8 @@ class LogreaderConfig:
     regex_patterns: tuple[str, ...] = ()
     combined_view: bool = True
     custom_pattern_match_case: tuple[bool, ...] = ()
+    custom_pattern_exclude: tuple[bool, ...] = ()
+    regex_pattern_exclude: tuple[bool, ...] = ()
 
     def __post_init__(self) -> None:
         if self.context < 0:
@@ -158,15 +160,31 @@ class LogreaderConfig:
             not isinstance(value, bool) for value in match_case
         ):
             raise ValueError("Match case must provide one boolean per custom pattern")
+        exclude = tuple(self.custom_pattern_exclude)
+        if not exclude:
+            exclude = (False,) * len(custom_patterns)
+        if len(exclude) != len(custom_patterns) or any(
+            not isinstance(value, bool) for value in exclude
+        ):
+            raise ValueError("Exclude must provide one boolean per custom pattern")
 
         regex_patterns = tuple(pattern.strip() for pattern in self.regex_patterns)
         if any(not pattern for pattern in regex_patterns):
             raise ValueError("Regex patterns cannot be empty")
+        regex_exclude = tuple(self.regex_pattern_exclude)
+        if not regex_exclude:
+            regex_exclude = (False,) * len(regex_patterns)
+        if len(regex_exclude) != len(regex_patterns) or any(
+            not isinstance(value, bool) for value in regex_exclude
+        ):
+            raise ValueError("Exclude must provide one boolean per regex pattern")
 
         object.__setattr__(self, "enabled_patterns", enabled_patterns)
         object.__setattr__(self, "custom_patterns", custom_patterns)
         object.__setattr__(self, "custom_pattern_match_case", match_case)
+        object.__setattr__(self, "custom_pattern_exclude", exclude)
         object.__setattr__(self, "regex_patterns", regex_patterns)
+        object.__setattr__(self, "regex_pattern_exclude", regex_exclude)
 
     def search_patterns(self) -> tuple[SearchPattern, ...]:
         """Build the pure engine patterns represented by this configuration."""
@@ -193,6 +211,7 @@ class LogreaderConfig:
                 needle=needle,
                 context=self.context,
                 case_sensitive=self.custom_pattern_match_case[index - 1],
+                exclude=self.custom_pattern_exclude[index - 1],
             )
             for index, needle in enumerate(self.custom_patterns, start=1)
         )
@@ -202,6 +221,7 @@ class LogreaderConfig:
                 needle=needle,
                 context=self.context,
                 is_regex=True,
+                exclude=self.regex_pattern_exclude[index - 1],
             )
             for index, needle in enumerate(self.regex_patterns, start=1)
         )

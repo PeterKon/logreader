@@ -14,6 +14,50 @@ from logreader.core import COMBINED_CATEGORY_KEY, analyze_lines
 
 class LogreaderConfigTests(unittest.TestCase):
 
+    def test_regex_exclusions_override_matches_and_keep_context(self):
+        self.assertEqual(
+            LogreaderConfig(regex_patterns=("skip",)).regex_pattern_exclude, (False,),
+        )
+        config = LogreaderConfig(
+            context=2, enabled_patterns=("error_colon",), custom_patterns=("ERROR",),
+            regex_patterns=(r"(?i)(?=.*skip\d+)", "ERROR"),
+            regex_pattern_exclude=(True, False),
+        )
+        for combined in (False, True):
+            result = analyze_lines(
+                ["ERROR: keep", "ERROR: SKIP42", "ERROR: skip7"],
+                config.search_patterns(), combined=combined,
+            )
+            self.assertEqual(result.category_match_counts, {
+                "error_colon": 1, "custom_1": 1, "regex_2": 1,
+            })
+            category = result.category("combined" if combined else "error_colon")
+            self.assertEqual(
+                [line.is_match for line in category.excerpts[0].lines],
+                [True, False, False],
+            )
+        for flags in ((True, False), ("true",)):
+            with self.subTest(flags=flags), self.assertRaises(ValueError):
+                LogreaderConfig(regex_patterns=("skip",), regex_pattern_exclude=flags)
+        with self.assertRaises(ValueError):
+            LogreaderConfig(regex_patterns=("[",), regex_pattern_exclude=(True,)).search_patterns()
+
+    def test_exclude_options_default_off_and_reach_engine_patterns(self):
+        config = LogreaderConfig(custom_patterns=("skip", "Keep"))
+        self.assertEqual(config.custom_pattern_exclude, (False, False))
+        config = LogreaderConfig(
+            enabled_patterns=("error_colon", "http_5xx"),
+            custom_patterns=("skip", "Keep"), custom_pattern_exclude=(True, False),
+            regex_patterns=("ERROR",),
+        )
+        result = analyze_lines(["ERROR: skip HTTP 500", "Keep"], config.search_patterns())
+        self.assertEqual(result.category_match_counts, {
+            "error_colon": 0, "http_5xx": 0, "custom_2": 1, "regex_1": 0,
+        })
+        for flags in ((True,), (True, False, True), (True, "false")):
+            with self.subTest(flags=flags), self.assertRaises(ValueError):
+                LogreaderConfig(custom_patterns=("skip", "Keep"), custom_pattern_exclude=flags)
+
     def test_custom_match_case_defaults_and_validation(self):
         config = LogreaderConfig(custom_patterns=("Error", "Error"))
         self.assertEqual(config.custom_pattern_match_case, (False, False))

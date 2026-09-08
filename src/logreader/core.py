@@ -26,6 +26,7 @@ class SearchPattern:
     is_regex: bool = False
     match_validator: MatchValidator | None = None
     case_sensitive: bool = False
+    exclude: bool = False
 
     def __post_init__(self) -> None:
         if not self.key:
@@ -123,25 +124,31 @@ def analyze_lines(
     *,
     combined: bool = False,
 ) -> AnalysisResult:
-    """Analyze lines using case-insensitive literals or case-sensitive regexes.
+    """Analyze lines using literal or regex searches and global exclusions.
 
     Context ranges that overlap or touch are merged into a single excerpt.  The
     returned objects retain the original text, match spans, and one-based source
     line numbers. Patterns may validate individual regex candidates before they
     become matches. Combined analysis returns one detail category, retains the
     individual pattern counts, and includes each matching source line once.
+    Exclusion patterns suppress all matches on a line, but retain its context.
     """
 
     source_lines = tuple(lines)
     states = []
+    exclusions = []
     pattern_keys = set()
     for pattern in patterns:
         if pattern.key in pattern_keys:
             raise ValueError(f"Duplicate search pattern key: {pattern.key}")
         pattern_keys.add(pattern.key)
-        states.append(_compile_pattern_state(pattern))
+        state = _compile_pattern_state(pattern)
+        if pattern.exclude:
+            exclusions.append(state.expression)
+        else:
+            states.append(state)
 
-    _collect_pattern_matches(source_lines, states)
+    _collect_pattern_matches(source_lines, states, exclusions)
     category_match_counts = {
         state.pattern.key: len(state.match_spans_by_index)
         for state in states
@@ -187,6 +194,7 @@ def _compile_pattern_state(pattern: SearchPattern) -> _PatternMatchState:
 def _collect_pattern_matches(
     source_lines: tuple[str, ...],
     states: list[_PatternMatchState],
+    exclusions: list[re.Pattern[str]],
 ) -> None:
     literal_states = [state for state in states if not state.pattern.is_regex]
     independent_states = [state for state in states if state.pattern.is_regex]
@@ -206,6 +214,8 @@ def _collect_pattern_matches(
         )
 
     for line_index, line in enumerate(source_lines):
+        if any(expression.search(line) is not None for expression in exclusions):
+            continue
         if literal_candidates is not None:
             _collect_shared_literal_matches(
                 line_index,

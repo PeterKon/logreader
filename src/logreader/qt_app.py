@@ -581,7 +581,9 @@ class LogreaderWindow(QMainWindow):
             self.statusBar().showMessage("Analysis could not be completed")
             return
 
-        request = self._session.begin_analysis(config, len(patterns))
+        request = self._session.begin_analysis(
+            config, sum(not pattern.exclude for pattern in patterns),
+        )
         worker = AnalysisWorker(
             request.request_id,
             self._session.lines,

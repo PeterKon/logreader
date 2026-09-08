@@ -41,17 +41,19 @@ from .theme import THEME_COLORS, configure_clear_button
 
 FILTER_ALIGNMENT_EXTRA_WIDTH = 115
 MATCH_CASE_ROLE = Qt.ItemDataRole.UserRole + 1
+EXCLUDE_ROLE = Qt.ItemDataRole.UserRole + 2
 
 
-class MatchCaseButton(QPushButton):
-    """Clickable case toggle with a crossed-out appearance while off."""
+class SearchOptionButton(QPushButton):
+    """Search option toggle with a crossed-out appearance while off."""
 
-    def __init__(self, pattern: str) -> None:
-        super().__init__("Case")
-        self.setObjectName("customPatternMatchCaseButton")
+    def __init__(self, text: str, pattern: str, action: str, object_name: str) -> None:
+        super().__init__(text)
+        self._action = action
+        self.setObjectName(object_name)
         self.setCheckable(True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setAccessibleName(f"Match case for {pattern}")
+        self.setAccessibleName(f"{action.capitalize()} for {pattern}")
         self.setFixedSize(self.fontMetrics().horizontalAdvance(self.text()) + 12, 16)
         self.setStyleSheet(
             "QPushButton { background: rgba(128, 128, 128, 12);"
@@ -69,8 +71,8 @@ class MatchCaseButton(QPushButton):
 
     def _update_tooltip(self, checked: bool) -> None:
         self.setToolTip(
-            "Click to disable matching case"
-            if checked else "Click to enable matching case"
+            f"Click to disable {self._action}"
+            if checked else f"Click to enable {self._action}"
         )
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API name
@@ -601,7 +603,15 @@ class FilterPanel(QGroupBox):
                 bool(self._custom_pattern_list.item(index).data(MATCH_CASE_ROLE))
                 for index in range(self._custom_pattern_list.count())
             ),
+            custom_pattern_exclude=tuple(
+                bool(self._custom_pattern_list.item(index).data(EXCLUDE_ROLE))
+                for index in range(self._custom_pattern_list.count())
+            ),
             regex_patterns=self._list_values(self._regex_pattern_list),
+            regex_pattern_exclude=tuple(
+                bool(self._regex_pattern_list.item(index).data(EXCLUDE_ROLE))
+                for index in range(self._regex_pattern_list.count())
+            ),
             separate_entries=self._separate_entries.isChecked(),
             combined_view=self._combined_view.isChecked(),
         )
@@ -664,15 +674,23 @@ class FilterPanel(QGroupBox):
         item_label.setFont(item_label_font)
         item_layout.addWidget(item_label, 1)
 
-        if pattern_list is self._custom_pattern_list:
-            item_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-            item_label.setToolTip(pattern)
-            item.setData(MATCH_CASE_ROLE, False)
-            match_case_button = MatchCaseButton(pattern)
-            match_case_button.toggled.connect(
-                lambda checked, list_item=item: list_item.setData(MATCH_CASE_ROLE, checked)
+        item_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        item_label.setToolTip(pattern)
+        is_custom = pattern_list is self._custom_pattern_list
+        prefix = "customPattern" if is_custom else "regexPattern"
+        options = [("Exclude", EXCLUDE_ROLE, "excluding matches", f"{prefix}ExcludeButton")]
+        if is_custom:
+            options.append(
+                ("Case", MATCH_CASE_ROLE, "matching case", "customPatternMatchCaseButton")
             )
-            item_layout.addWidget(match_case_button)
+        for text, role, action, object_name in options:
+            item.setData(role, False)
+            button = SearchOptionButton(text, pattern, action, object_name)
+            button.toggled.connect(
+                lambda checked, list_item=item, data_role=role:
+                list_item.setData(data_role, checked)
+            )
+            item_layout.addWidget(button)
 
         remove_button = QPushButton("-")
         remove_button.setObjectName(remove_button_object_name)
