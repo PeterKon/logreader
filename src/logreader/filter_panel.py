@@ -47,7 +47,7 @@ class MatchCaseButton(QPushButton):
     """Clickable case toggle with a crossed-out appearance while off."""
 
     def __init__(self, pattern: str) -> None:
-        super().__init__("Match case")
+        super().__init__("Case")
         self.setObjectName("customPatternMatchCaseButton")
         self.setCheckable(True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -69,8 +69,8 @@ class MatchCaseButton(QPushButton):
 
     def _update_tooltip(self, checked: bool) -> None:
         self.setToolTip(
-            "Match case: on — click to ignore capitalization"
-            if checked else "Match case: off — click to match capitalization exactly"
+            "Click to disable matching case"
+            if checked else "Click to enable matching case"
         )
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API name
