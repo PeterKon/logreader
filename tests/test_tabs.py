@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool, Qt
     from PySide6.QtGui import QTextCursor
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QCheckBox, QLineEdit, QPushButton, QSpinBox
@@ -220,3 +220,161 @@ class TabTests(unittest.TestCase):
         self.assertTrue(first.results_view.is_maximized)
         self.assertFalse(self.window._file_controls.isHidden())
         self.assertFalse(self.window._tabs.isHidden())
+
+    def test_keyboard_navigation_wraps_from_controls_and_maximized_results(self):
+        self.window.show()
+        self.window.activateWindow()
+        self.app.processEvents()
+        QTest.keyClick(self.window, Qt.Key.Key_Tab, Qt.KeyboardModifier.ControlModifier)
+        self.assertIsNone(self.window._document)
+        first = self.open_log("first.log")
+        QTest.keyClick(self.window, Qt.Key.Key_Tab, Qt.KeyboardModifier.ControlModifier)
+        self.assertIs(self.window._document, first)
+        second = self.open_log("second.log")
+        third = self.open_log("third.log")
+        for target in (
+            third.findChild(QLineEdit, "customPattern"),
+            third.findChild(QLineEdit, "resultsSearch"),
+            third.findChild(QSpinBox, "contextSpin"),
+            third.results_view.editor,
+            self.window._open_button,
+            self.window._tabs,
+        ):
+            with self.subTest(target=target.objectName()):
+                self.window._select_document(third)
+                target.setFocus()
+                self.app.processEvents()
+                QTest.keyClick(target, Qt.Key.Key_Tab, Qt.KeyboardModifier.ControlModifier)
+                self.assertIs(self.window._document, first)
+                QTest.keyClick(self.app.focusWidget(), Qt.Key.Key_Tab,
+                               Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+                self.assertIs(self.window._document, third)
+        third.results_view.set_maximized(True)
+        third.results_view.editor.setFocus()
+        QTest.keyClick(third.results_view.editor, Qt.Key.Key_Backtab,
+                       Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+        self.assertIs(self.window._document, second)
+        self.window._select_document(third)
+        self.assertTrue(third.results_view.is_maximized)
+        self.assertTrue(self.window._tabs.isVisible())
+        self.assertTrue(self.window._open_button.isVisible())
+
+    def test_completion_preserves_focus_after_user_moves_to_filter_input(self):
+        page = self.open_log("first.log")
+        self.window.show()
+        self.window.activateWindow()
+        self.app.processEvents()
+        workers = []
+        with patch.object(QThreadPool, "start", side_effect=workers.append):
+            self.window.analyze_current()
+        draft = page.findChild(QLineEdit, "customPattern")
+        draft.setText("continue editing")
+        draft.selectAll()
+        draft.setFocus()
+        done = QSignalSpy(page.analysis_finished)
+        workers[0].run()
+        self.wait_for_completion(done)
+        self.assertIs(self.app.focusWidget(), draft)
+        self.assertEqual(draft.selectedText(), "continue editing")
+
+    def test_switching_during_analysis_and_rendering_restores_busy_state(self):
+        first = self.open_log("first.log", "ERROR: first\n" * 100)
+        self.window.show()
+        self.window.activateWindow()
+        self.app.processEvents()
+        workers = []
+        with patch.object(QThreadPool, "start", side_effect=workers.append):
+            self.window.analyze_current()
+            first._show_analysis_busy()
+            second = self.open_log("second.log")
+        self.assertTrue(self.window._analyze_button.isEnabled())
+        self.assertNotEqual(self.window.cursor().shape(), Qt.CursorShape.WaitCursor)
+        self.window._select_document(first)
+        self.assertFalse(self.window._analyze_button.isEnabled())
+        self.assertEqual(self.window.cursor().shape(), Qt.CursorShape.WaitCursor)
+        self.assertIn("Analyzing first.log", self.window.statusBar().currentMessage())
+        self.window._select_document(second)
+        draft = second.findChild(QLineEdit, "customPattern")
+        draft.setText("second draft")
+        draft.selectAll()
+        draft.setFocus()
+        status = self.window.statusBar().currentMessage()
+        done = QSignalSpy(first.analysis_finished)
+        with patch.object(first.results_view, "focus_editor", wraps=first.results_view.focus_editor) as focus:
+            workers[0].run()
+            self.assertEqual(first.session.phase, AnalysisPhase.RENDERING)
+            renderer = first.results_view._renderer
+            renderer._timer.stop()
+            with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
+                renderer._render_next_batch()
+            renderer._timer.stop()
+            self.assertEqual(first.session.phase, AnalysisPhase.RENDERING)
+            self.assertIs(self.app.focusWidget(), draft)
+            self.assertEqual(draft.selectedText(), "second draft")
+            self.assertEqual(self.window.statusBar().currentMessage(), status)
+            self.window._select_document(first)
+            self.assertIn("Rendering results for first.log", self.window.statusBar().currentMessage())
+            self.assertFalse(self.window._analyze_button.isEnabled())
+            self.assertEqual(self.window._analyze_button.text(), "Analyzing…")
+            self.assertEqual(self.window.cursor().shape(), Qt.CursorShape.WaitCursor)
+            self.window._select_document(second)
+            draft.setFocus()
+            renderer._timer.start(0)
+            self.wait_for_completion(done)
+            focus.assert_not_called()
+        self.assertIs(self.app.focusWidget(), draft)
+        self.assertEqual(self.window.statusBar().currentMessage(), status)
+        self.assertTrue(self.window._analyze_button.isEnabled())
+        self.assertNotEqual(self.window.cursor().shape(), Qt.CursorShape.WaitCursor)
+        self.window._select_document(first)
+        self.assertTrue(self.window._analyze_button.isEnabled())
+        self.assertEqual(self.window._analyze_button.text(), "&Analyze")
+        self.assertFalse(first.busy_visible)
+
+    def test_background_worker_and_renderer_failures_retain_details_in_owner(self):
+        for phase in ("analysis", "rendering"):
+            with self.subTest(phase=phase):
+                first = self.open_log(f"{phase}-first.log")
+                workers = []
+                with patch.object(QThreadPool, "start", side_effect=workers.append):
+                    self.window.analyze_current()
+                    second = self.open_log(f"{phase}-second.log")
+                    self.window.analyze_current()
+                self.assertEqual(workers[0].request_id, workers[1].request_id)
+                status = self.window.statusBar().currentMessage()
+                message = f"{phase} failed for first"
+                with patch("logreader.qt_app.QMessageBox.warning") as warning:
+                    if phase == "analysis":
+                        with patch("logreader.analysis_worker.analyze_lines", side_effect=RuntimeError(message)):
+                            workers[0].run()
+                    else:
+                        workers[0].run()
+                        renderer = first.results_view._renderer
+                        renderer._timer.stop()
+                        with patch("logreader.results_view._insert", side_effect=RuntimeError(message)):
+                            renderer._render_next_batch()
+                    warning.assert_not_called()
+                    self.assertEqual(self.window.statusBar().currentMessage(), status)
+                    self.assertEqual(second.session.phase, AnalysisPhase.ANALYZING)
+                    self.assertFalse(self.window._analyze_button.isEnabled())
+                    self.window._select_document(first)
+                    self.assertIn(message, self.window.statusBar().currentMessage())
+                    self.assertEqual(first.session.phase, AnalysisPhase.IDLE)
+                    self.assertTrue(self.window._analyze_button.isEnabled())
+                    warning.assert_not_called()
+                    # An active-tab failure still displays its own dialog.
+                    self.window._select_document(second)
+                    workers[1].signals.failed.emit(workers[1].request_id, "second failure")
+                    warning.assert_called_once_with(self.window, "Invalid filters", "second failure")
+                    self.assertIn("second failure", second.status_message)
+
+    def test_open_dialog_uses_active_directory_even_with_maximized_results(self):
+        first = self.open_log("first/server.log")
+        self.open_log("second/server.log")
+        self.window._select_document(first)
+        first.results_view.set_maximized(True)
+        with patch("logreader.qt_app.QFileDialog.getOpenFileName", return_value=("", "")) as dialog:
+            self.window._open_button.click()
+        self.assertEqual(dialog.call_args.args[2], str(first.session.path.parent))
+        self.assertIs(self.window._document, first)
+        self.assertTrue(first.results_view.is_maximized)

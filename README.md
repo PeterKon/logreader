@@ -33,6 +33,13 @@ already-open file selects its existing tab. Switching tabs preserves filters,
 unfinished inputs, results, search, selection, scrolling, and line wrapping.
 Tabs with identical filenames include a distinguishing directory suffix; hover
 over a tab to see its full path.
+Use **Ctrl+Tab** and **Ctrl+Shift+Tab** to cycle forward and backward through tabs.
+The shared controls and status follow the selected tab. Background failures stay
+in their document's status so their details are available when you return to it.
+Close a tab with its **×** or **Ctrl+W**. Closing the last tab returns to the empty
+state. Closing tabs or the application cancels their analysis and stops rendering.
+Cancellation is cooperative: it cannot interrupt a single regex operation already
+executing; shutdown waits for running workers to return before exiting.
 
 **Combined view** and **Line-separator** are enabled by default. Combined view
 merges every enabled filter into one result category while keeping individual

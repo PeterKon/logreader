@@ -1897,11 +1897,11 @@ class LogreaderQtTests(unittest.TestCase):
             started = Event()
             release = Event()
 
-            def blocking_analysis(lines, patterns, *, combined=False):
+            def blocking_analysis(lines, patterns, *, combined=False, cancellation=None):
                 started.set()
                 if not release.wait(2):
                     raise TimeoutError("Test analysis was not released")
-                return analyze_lines(lines, patterns, combined=combined)
+                return analyze_lines(lines, patterns, combined=combined, cancellation=cancellation)
 
             completed = QSignalSpy(self.window.analysis_finished)
             analyze_button = self.window.findChild(

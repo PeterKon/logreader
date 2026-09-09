@@ -34,6 +34,8 @@ class DocumentPage(QWidget):
         self.status_message = "Ready: Open a log file to begin"
         self.busy_visible = False
         self._analysis_worker: AnalysisWorker | None = None
+        self._workers: dict[int, AnalysisWorker] = {}
+        self._disposed = False
         self._analysis_pool = QThreadPool.globalInstance()
         self._analysis_busy_timer = QTimer(self)
         self._analysis_busy_timer.setSingleShot(True)
@@ -76,6 +78,10 @@ class DocumentPage(QWidget):
 
     def stage_loaded_log(self, path: Path, loaded: LoadedLog) -> None:
         """Replace this document, invalidating its previous work."""
+        if self._disposed:
+            return
+        if self._analysis_worker is not None:
+            self._analysis_worker.cancel()
         was_busy = self.session.is_busy
         self.session.stage_loaded_log(path, loaded)
         if was_busy:
@@ -90,15 +96,15 @@ class DocumentPage(QWidget):
     def analyze(self) -> None:
         """Analyze the loaded file using the current controls."""
 
-        if not self.session.has_document or self.session.is_busy:
+        if self._disposed or not self.session.has_document or self.session.is_busy:
             return
 
         try:
             config = self.build_config()
             patterns = config.search_patterns()
         except ValueError as error:
+            self._set_status(f"Analysis could not be completed: {error}")
             self.analysis_failed.emit(str(error))
-            self._set_status("Analysis could not be completed")
             return
 
         request = self.session.begin_analysis(
@@ -112,9 +118,31 @@ class DocumentPage(QWidget):
         )
         worker.signals.completed.connect(self._complete_analysis)
         worker.signals.failed.connect(self._fail_analysis)
+        worker.signals.finished.connect(self._worker_finished)
+        self._workers[request.request_id] = worker
         self._analysis_worker = worker
         self._set_analysis_busy(True)
         self._analysis_pool.start(worker)
+
+    def dispose(self) -> None:
+        """Stop UI work now; retain running workers until their final signal."""
+        if self._disposed:
+            return
+        self._disposed = True
+        self.session.clear()
+        for worker in self._workers.values():
+            worker.cancel()
+        self._finish_analysis_request()
+        self.results_view.reset_for_loaded_file("")
+        self.hide()
+        if not self._workers:
+            self.deleteLater()
+
+    @Slot(int)
+    def _worker_finished(self, request_id: int) -> None:
+        self._workers.pop(request_id, None)
+        if self._disposed and not self._workers:
+            self.deleteLater()
 
     @Slot(int, object, float)
     def _complete_analysis(
@@ -193,8 +221,8 @@ class DocumentPage(QWidget):
             return
 
         self._finish_analysis_request()
+        self._set_status(f"Analysis could not be completed: {message}")
         self.analysis_failed.emit(message)
-        self._set_status("Analysis could not be completed")
 
     def _set_analysis_busy(self, busy: bool) -> None:
         if busy:

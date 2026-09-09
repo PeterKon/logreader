@@ -735,7 +735,8 @@ class ResultsView(QWidget):
         """Start a new incremental render, cancelling any previous one."""
 
         self.cancel_rendering()
-        self.focus_editor()
+        # Analyze focuses the editor when invoked. A later worker completion
+        # must preserve whatever control (or other tab) the user moved to.
         self._clear_search_results()
         renderer = IncrementalAnalysisRenderer(
             request_id,

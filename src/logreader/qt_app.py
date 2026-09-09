@@ -11,16 +11,24 @@ from PySide6.QtCore import (
     QEvent,
     QObject,
     Qt,
+    QSize,
+    QSignalBlocker,
+    QThreadPool,
     QTimer,
     Signal,
     Slot,
 )
 from PySide6.QtGui import (
     QColor,
+    QKeySequence,
     QPalette,
+    QPainter,
+    QPen,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractButton,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -350,6 +358,37 @@ QToolTip {{
 """
 
 
+class TabCloseButton(QAbstractButton):
+    """A standalone cross with a generous hit target and no button frame."""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName("tabCloseButton")
+        self.setFixedSize(20, 20)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setToolTip("Close tab (Ctrl+W)")
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API name
+        return QSize(20, 20)
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(COLORS["ui_text" if self.underMouse() else "ui_muted"], 1.5)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawLine(6, 6, 14, 14)
+        painter.drawLine(14, 6, 6, 14)
+
+
 class LogreaderWindow(QMainWindow):
     """Small desktop shell around the shared Logreader engine."""
 
@@ -363,6 +402,15 @@ class LogreaderWindow(QMainWindow):
         self.resize(1080, 760)
         self.setMinimumSize(820, 560)
         self._build_interface()
+        self._next_tab_shortcut = QShortcut(QKeySequence("Ctrl+Tab"), self)
+        self._next_tab_shortcut.activated.connect(lambda: self._cycle_document(1))
+        self._previous_tab_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Tab"), self)
+        self._previous_tab_shortcut.activated.connect(lambda: self._cycle_document(-1))
+        self._close_tab_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
+        self._close_tab_shortcut.activated.connect(
+            lambda: self.close_tab(self._tabs.currentIndex())
+        )
+        QApplication.instance().aboutToQuit.connect(self._shutdown_documents)
         self.statusBar().showMessage("Ready: Open a log file to begin")
         self._drop_overlay = QLabel("Drop file", self)
         self._drop_overlay.setObjectName("dropOverlay")
@@ -497,6 +545,39 @@ class LogreaderWindow(QMainWindow):
     def _select_document(self, page: DocumentPage) -> None:
         self._tabs.setCurrentIndex(self._pages.indexOf(page))
 
+    def _cycle_document(self, step: int) -> None:
+        count = self._tabs.count()
+        if count > 1:
+            self._tabs.setCurrentIndex((self._tabs.currentIndex() + step) % count)
+
+    def close_tab(self, index: int) -> None:
+        """Remove a tab atomically, then dispose its document's pending work."""
+        if not 0 <= index < self._tabs.count():
+            return
+        page = self._pages.widget(index)
+        key = os.path.normcase(str(page.session.path))
+        self._documents_by_path.pop(key, None)
+        close_button = self._tabs.tabButton(index, QTabBar.ButtonPosition.RightSide)
+        self._tabs.setTabButton(index, QTabBar.ButtonPosition.RightSide, None)
+        if close_button is not None:
+            close_button.deleteLater()
+        # Do not present an intermediate state with mismatched tab/page indexes.
+        with QSignalBlocker(self._tabs), QSignalBlocker(self._pages):
+            self._pages.removeWidget(page)
+            self._tabs.removeTab(index)
+        self._refresh_tab_labels()
+        self._current_document_changed(self._tabs.currentIndex())
+        page.dispose()
+
+    @Slot()
+    def _shutdown_documents(self) -> None:
+        while self._tabs.count():
+            self.close_tab(self._tabs.count() - 1)
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        self._shutdown_documents()
+        super().closeEvent(event)
+
     @Slot(int)
     def _current_document_changed(self, index: int) -> None:
         self._pages.setCurrentIndex(index)
@@ -614,7 +695,13 @@ class LogreaderWindow(QMainWindow):
         page.analysis_finished.connect(self.analysis_finished.emit)
         self._documents_by_path[key] = page
         self._pages.addWidget(page)
-        self._tabs.addTab(path.name)
+        index = self._tabs.addTab(path.name)
+        close_button = TabCloseButton(self._tabs)
+        close_button.setAccessibleName(f"Close {path.name}")
+        close_button.clicked.connect(
+            lambda _checked=False, document=page: self.close_tab(self._pages.indexOf(document))
+        )
+        self._tabs.setTabButton(index, QTabBar.ButtonPosition.RightSide, close_button)
         self._refresh_tab_labels()
         self._select_document(page)
         return True
@@ -652,7 +739,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     app.setApplicationDisplayName(APP_VERSION)
     window = LogreaderWindow()
     window.show()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        window._shutdown_documents()
+        # Keep Qt alive until cooperative workers return, including on Quit.
+        QThreadPool.globalInstance().waitForDone()
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from time import perf_counter
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
 from .core import SearchPattern, analyze_lines
+from .cancellation import AnalysisCancelled, CancellationToken
 
 
 class AnalysisWorkerSignals(QObject):
@@ -14,6 +15,7 @@ class AnalysisWorkerSignals(QObject):
 
     completed = Signal(int, object, float)
     failed = Signal(int, str)
+    finished = Signal(int)
 
 
 class AnalysisWorker(QRunnable):
@@ -32,22 +34,34 @@ class AnalysisWorker(QRunnable):
         self.patterns = patterns
         self.combined = combined
         self.signals = AnalysisWorkerSignals()
+        self.cancellation = CancellationToken()
+
+    def cancel(self) -> None:
+        self.cancellation.cancel()
 
     @Slot()
     def run(self) -> None:
         started = perf_counter()
         try:
+            self.cancellation.check()
             analysis = analyze_lines(
                 self.lines,
                 self.patterns,
                 combined=self.combined,
+                cancellation=self.cancellation,
             )
+            self.cancellation.check()
+            self.signals.completed.emit(
+                self.request_id,
+                analysis,
+                perf_counter() - started,
+            )
+        except AnalysisCancelled:
+            pass
         except Exception as error:  # Keep worker failures from stranding the UI.
-            self.signals.failed.emit(self.request_id, str(error))
-            return
-
-        self.signals.completed.emit(
-            self.request_id,
-            analysis,
-            perf_counter() - started,
-        )
+            if not self.cancellation.is_cancelled:
+                self.signals.failed.emit(self.request_id, str(error))
+        finally:
+            self.lines = ()
+            self.patterns = ()
+            self.signals.finished.emit(self.request_id)

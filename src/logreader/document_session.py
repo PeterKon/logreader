@@ -101,6 +101,17 @@ class DocumentSession:
         self.phase = AnalysisPhase.ANALYZING
         return request
 
+    def clear(self) -> None:
+        """Invalidate requests and release all source and derived data."""
+        self.cancel_request()
+        self.path = None
+        self.lines = ()
+        self.encoding = None
+        self.analysis = None
+        self.analysis_config = None
+        self.analysis_seconds = None
+        self.rendering_seconds = None
+
     def begin_rendering(
         self,
         request_id: int,

@@ -10,6 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Sequence
 
+from .cancellation import CancellationToken, checked
+
 
 MatchValidator = Callable[[str, int, int], bool]
 COMBINED_CATEGORY_KEY = "combined"
@@ -123,6 +125,7 @@ def analyze_lines(
     patterns: Iterable[SearchPattern],
     *,
     combined: bool = False,
+    cancellation: CancellationToken | None = None,
 ) -> AnalysisResult:
     """Analyze lines using literal or regex searches and global exclusions.
 
@@ -132,13 +135,19 @@ def analyze_lines(
     become matches. Combined analysis returns one detail category, retains the
     individual pattern counts, and includes each matching source line once.
     Exclusion patterns suppress all matches on a line, but retain its context.
+    A cancellation token raises AnalysisCancelled between scan/construction
+    operations; an individual regex operation already executing must return.
     """
 
-    source_lines = tuple(lines)
+    if cancellation is not None:
+        cancellation.check()
+    source_lines = (
+        lines if isinstance(lines, tuple) else tuple(checked(lines, cancellation))
+    )
     states = []
     exclusions = []
     pattern_keys = set()
-    for pattern in patterns:
+    for pattern in checked(patterns, cancellation):
         if pattern.key in pattern_keys:
             raise ValueError(f"Duplicate search pattern key: {pattern.key}")
         pattern_keys.add(pattern.key)
@@ -148,7 +157,7 @@ def analyze_lines(
         else:
             states.append(state)
 
-    _collect_pattern_matches(source_lines, states, exclusions)
+    _collect_pattern_matches(source_lines, states, exclusions, cancellation)
     category_match_counts = {
         state.pattern.key: len(state.match_spans_by_index)
         for state in states
@@ -159,11 +168,12 @@ def analyze_lines(
                 source_lines,
                 states,
                 match_count=sum(category_match_counts.values()),
+                cancellation=cancellation,
             )
         }
     else:
         categories = {
-            state.pattern.key: _build_category_result(source_lines, state)
+            state.pattern.key: _build_category_result(source_lines, state, cancellation)
             for state in states
         }
 
@@ -195,6 +205,7 @@ def _collect_pattern_matches(
     source_lines: tuple[str, ...],
     states: list[_PatternMatchState],
     exclusions: list[re.Pattern[str]],
+    cancellation: CancellationToken | None = None,
 ) -> None:
     literal_states = [state for state in states if not state.pattern.is_regex]
     independent_states = [state for state in states if state.pattern.is_regex]
@@ -213,8 +224,11 @@ def _collect_pattern_matches(
             re.IGNORECASE,
         )
 
-    for line_index, line in enumerate(source_lines):
-        if any(expression.search(line) is not None for expression in exclusions):
+    for line_index, line in checked(enumerate(source_lines), cancellation):
+        if any(
+            expression.search(line) is not None
+            for expression in checked(exclusions, cancellation)
+        ):
             continue
         if literal_candidates is not None:
             _collect_shared_literal_matches(
@@ -222,13 +236,15 @@ def _collect_pattern_matches(
                 line,
                 literal_states,
                 literal_candidates,
+                cancellation,
             )
-        for state in independent_states:
+        for state in checked(independent_states, cancellation):
             spans, has_raw_match = _find_line_matches(
                 line,
                 state.expression,
                 state.folded_exclusions,
                 state.pattern.match_validator,
+                cancellation,
             )
             _record_line_matches(
                 state,
@@ -243,13 +259,14 @@ def _collect_shared_literal_matches(
     line: str,
     states: list[_PatternMatchState],
     candidate_expression: re.Pattern[str],
+    cancellation: CancellationToken | None = None,
 ) -> None:
     line_spans: dict[int, list[MatchSpan]] = {}
     next_search_start: dict[int, int] = {}
     completed_exclusions: set[int] = set()
     excluded_state_indexes: set[int] | None = None
 
-    for candidate in candidate_expression.finditer(line):
+    for candidate in checked(candidate_expression.finditer(line), cancellation):
         start = candidate.start()
         if excluded_state_indexes is None:
             folded_line = line.casefold()
@@ -263,7 +280,7 @@ def _collect_shared_literal_matches(
                 )
             }
 
-        for state_index, state in enumerate(states):
+        for state_index, state in checked(enumerate(states), cancellation):
             if state_index in completed_exclusions:
                 continue
             if start < next_search_start.get(state_index, 0):
@@ -307,6 +324,7 @@ def _record_line_matches(
 def _build_category_result(
     source_lines: tuple[str, ...],
     state: _PatternMatchState,
+    cancellation: CancellationToken | None = None,
 ) -> CategoryResult:
     pattern = state.pattern
     match_spans_by_index = state.match_spans_by_index
@@ -315,6 +333,7 @@ def _build_category_result(
         match_spans_by_index,
         state.raw_only_match_indexes,
         pattern.context,
+        cancellation,
     )
 
     return _build_result_from_ranges(
@@ -322,6 +341,7 @@ def _build_category_result(
         match_spans_by_index,
         ranges,
         pattern=pattern,
+        cancellation=cancellation,
     )
 
 
@@ -330,12 +350,13 @@ def _build_combined_category_result(
     states: list[_PatternMatchState],
     *,
     match_count: int,
+    cancellation: CancellationToken | None = None,
 ) -> CategoryResult:
     combined_spans: dict[int, list[MatchSpan]] = {}
     ranges = []
 
-    for state in states:
-        for line_index, spans in state.match_spans_by_index.items():
+    for state in checked(states, cancellation):
+        for line_index, spans in checked(state.match_spans_by_index.items(), cancellation):
             combined_spans.setdefault(line_index, []).extend(spans)
         ranges.extend(
             _build_excerpt_ranges(
@@ -343,18 +364,20 @@ def _build_combined_category_result(
                 state.match_spans_by_index,
                 state.raw_only_match_indexes,
                 state.pattern.context,
+                cancellation,
             )
         )
 
     merged_spans = {
-        line_index: _merge_match_spans(spans)
-        for line_index, spans in combined_spans.items()
+        line_index: _merge_match_spans(spans, cancellation)
+        for line_index, spans in checked(combined_spans.items(), cancellation)
     }
     return _build_result_from_ranges(
         source_lines,
         merged_spans,
-        _merge_ranges(ranges),
+        _merge_ranges(ranges, cancellation),
         match_count=match_count,
+        cancellation=cancellation,
     )
 
 
@@ -363,15 +386,16 @@ def _build_excerpt_ranges(
     match_spans_by_index: Mapping[int, tuple[MatchSpan, ...]],
     raw_only_match_indexes: set[int],
     context: int,
+    cancellation: CancellationToken | None = None,
 ) -> list[tuple[int, int]]:
     ranges: list[tuple[int, int]] = []
-    for match_index in match_spans_by_index:
+    for match_index in checked(match_spans_by_index, cancellation):
         start = max(0, match_index - context)
         end = match_index
 
-        for candidate in range(
-            match_index + 1,
-            min(line_count, match_index + context + 1),
+        for candidate in checked(
+            range(match_index + 1, min(line_count, match_index + context + 1)),
+            cancellation,
         ):
             # Preserve the original reader's behavior: following context stops
             # before the next occurrence of the searched term.
@@ -384,12 +408,15 @@ def _build_excerpt_ranges(
 
         ranges.append((start, end))
 
-    return _merge_ranges(ranges)
+    return _merge_ranges(ranges, cancellation)
 
 
-def _merge_ranges(ranges: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
+def _merge_ranges(
+    ranges: Iterable[tuple[int, int]],
+    cancellation: CancellationToken | None = None,
+) -> list[tuple[int, int]]:
     merged_ranges: list[tuple[int, int]] = []
-    for start, end in sorted(ranges):
+    for start, end in checked(sorted(checked(ranges, cancellation)), cancellation):
         if merged_ranges and start <= merged_ranges[-1][1] + 1:
             previous_start, previous_end = merged_ranges[-1]
             merged_ranges[-1] = (previous_start, max(previous_end, end))
@@ -398,9 +425,13 @@ def _merge_ranges(ranges: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
     return merged_ranges
 
 
-def _merge_match_spans(spans: Iterable[MatchSpan]) -> tuple[MatchSpan, ...]:
+def _merge_match_spans(
+    spans: Iterable[MatchSpan],
+    cancellation: CancellationToken | None = None,
+) -> tuple[MatchSpan, ...]:
     merged_spans: list[MatchSpan] = []
-    for span in sorted(spans, key=lambda item: (item.start, item.end)):
+    ordered = sorted(checked(spans, cancellation), key=lambda item: (item.start, item.end))
+    for span in checked(ordered, cancellation):
         if merged_spans and span.start <= merged_spans[-1].end:
             previous = merged_spans[-1]
             merged_spans[-1] = MatchSpan(
@@ -419,6 +450,7 @@ def _build_result_from_ranges(
     *,
     pattern: SearchPattern | None = None,
     match_count: int | None = None,
+    cancellation: CancellationToken | None = None,
 ) -> CategoryResult:
     excerpts = tuple(
         LogExcerpt(
@@ -428,10 +460,10 @@ def _build_result_from_ranges(
                     text=source_lines[index],
                     match_spans=match_spans_by_index.get(index, ()),
                 )
-                for index in range(start, end + 1)
+                for index in checked(range(start, end + 1), cancellation)
             )
         )
-        for start, end in ranges
+        for start, end in checked(ranges, cancellation)
     )
 
     return CategoryResult(
@@ -451,6 +483,7 @@ def _find_line_matches(
     expression: re.Pattern[str],
     folded_exclusions: tuple[str, ...] = (),
     match_validator: MatchValidator | None = None,
+    cancellation: CancellationToken | None = None,
 ) -> tuple[tuple[MatchSpan, ...], bool]:
     """Return accepted spans and whether the line has any raw occurrence."""
 
@@ -462,7 +495,7 @@ def _find_line_matches(
         )
 
     spans = []
-    for match in expression.finditer(line):
+    for match in checked(expression.finditer(line), cancellation):
         start, end = match.start(), match.end()
         if start == end:
             continue
