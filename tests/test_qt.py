@@ -171,7 +171,7 @@ class LogreaderQtTests(unittest.TestCase):
             local_url = QUrl.fromLocalFile(str(path))
             for urls in (
                 [], [QUrl("https://example.com/server.log")],
-                [QUrl.fromLocalFile(directory)], [local_url, local_url],
+                [QUrl.fromLocalFile(directory)],
                 [QUrl.fromLocalFile(str(path.with_name("missing.log")))],
             ):
                 with self.subTest(urls=urls):
@@ -1936,7 +1936,7 @@ class LogreaderQtTests(unittest.TestCase):
                     self.assertEqual(search.selectedText(), "")
                     self.assertTrue(open_button.isEnabled())
                     self.assertTrue(filter_group.isEnabled())
-                    self.assertNotIn(
+                    self.assertIn(
                         "Analyzing",
                         self.window.statusBar().currentMessage(),
                     )

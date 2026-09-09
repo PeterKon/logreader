@@ -260,6 +260,8 @@ class IncrementalAnalysisRenderer(QObject):
         self._cursor: QTextCursor | None = None
         self._started = 0.0
         self._cancelled = False
+        self._paused_at: float | None = None
+        self._paused_seconds = 0.0
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._render_next_batch)
@@ -281,9 +283,22 @@ class IncrementalAnalysisRenderer(QObject):
         self._cursor = None
         self._view.setUpdatesEnabled(True)
 
+    def set_paused(self, paused: bool) -> None:
+        if self._cancelled or paused == (self._paused_at is not None):
+            return
+        if paused:
+            self._paused_at = perf_counter()
+            self._timer.stop()
+            self._view.setUpdatesEnabled(True)
+        else:
+            self._paused_seconds += perf_counter() - self._paused_at
+            self._paused_at = None
+            self._view.setUpdatesEnabled(False)
+            self._timer.start(0)
+
     @Slot()
     def _render_next_batch(self) -> None:
-        if self._cancelled or self._cursor is None:
+        if self._cancelled or self._cursor is None or self._paused_at is not None:
             return
 
         batch_elapsed = QElapsedTimer()
@@ -319,7 +334,7 @@ class IncrementalAnalysisRenderer(QObject):
         self._view.setUpdatesEnabled(True)
         self.completed.emit(
             self.request_id,
-            perf_counter() - self._started,
+            perf_counter() - self._started - self._paused_seconds,
         )
 
 
@@ -760,6 +775,14 @@ class ResultsView(QWidget):
             return
         renderer.cancel()
         renderer.deleteLater()
+
+    @property
+    def is_rendering(self) -> bool:
+        return self._renderer is not None
+
+    def set_rendering_paused(self, paused: bool) -> None:
+        if self._renderer is not None:
+            self._renderer.set_paused(paused)
 
     def prepend_performance_timings(
         self,

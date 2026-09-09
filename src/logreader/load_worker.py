@@ -12,6 +12,7 @@ class LoadWorkerSignals(QObject):
     completed = Signal(int, object)
     failed = Signal(int, str)
     finished = Signal(int)
+    started = Signal(int)
 
 
 class LoadWorker(QRunnable):
@@ -24,6 +25,12 @@ class LoadWorker(QRunnable):
 
     def cancel(self) -> None:
         self.cancellation.cancel()
+
+    def discard(self) -> None:
+        """Release queued work without opening the file."""
+        self.cancel()
+        self.source_path = None
+        self.signals.finished.emit(self.request_id)
 
     @Slot()
     def run(self) -> None:

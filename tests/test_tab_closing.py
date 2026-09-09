@@ -173,6 +173,9 @@ class TabClosingTests(unittest.TestCase):
     def test_window_close_and_application_quit_cancel_all_work(self):
         for quit_signal in (False, True):
             with self.subTest(quit_signal=quit_signal):
+                if quit_signal:
+                    self.window.deleteLater()
+                    self.window = LogreaderWindow()
                 first = self.open_log(f"shutdown-{quit_signal}-first.log")
                 workers = []
                 with capture_analysis(workers):

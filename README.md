@@ -28,6 +28,10 @@ You can also use `python -m logreader`.
 
 Open a log file, choose filters, then press **Analyze**.
 
+The file picker and drag-and-drop accept multiple local files. New tabs follow the
+input order, and the first requested file is selected. Duplicate paths reuse their
+existing tabs, and one file's loading failure does not stop the others.
+
 Each file opens in its own tab with default filters. Opening or dropping an
 already-open file selects its existing tab. Switching tabs preserves filters,
 unfinished inputs, results, search, selection, scrolling, and line wrapping.
@@ -35,6 +39,10 @@ Files load in the background. **Loading…** tabs become ready for **Analyze** w
 reading and decoding finish. A failed load stays in its tab with the error details;
 open that file again to retry. Closing a loading tab cancels the request and
 discards any late result.
+Loading and analysis each use a separate FIFO queue with one active worker.
+Queued work is removed when its tab closes. Opening files never starts analysis.
+Only the selected tab renders results: hidden tabs keep completed analysis ready,
+and partially rendered results pause until their tab is selected again.
 Tabs with identical filenames include a distinguishing directory suffix; hover
 over a tab to see its full path.
 Use **Ctrl+Tab** and **Ctrl+Shift+Tab** to cycle forward and backward through tabs.

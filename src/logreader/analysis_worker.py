@@ -16,6 +16,7 @@ class AnalysisWorkerSignals(QObject):
     completed = Signal(int, object, float)
     failed = Signal(int, str)
     finished = Signal(int)
+    started = Signal(int)
 
 
 class AnalysisWorker(QRunnable):
@@ -38,6 +39,13 @@ class AnalysisWorker(QRunnable):
 
     def cancel(self) -> None:
         self.cancellation.cancel()
+
+    def discard(self) -> None:
+        """Release queued work that has never entered the thread pool."""
+        self.cancel()
+        self.lines = ()
+        self.patterns = ()
+        self.signals.finished.emit(self.request_id)
 
     @Slot()
     def run(self) -> None:

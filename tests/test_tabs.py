@@ -73,7 +73,7 @@ class TabTests(unittest.TestCase):
         self.assertEqual(self.window.windowTitle(), APP_VERSION)
         self.window.analyze_current()  # Safe in the empty state.
         path = self.make_log("empty.log", "")
-        with patch("logreader.qt_app.QFileDialog.getOpenFileName", return_value=(str(path), "")):
+        with patch("logreader.qt_app.QFileDialog.getOpenFileNames", return_value=([str(path)], "")):
             self.window._open_button.click()
         page = self.window._document
         wait_for_load(page)
@@ -213,11 +213,13 @@ class TabTests(unittest.TestCase):
         status = self.window.statusBar().currentMessage()
         first_done = QSignalSpy(first.analysis_finished)
         workers[0].run()
-        self.wait_for_completion(first_done)
+        self.assertIsNone(first.results_view._renderer)
+        self.assertEqual(first_done.count(), 0)
         self.assertIs(self.window._document, second)
         self.assertEqual(self.window.statusBar().currentMessage(), status)
         self.assertIn("ERROR: second", second.results_view.editor.toPlainText())
         self.window._select_document(first)
+        self.wait_for_completion(first_done)
         self.assertIn("ERROR: first", first.results_view.editor.toPlainText())
         self.assertEqual(self.window.statusBar().currentMessage(), first.status_message)
         self.assertIn("first.log", self.window.windowTitle())
@@ -311,30 +313,33 @@ class TabTests(unittest.TestCase):
         with patch.object(first.results_view, "focus_editor", wraps=first.results_view.focus_editor) as focus:
             workers[0].run()
             self.assertEqual(first.session.phase, AnalysisPhase.RENDERING)
-            renderer = first.results_view._renderer
-            renderer._timer.stop()
-            with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
-                renderer._render_next_batch()
-            renderer._timer.stop()
-            self.assertEqual(first.session.phase, AnalysisPhase.RENDERING)
+            self.assertIsNone(first.results_view._renderer)
             self.assertIs(self.app.focusWidget(), draft)
             self.assertEqual(draft.selectedText(), "second draft")
             self.assertEqual(self.window.statusBar().currentMessage(), status)
             self.window._select_document(first)
+            renderer = first.results_view._renderer
+            renderer._timer.stop()
+            with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
+                renderer._render_next_batch()
+            first._show_analysis_busy()
             self.assertIn("Rendering results for first.log", self.window.statusBar().currentMessage())
             self.assertFalse(self.window._analyze_button.isEnabled())
-            self.assertEqual(self.window._analyze_button.text(), "Analyzing…")
             self.assertEqual(self.window.cursor().shape(), Qt.CursorShape.WaitCursor)
             self.window._select_document(second)
             draft.setFocus()
-            renderer._timer.start(0)
+            partial = first.results_view.editor.toPlainText()
+            QTest.qWait(20)
+            self.assertFalse(renderer._timer.isActive())
+            self.assertEqual(first.results_view.editor.toPlainText(), partial)
+            self.assertEqual(done.count(), 0)
+            self.assertIs(self.app.focusWidget(), draft)
+            self.assertEqual(self.window.statusBar().currentMessage(), status)
+            self.assertTrue(self.window._analyze_button.isEnabled())
+            self.assertNotEqual(self.window.cursor().shape(), Qt.CursorShape.WaitCursor)
+            self.window._select_document(first)
             self.wait_for_completion(done)
             focus.assert_not_called()
-        self.assertIs(self.app.focusWidget(), draft)
-        self.assertEqual(self.window.statusBar().currentMessage(), status)
-        self.assertTrue(self.window._analyze_button.isEnabled())
-        self.assertNotEqual(self.window.cursor().shape(), Qt.CursorShape.WaitCursor)
-        self.window._select_document(first)
         self.assertTrue(self.window._analyze_button.isEnabled())
         self.assertEqual(self.window._analyze_button.text(), "&Analyze")
         self.assertFalse(first.busy_visible)
@@ -357,10 +362,12 @@ class TabTests(unittest.TestCase):
                             workers[0].run()
                     else:
                         workers[0].run()
+                        self.window._select_document(first)
                         renderer = first.results_view._renderer
-                        renderer._timer.stop()
-                        with patch("logreader.results_view._insert", side_effect=RuntimeError(message)):
-                            renderer._render_next_batch()
+                        self.window._select_document(second)
+                        # A failure already dispatched before a switch still
+                        # belongs to this renderer, even after it is paused.
+                        renderer.failed.emit(workers[0].request_id, message)
                     warning.assert_not_called()
                     self.assertEqual(self.window.statusBar().currentMessage(), status)
                     self.assertEqual(second.session.phase, AnalysisPhase.ANALYZING)
@@ -381,7 +388,7 @@ class TabTests(unittest.TestCase):
         self.open_log("second/server.log")
         self.window._select_document(first)
         first.results_view.set_maximized(True)
-        with patch("logreader.qt_app.QFileDialog.getOpenFileName", return_value=("", "")) as dialog:
+        with patch("logreader.qt_app.QFileDialog.getOpenFileNames", return_value=([], "")) as dialog:
             self.window._open_button.click()
         self.assertEqual(dialog.call_args.args[2], str(first.session.path.parent))
         self.assertIs(self.window._document, first)

@@ -6,6 +6,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
+    from qt_helpers import capture_analysis
     from PySide6.QtCore import QThreadPool
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox
@@ -59,19 +60,20 @@ class DocumentPageTests(unittest.TestCase):
         draft.setText("unfinished draft")
 
         workers = []
-        with patch.object(QThreadPool, "start", side_effect=workers.append):
+        with capture_analysis(workers):
             self.first.analyze()
             self.second.analyze()
         self.assertEqual(workers[0].request_id, workers[1].request_id)
 
         # Later edits must not alter the configuration of the running request.
         self.first.filter_panel.findChild(QSpinBox, "contextSpin").setValue(9)
+        first_status_before = first_status.count()
         workers[1].run()
         self.wait_for_completion(second_done)
         self.assertEqual(self.first.session.phase, AnalysisPhase.ANALYZING)
         self.assertIsNone(self.first.session.analysis)
         self.assertEqual(first_done.count(), 0)
-        self.assertEqual(first_status.count(), 0)
+        self.assertEqual(first_status.count(), first_status_before)
         self.assertIn("ERROR: second", self.second.results_view.editor.toPlainText())
 
         workers[0].run()
@@ -88,7 +90,7 @@ class DocumentPageTests(unittest.TestCase):
 
     def test_replacement_rejects_old_worker_and_rendering_signals(self):
         workers = []
-        with patch.object(QThreadPool, "start", side_effect=workers.append):
+        with capture_analysis(workers):
             self.first.analyze()
             old_id = workers[0].request_id
             self.first.stage_loaded_log(
@@ -116,7 +118,7 @@ class DocumentPageTests(unittest.TestCase):
 
     def test_worker_failure_only_finishes_and_notifies_its_owner(self):
         workers = []
-        with patch.object(QThreadPool, "start", side_effect=workers.append):
+        with capture_analysis(workers):
             self.first.analyze()
             self.second.analyze()
         first_failed = QSignalSpy(self.first.analysis_failed)

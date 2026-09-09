@@ -8,6 +8,7 @@ from PySide6.QtTest import QTest
 
 from logreader.document_session import LoadPhase
 from logreader.load_worker import LoadWorker
+from logreader.work_queue import WorkQueue
 
 
 def wait_for_load(page):
@@ -22,13 +23,14 @@ def wait_for_load(page):
 
 @contextmanager
 def capture_analysis(workers):
-    start = QThreadPool.start
+    submit = WorkQueue.submit
 
-    def dispatch(pool, worker):
+    def dispatch(queue, worker):
         if isinstance(worker, LoadWorker):
-            start(pool, worker)
+            submit(queue, worker)
         else:
+            worker.signals.started.emit(worker.request_id)
             workers.append(worker)
 
-    with patch.object(QThreadPool, "start", new=dispatch):
+    with patch.object(WorkQueue, "submit", new=dispatch):
         yield

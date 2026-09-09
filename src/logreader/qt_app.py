@@ -46,6 +46,7 @@ from .config import APP_VERSION, LogreaderConfig
 from .document_page import DocumentPage
 from .document_session import LoadPhase
 from .theme import THEME_COLORS
+from .work_queue import WorkScheduler
 
 
 COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
@@ -401,6 +402,7 @@ class LogreaderWindow(QMainWindow):
         self.setWindowTitle(APP_VERSION)
         self.resize(1080, 760)
         self.setMinimumSize(820, 560)
+        self._scheduler = WorkScheduler(self)
         self._build_interface()
         self._next_tab_shortcut = QShortcut(QKeySequence("Ctrl+Tab"), self)
         self._next_tab_shortcut.activated.connect(lambda: self._cycle_document(1))
@@ -455,20 +457,19 @@ class LogreaderWindow(QMainWindow):
             if event.type() == QEvent.Type.Drop:
                 self._drop_overlay.hide()
             urls = event.mimeData().urls()
-            path = (
-                Path(urls[0].toLocalFile())
-                if len(urls) == 1 and urls[0].isLocalFile()
-                else None
-            )
+            paths = [
+                Path(url.toLocalFile()) for url in urls
+                if url.isLocalFile() and Path(url.toLocalFile()).is_file()
+            ]
             if (
-                path is None
-                or not path.is_file()
+                not paths
                 or not event.possibleActions() & Qt.DropAction.CopyAction
             ):
                 self._drop_overlay.hide()
                 event.ignore()
-            elif event.type() != QEvent.Type.Drop or self.load_file(path):
+            elif event.type() != QEvent.Type.Drop or self.load_files(paths):
                 if event.type() != QEvent.Type.Drop:
+                    self._drop_overlay.setText("Drop file" if len(paths) == 1 else f"Drop {len(paths)} files")
                     self._drop_overlay.setGeometry(self.rect())
                     self._drop_overlay.show()
                     self._drop_overlay.raise_()
@@ -571,6 +572,7 @@ class LogreaderWindow(QMainWindow):
 
     @Slot()
     def _shutdown_documents(self) -> None:
+        self._scheduler.shutdown()
         while self._tabs.count():
             self.close_tab(self._tabs.count() - 1)
 
@@ -583,6 +585,12 @@ class LogreaderWindow(QMainWindow):
         self._pages.setCurrentIndex(index)
         self._tabs.setVisible(self._tabs.count() > 0)
         page = self._document
+        for index in range(self._pages.count()):
+            other = self._pages.widget(index)
+            if other is not page:
+                other.set_render_active(False)
+        if page is not None:
+            page.set_render_active(True)
         self._workspace.setCurrentWidget(self._pages if page else self._empty_page)
         path = page.session.path if page else None
         self._path_label.setText(path.name if path else "No file selected")
@@ -619,7 +627,7 @@ class LogreaderWindow(QMainWindow):
                         break
                 label = f"{path.name} — {suffix}"
             if page.session.load_phase is LoadPhase.LOADING:
-                label += " (Loading…)"
+                label += " (Queued)" if page.load_queued else " (Loading…)"
             elif page.session.load_phase is LoadPhase.FAILED:
                 label += " (Failed)"
             self._tabs.setTabText(index, label)
@@ -662,18 +670,31 @@ class LogreaderWindow(QMainWindow):
             if self._document is not None and self._document.session.path is not None
             else Path.home()
         )
-        filename, _ = QFileDialog.getOpenFileName(
+        filenames, _ = QFileDialog.getOpenFileNames(
             self,
-            "Open log file",
+            "Open log files",
             str(initial_directory),
             "Log and text files (*.log *.txt);;All files (*)",
         )
-        if filename:
-            self.load_file(filename)
+        if filenames:
+            self.load_files(filenames)
 
     def load_file(self, source_path: str | Path) -> bool:
-        """Select or create a loading tab; True means the open was accepted."""
+        """Open one path through the shared multi-file pipeline."""
+        return self.load_files([source_path])
 
+    def load_files(self, source_paths: Sequence[str | Path]) -> bool:
+        """Append new documents in input order and select the first requested one."""
+        first = None
+        for source_path in source_paths:
+            page = self._open_path(source_path)
+            if first is None:
+                first = page
+        if first is not None:
+            self._select_document(first)
+        return first is not None
+
+    def _open_path(self, source_path: str | Path) -> DocumentPage:
         path = Path(source_path)
         try:
             path = path.resolve()
@@ -682,12 +703,12 @@ class LogreaderWindow(QMainWindow):
         key = os.path.normcase(str(path))
         existing = self._documents_by_path.get(key)
         if existing is not None:
-            self._select_document(existing)
             if existing.session.load_phase is LoadPhase.FAILED:
                 existing.load_file(path)
-            return True
+            return existing
 
-        page = DocumentPage(self._pages)
+        page = DocumentPage(self._pages, scheduler=self._scheduler)
+        page.set_render_active(False)
         page.status_changed.connect(self._present_document_status)
         page.busy_changed.connect(self._present_analysis_busy)
         page.analysis_failed.connect(self._present_analysis_failure)
@@ -703,8 +724,7 @@ class LogreaderWindow(QMainWindow):
         )
         self._tabs.setTabButton(index, QTabBar.ButtonPosition.RightSide, close_button)
         self._refresh_tab_labels()
-        self._select_document(page)
-        return True
+        return page
 
     def analyze_current(self) -> None:
         """Dispatch Analyze to the document owning the controls and results."""
@@ -720,7 +740,8 @@ class LogreaderWindow(QMainWindow):
         )
         loading = page is not None and page.session.load_phase is LoadPhase.LOADING
         self._analyze_button.setText(
-            "Loading…" if loading else "Analyzing…" if busy else "&Analyze"
+            "Queued…" if page is not None and (page.load_queued or page.analysis_queued)
+            else "Loading…" if loading else "Analyzing…" if busy else "&Analyze"
         )
         if page is not None and page.busy_visible:
             self.setCursor(Qt.CursorShape.WaitCursor)

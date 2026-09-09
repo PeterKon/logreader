@@ -18,6 +18,7 @@ try:
     from logreader.document_session import LoadPhase
     from logreader.file_loader import LoadedLog, decode_log_bytes
     from logreader.qt_app import LogreaderWindow
+    from logreader.work_queue import WorkQueue
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -152,7 +153,7 @@ class LoadingTests(unittest.TestCase):
         second_path = self.root / "second.log"
         second_path.write_bytes(b"\xff\xfe\x00")  # Invalid BOM-marked UTF-16.
         workers = []
-        with patch.object(QThreadPool, "start", side_effect=workers.append):
+        with patch.object(WorkQueue, "submit", side_effect=workers.append):
             self.window.load_file(first_path)
             first = self.window._document
             self.window.load_file(second_path)
@@ -230,7 +231,7 @@ class LoadingTests(unittest.TestCase):
     def test_superseded_generation_and_reopened_path_reject_old_load_callbacks(self):
         page = DocumentPage()
         workers = []
-        with patch.object(QThreadPool, "start", side_effect=workers.append):
+        with patch.object(WorkQueue, "submit", side_effect=workers.append):
             page.load_file(self.root / "old.log")
             page.load_file(self.root / "new.log")
         old, current = workers
@@ -248,7 +249,7 @@ class LoadingTests(unittest.TestCase):
 
         workers = []
         path = self.root / "same.log"
-        with patch.object(QThreadPool, "start", side_effect=workers.append):
+        with patch.object(WorkQueue, "submit", side_effect=workers.append):
             self.window.load_file(path)
             old_page = self.window._document
             self.window.close_tab(0)

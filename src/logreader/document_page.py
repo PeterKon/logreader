@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QThreadPool, QTimer, Signal, Slot
+from PySide6.QtCore import QTimer, Signal, Slot
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from .analysis_worker import AnalysisWorker
@@ -15,6 +15,7 @@ from .file_loader import LoadedLog
 from .load_worker import LoadWorker
 from .filter_panel import FilterPanel, VisibleCheckBox, VisibleSpinBox
 from .results_view import ResultsView
+from .work_queue import WorkScheduler
 
 
 ANALYSIS_BUSY_DELAY_MS = 1_000
@@ -29,7 +30,9 @@ class DocumentPage(QWidget):
     busy_changed = Signal()
     load_finished = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, *, scheduler: WorkScheduler | None = None
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("centralWidget")
         self.session = DocumentSession()
@@ -39,7 +42,10 @@ class DocumentPage(QWidget):
         self._workers: dict[int, AnalysisWorker | LoadWorker] = {}
         self._load_worker: LoadWorker | None = None
         self._disposed = False
-        self._analysis_pool = QThreadPool.globalInstance()
+        self._scheduler = scheduler if scheduler is not None else WorkScheduler(self)
+        self.load_queued = False
+        self.analysis_queued = False
+        self._render_active = True
         self._analysis_busy_timer = QTimer(self)
         self._analysis_busy_timer.setSingleShot(True)
         self._analysis_busy_timer.setInterval(ANALYSIS_BUSY_DELAY_MS)
@@ -84,9 +90,9 @@ class DocumentPage(QWidget):
         if self._disposed:
             return
         if self._analysis_worker is not None:
-            self._analysis_worker.cancel()
+            self._scheduler.cancel(self._analysis_worker)
         if self._load_worker is not None:
-            self._load_worker.cancel()
+            self._scheduler.cancel(self._load_worker)
             self._load_worker = None
         was_busy = self.session.is_busy
         self.session.stage_loaded_log(path, loaded)
@@ -106,27 +112,40 @@ class DocumentPage(QWidget):
         """Start a document-owned load without blocking the GUI thread."""
         if self._disposed:
             return
-        for worker in self._workers.values():
-            worker.cancel()
+        for worker in tuple(self._workers.values()):
+            self._scheduler.cancel(worker)
         request_id = self.session.begin_loading(path)
         self._finish_analysis_request()
         self.results_view.reset_for_loaded_file(path.name)
-        message = f"Loading {path.name}…"
+        self.load_queued = True
+        message = f"Queued for loading {path.name}…"
         self.results_view.editor.setPlaceholderText(message)
         self._set_status(message)
         worker = LoadWorker(request_id, path)
+        worker.signals.started.connect(self._load_started)
         worker.signals.completed.connect(self._complete_load)
         worker.signals.failed.connect(self._fail_load)
         worker.signals.finished.connect(self._worker_finished)
         self._load_worker = worker
         self._workers[request_id] = worker
-        self._analysis_pool.start(worker)
+        self._scheduler.loading.submit(worker)
+
+    @Slot(int)
+    def _load_started(self, request_id: int) -> None:
+        if self._disposed or self.session.active_load_id != request_id:
+            return
+        self.load_queued = False
+        message = f"Loading {self.session.path.name}…"
+        self.results_view.editor.setPlaceholderText(message)
+        self._set_status(message)
+        self.busy_changed.emit()
 
     @Slot(int, object)
     def _complete_load(self, request_id: int, loaded: LoadedLog) -> None:
         if not self.session.complete_loading(request_id, loaded):
             return
         self._load_worker = None
+        self.load_queued = False
         self._show_loaded_log(self.session.path, loaded)
         self.load_finished.emit()
 
@@ -135,6 +154,7 @@ class DocumentPage(QWidget):
         if not self.session.fail_loading(request_id, message):
             return
         self._load_worker = None
+        self.load_queued = False
         self.results_view.editor.setPlaceholderText(
             f"Unable to load {self.session.path.name}\n{message}\n\n"
             "Open this file again to retry."
@@ -166,13 +186,60 @@ class DocumentPage(QWidget):
             patterns,
             config.combined_view,
         )
+        worker.signals.started.connect(self._analysis_started)
         worker.signals.completed.connect(self._complete_analysis)
         worker.signals.failed.connect(self._fail_analysis)
         worker.signals.finished.connect(self._worker_finished)
         self._workers[request.request_id] = worker
         self._analysis_worker = worker
+        self.analysis_queued = True
         self._set_analysis_busy(True)
-        self._analysis_pool.start(worker)
+        self._set_status(f"Queued for analysis of {self.session.path.name}…")
+        self._scheduler.analysis.submit(worker)
+
+    @Slot(int)
+    def _analysis_started(self, request_id: int) -> None:
+        request = self.session.active_request
+        if self._disposed or request is None or request.request_id != request_id:
+            return
+        self.analysis_queued = False
+        self._analysis_busy_timer.start()
+        self._set_status(f"Analyzing {request.source_path.name} with {request.pattern_count} active patterns…")
+        self.busy_changed.emit()
+
+    def set_render_active(self, active: bool) -> None:
+        """Only the selected tab consumes GUI rendering batches."""
+        if self._render_active == active:
+            return
+        self._render_active = active
+        self._update_rendering_activity()
+
+    def _update_rendering_activity(self) -> None:
+        if self.session.phase is not AnalysisPhase.RENDERING:
+            return
+        if not self._render_active:
+            self.results_view.set_rendering_paused(True)
+            self._analysis_busy_timer.stop()
+            self.busy_visible = False
+            self._set_status("Results ready — select this tab to continue rendering")
+            self.busy_changed.emit()
+        else:
+            self._start_or_resume_rendering()
+
+    def _start_or_resume_rendering(self) -> None:
+        request = self.session.active_request
+        if request is None or self.session.analysis is None or self._disposed:
+            return
+        if self.results_view.is_rendering:
+            self.results_view.set_rendering_paused(False)
+        else:
+            self.results_view.start_rendering(
+                request.request_id, str(request.source_path),
+                self.session.analysis, request.config,
+            )
+        self._analysis_busy_timer.start()
+        self._set_status(f"Rendering results for {request.source_path.name}…")
+        self.busy_changed.emit()
 
     def dispose(self) -> None:
         """Stop UI work now; retain running workers until their final signal."""
@@ -180,8 +247,8 @@ class DocumentPage(QWidget):
             return
         self._disposed = True
         self.session.clear()
-        for worker in self._workers.values():
-            worker.cancel()
+        for worker in tuple(self._workers.values()):
+            self._scheduler.cancel(worker)
         self._load_worker = None
         self._finish_analysis_request()
         self.results_view.reset_for_loaded_file("")
@@ -217,16 +284,8 @@ class DocumentPage(QWidget):
             return
 
         self._analysis_worker = None
-        self.results_view.start_rendering(
-            request_id,
-            str(request.source_path),
-            analysis,
-            request.config,
-        )
-        if self.busy_visible:
-            self._set_status(
-                f"Rendering results for {request.source_path.name}…"
-            )
+        self.analysis_queued = False
+        self._update_rendering_activity()
 
     @Slot(int, float)
     def _complete_rendering(
@@ -280,7 +339,6 @@ class DocumentPage(QWidget):
             self.busy_visible = False
             self.results_view.focus_editor()
             self.busy_changed.emit()
-            self._analysis_busy_timer.start()
             return
 
         self._analysis_busy_timer.stop()
@@ -289,7 +347,7 @@ class DocumentPage(QWidget):
 
     @Slot()
     def _show_analysis_busy(self) -> None:
-        if not self.session.is_busy:
+        if not self.session.is_busy or self.analysis_queued:
             return
 
         self.busy_visible = True
@@ -310,4 +368,5 @@ class DocumentPage(QWidget):
     def _finish_analysis_request(self) -> None:
         self.results_view.cancel_rendering()
         self._analysis_worker = None
+        self.analysis_queued = False
         self._set_analysis_busy(False)
