@@ -7,6 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
+    from qt_helpers import capture_analysis, wait_for_load
     from PySide6.QtCore import QThreadPool, Qt
     from PySide6.QtGui import QTextCursor
     from PySide6.QtTest import QSignalSpy, QTest
@@ -51,6 +52,7 @@ class TabTests(unittest.TestCase):
     def open_log(self, name, text="ERROR: example\n"):
         path = self.make_log(name, text)
         self.assertTrue(self.window.load_file(path))
+        wait_for_load(self.window._document)
         return self.window._document
 
     def wait_for_completion(self, spy):
@@ -74,6 +76,7 @@ class TabTests(unittest.TestCase):
         with patch("logreader.qt_app.QFileDialog.getOpenFileName", return_value=(str(path), "")):
             self.window._open_button.click()
         page = self.window._document
+        wait_for_load(page)
         self.assertEqual(self.window._tabs.count(), 1)
         self.assertFalse(self.window._empty_page.isVisible())
         self.assertTrue(self.window._tabs.isVisible())
@@ -94,7 +97,7 @@ class TabTests(unittest.TestCase):
         ]
         if os.name == "nt":
             variants.append(Path(str(first.session.path).upper()))
-        with patch("logreader.qt_app.load_log", side_effect=AssertionError("Duplicate reread")):
+        with patch("logreader.load_worker.load_log", side_effect=AssertionError("Duplicate reread")):
             for path in variants:
                 self.assertTrue(self.window.load_file(path))
                 self.assertIs(self.window._document, first)
@@ -180,21 +183,26 @@ class TabTests(unittest.TestCase):
         self.assertTrue(second.findChild(QCheckBox, "lineWrapCheck").isChecked())
         self.assertEqual(second.build_config().context, 8)
 
-    def test_failed_open_does_not_create_tab_or_disturb_existing_document(self):
+    def test_failed_open_keeps_error_in_its_tab_and_preserves_other_documents(self):
+        first = self.open_log("first.log")
         with patch("logreader.qt_app.QMessageBox.critical") as error:
-            self.assertFalse(self.window.load_file(self.root / "missing.log"))
-            self.assertEqual(self.window._tabs.count(), 0)
-            self.assertIs(self.window._workspace.currentWidget(), self.window._empty_page)
-            first = self.open_log("first.log")
-            self.assertFalse(self.window.load_file(self.root / "missing.log"))
-            self.assertEqual(error.call_count, 2)
-        self.assertEqual(self.window._tabs.count(), 1)
-        self.assertIs(self.window._document, first)
+            self.assertTrue(self.window.load_file(self.root / "missing.log"))
+            failed = self.window._document
+            wait_for_load(failed)
+            error.assert_not_called()
+        self.assertEqual(self.window._tabs.count(), 2)
+        self.assertIs(self.window._document, failed)
+        self.assertFalse(failed.session.has_document)
+        self.assertIn("Unable to load missing.log", failed.status_message)
+        self.assertFalse(self.window._analyze_button.isEnabled())
+        self.window._select_document(first)
+        self.assertTrue(self.window._analyze_button.isEnabled())
+        self.assertEqual(self.window.statusBar().currentMessage(), first.status_message)
 
     def test_background_completion_and_switching_keep_correct_owner_and_status(self):
         first = self.open_log("first.log", "ERROR: first\n")
         workers = []
-        with patch.object(QThreadPool, "start", side_effect=workers.append):
+        with capture_analysis(workers):
             self.window.analyze_current()
             second = self.open_log("second.log", "ERROR: second\n")
             self.window.analyze_current()
@@ -265,7 +273,7 @@ class TabTests(unittest.TestCase):
         self.window.activateWindow()
         self.app.processEvents()
         workers = []
-        with patch.object(QThreadPool, "start", side_effect=workers.append):
+        with capture_analysis(workers):
             self.window.analyze_current()
         draft = page.findChild(QLineEdit, "customPattern")
         draft.setText("continue editing")
@@ -283,7 +291,7 @@ class TabTests(unittest.TestCase):
         self.window.activateWindow()
         self.app.processEvents()
         workers = []
-        with patch.object(QThreadPool, "start", side_effect=workers.append):
+        with capture_analysis(workers):
             self.window.analyze_current()
             first._show_analysis_busy()
             second = self.open_log("second.log")
@@ -336,7 +344,7 @@ class TabTests(unittest.TestCase):
             with self.subTest(phase=phase):
                 first = self.open_log(f"{phase}-first.log")
                 workers = []
-                with patch.object(QThreadPool, "start", side_effect=workers.append):
+                with capture_analysis(workers):
                     self.window.analyze_current()
                     second = self.open_log(f"{phase}-second.log")
                     self.window.analyze_current()

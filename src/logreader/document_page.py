@@ -12,6 +12,7 @@ from .config import LogreaderConfig
 from .core import AnalysisResult
 from .document_session import AnalysisPhase, DocumentSession
 from .file_loader import LoadedLog
+from .load_worker import LoadWorker
 from .filter_panel import FilterPanel, VisibleCheckBox, VisibleSpinBox
 from .results_view import ResultsView
 
@@ -26,6 +27,7 @@ class DocumentPage(QWidget):
     analysis_failed = Signal(str)
     status_changed = Signal(str)
     busy_changed = Signal()
+    load_finished = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -34,7 +36,8 @@ class DocumentPage(QWidget):
         self.status_message = "Ready: Open a log file to begin"
         self.busy_visible = False
         self._analysis_worker: AnalysisWorker | None = None
-        self._workers: dict[int, AnalysisWorker] = {}
+        self._workers: dict[int, AnalysisWorker | LoadWorker] = {}
+        self._load_worker: LoadWorker | None = None
         self._disposed = False
         self._analysis_pool = QThreadPool.globalInstance()
         self._analysis_busy_timer = QTimer(self)
@@ -82,16 +85,63 @@ class DocumentPage(QWidget):
             return
         if self._analysis_worker is not None:
             self._analysis_worker.cancel()
+        if self._load_worker is not None:
+            self._load_worker.cancel()
+            self._load_worker = None
         was_busy = self.session.is_busy
         self.session.stage_loaded_log(path, loaded)
         if was_busy:
             self._finish_analysis_request()
+        self._show_loaded_log(path, loaded)
+
+    def _show_loaded_log(self, path: Path, loaded: LoadedLog) -> None:
         self.results_view.reset_for_loaded_file(path.name)
         self.busy_changed.emit()
         self._set_status(
             f"{len(loaded.lines):,} lines loaded as {loaded.encoding}  •  "
             "press Analyze to begin"
         )
+
+    def load_file(self, path: Path) -> None:
+        """Start a document-owned load without blocking the GUI thread."""
+        if self._disposed:
+            return
+        for worker in self._workers.values():
+            worker.cancel()
+        request_id = self.session.begin_loading(path)
+        self._finish_analysis_request()
+        self.results_view.reset_for_loaded_file(path.name)
+        message = f"Loading {path.name}…"
+        self.results_view.editor.setPlaceholderText(message)
+        self._set_status(message)
+        worker = LoadWorker(request_id, path)
+        worker.signals.completed.connect(self._complete_load)
+        worker.signals.failed.connect(self._fail_load)
+        worker.signals.finished.connect(self._worker_finished)
+        self._load_worker = worker
+        self._workers[request_id] = worker
+        self._analysis_pool.start(worker)
+
+    @Slot(int, object)
+    def _complete_load(self, request_id: int, loaded: LoadedLog) -> None:
+        if not self.session.complete_loading(request_id, loaded):
+            return
+        self._load_worker = None
+        self._show_loaded_log(self.session.path, loaded)
+        self.load_finished.emit()
+
+    @Slot(int, str)
+    def _fail_load(self, request_id: int, message: str) -> None:
+        if not self.session.fail_loading(request_id, message):
+            return
+        self._load_worker = None
+        self.results_view.editor.setPlaceholderText(
+            f"Unable to load {self.session.path.name}\n{message}\n\n"
+            "Open this file again to retry."
+        )
+        self._set_status(f"Unable to load {self.session.path.name}: {message}")
+        self.busy_changed.emit()
+        self.load_finished.emit()
 
     def analyze(self) -> None:
         """Analyze the loaded file using the current controls."""
@@ -132,6 +182,7 @@ class DocumentPage(QWidget):
         self.session.clear()
         for worker in self._workers.values():
             worker.cancel()
+        self._load_worker = None
         self._finish_analysis_request()
         self.results_view.reset_for_loaded_file("")
         self.hide()

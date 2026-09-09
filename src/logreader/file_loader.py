@@ -6,6 +6,8 @@ import codecs
 from dataclasses import dataclass
 from pathlib import Path
 
+from .cancellation import CancellationToken
+
 
 @dataclass(frozen=True, slots=True)
 class LoadedLog:
@@ -19,12 +21,26 @@ class LogDecodeError(UnicodeError):
     """Raised when a file does not match any supported text encoding."""
 
 
-def load_log(source_path: str | Path) -> LoadedLog:
+def load_log(
+    source_path: str | Path,
+    *,
+    cancellation: CancellationToken | None = None,
+) -> LoadedLog:
     """Read and decode a log file using Logreader's explicit encoding policy."""
 
+    if cancellation is not None:
+        cancellation.check()
     data = Path(source_path).read_bytes()
+    if cancellation is not None:
+        cancellation.check()
     text, encoding = decode_log_bytes(data)
-    return LoadedLog(lines=tuple(text.splitlines()), encoding=encoding)
+    del data
+    if cancellation is not None:
+        cancellation.check()
+    lines = tuple(text.splitlines())
+    if cancellation is not None:
+        cancellation.check()
+    return LoadedLog(lines=lines, encoding=encoding)
 
 
 def decode_log_bytes(data: bytes) -> tuple[str, str]:

@@ -9,6 +9,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
+    from qt_helpers import wait_for_load
     from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
     from PySide6.QtGui import (
         QColor, QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent,
@@ -84,6 +85,7 @@ class LogreaderQtTests(unittest.TestCase):
         initial_path = Path(self.directory.name) / "initial.log"
         initial_path.write_text("", encoding="utf-8")
         self.window.load_file(initial_path)
+        wait_for_load(self.window._document)
 
     def tearDown(self):
         self.window.close()
@@ -149,6 +151,7 @@ class LogreaderQtTests(unittest.TestCase):
                 events = self._drop_urls(target, [QUrl.fromLocalFile(str(path))])
                 self.assertTrue(all(event.isAccepted() for event in events))
                 current = self.window._document
+                wait_for_load(current)
                 self.assertIsNot(current, page)
                 self.assertEqual(current.session.path, path)
                 self.assertIsNone(current.session.analysis)

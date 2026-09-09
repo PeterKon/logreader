@@ -1,7 +1,9 @@
 import unittest
 from unittest.mock import patch
 
-from logreader.cancellation import AnalysisCancelled, CancellationToken
+from logreader.cancellation import (
+    AnalysisCancelled, CancellationToken, CANCELLATION_CHECK_INTERVAL,
+)
 from logreader.core import ResultLine, SearchPattern, analyze_lines
 
 
@@ -32,8 +34,9 @@ class CancellationTests(unittest.TestCase):
                 if shared:
                     patterns.append(SearchPattern("other", "other"))
                 with self.assertRaises(AnalysisCancelled):
-                    analyze_lines(("ERROR " * 100,) * 100, patterns, cancellation=token)
-                self.assertEqual(len(calls), 1)
+                    analyze_lines(("ERROR " * 10000,), patterns, cancellation=token)
+                self.assertGreaterEqual(len(calls), 1)
+                self.assertLessEqual(len(calls), CANCELLATION_CHECK_INTERVAL)
 
     def test_cancellation_during_result_construction_returns_no_partial_result(self):
         for combined in (False, True):
@@ -49,9 +52,21 @@ class CancellationTests(unittest.TestCase):
 
                 with patch("logreader.core.ResultLine", side_effect=build_line):
                     with self.assertRaises(AnalysisCancelled):
-                        analyze_lines(("ERROR",) * 100, [SearchPattern("error", "ERROR")],
+                        analyze_lines(("ERROR",) * 10000, [SearchPattern("error", "ERROR")],
                                       combined=combined, cancellation=token)
-                self.assertEqual(built, [1, 2, 3])
+                self.assertEqual(built[:3], [1, 2, 3])
+                self.assertLessEqual(len(built), 3 + CANCELLATION_CHECK_INTERVAL)
+
+    def test_cancellation_on_final_result_line_is_not_returned_as_success(self):
+        token = CancellationToken()
+
+        def build_line(**kwargs):
+            token.cancel()
+            return ResultLine(**kwargs)
+
+        with patch("logreader.core.ResultLine", side_effect=build_line):
+            with self.assertRaises(AnalysisCancelled):
+                analyze_lines(("ERROR",), [SearchPattern("error", "ERROR")], cancellation=token)
 
     def test_uncancelled_token_preserves_analysis_results(self):
         patterns = [SearchPattern("error", "ERROR", context=2), SearchPattern("failed", "failed")]

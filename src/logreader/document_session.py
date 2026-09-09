@@ -19,6 +19,15 @@ class AnalysisPhase(str, Enum):
     RENDERING = "rendering"
 
 
+class LoadPhase(str, Enum):
+    """Whether a reserved document path has readable source contents."""
+
+    EMPTY = "empty"
+    LOADING = "loading"
+    LOADED = "loaded"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class AnalysisRequest:
     """Immutable snapshot of one analysis request."""
@@ -43,18 +52,48 @@ class DocumentSession:
     phase: AnalysisPhase = AnalysisPhase.IDLE
     request_generation: int = 0
     active_request: AnalysisRequest | None = None
+    load_phase: LoadPhase = LoadPhase.EMPTY
+    active_load_id: int | None = None
+    load_error: str | None = None
 
     @property
     def has_document(self) -> bool:
         """Return whether a document has been loaded, including an empty one."""
 
-        return self.path is not None
+        return self.load_phase is LoadPhase.LOADED
 
     @property
     def is_busy(self) -> bool:
-        """Return whether analysis or result rendering is in progress."""
+        """Return whether loading, analysis, or result rendering is in progress."""
 
-        return self.phase is not AnalysisPhase.IDLE
+        return self.phase is not AnalysisPhase.IDLE or self.load_phase is LoadPhase.LOADING
+
+    def begin_loading(self, source_path: str | Path) -> int:
+        """Reserve the path and generation before background loading starts."""
+        self.clear()
+        self.request_generation += 1
+        self.active_load_id = self.request_generation
+        self.path = Path(source_path)
+        self.load_phase = LoadPhase.LOADING
+        return self.active_load_id
+
+    def complete_loading(self, request_id: int, loaded: LoadedLog) -> bool:
+        """Accept contents only from the current load generation."""
+        if self.active_load_id != request_id or self.load_phase is not LoadPhase.LOADING:
+            return False
+        self.active_load_id = None
+        self.load_phase = LoadPhase.EMPTY
+        self.stage_loaded_log(self.path, loaded)
+        return True
+
+    def fail_loading(self, request_id: int, message: str) -> bool:
+        """Retain the path and failure details without marking it ready."""
+        if self.active_load_id != request_id or self.load_phase is not LoadPhase.LOADING:
+            return False
+        self.active_load_id = None
+        self.load_phase = LoadPhase.FAILED
+        self.load_error = message
+        return True
 
     def stage_loaded_log(
         self,
@@ -75,6 +114,8 @@ class DocumentSession:
         self.rendering_seconds = None
         self.phase = AnalysisPhase.IDLE
         self.active_request = None
+        self.load_phase = LoadPhase.LOADED
+        self.load_error = None
 
     def begin_analysis(
         self,
@@ -83,7 +124,7 @@ class DocumentSession:
     ) -> AnalysisRequest:
         """Start an analysis and return its immutable request snapshot."""
 
-        if self.path is None:
+        if not self.has_document:
             raise RuntimeError("Cannot analyze before a document is loaded")
         if self.is_busy:
             raise RuntimeError("An analysis request is already active")
@@ -111,6 +152,9 @@ class DocumentSession:
         self.analysis_config = None
         self.analysis_seconds = None
         self.rendering_seconds = None
+        self.load_phase = LoadPhase.EMPTY
+        self.active_load_id = None
+        self.load_error = None
 
     def begin_rendering(
         self,
@@ -170,6 +214,9 @@ class DocumentSession:
             return False
 
         self.request_generation += 1
+        if self.load_phase is LoadPhase.LOADING:
+            self.active_load_id = None
+            self.load_phase = LoadPhase.EMPTY
         self._finish_request()
         return True
 

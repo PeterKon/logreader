@@ -31,15 +31,20 @@ Open a log file, choose filters, then press **Analyze**.
 Each file opens in its own tab with default filters. Opening or dropping an
 already-open file selects its existing tab. Switching tabs preserves filters,
 unfinished inputs, results, search, selection, scrolling, and line wrapping.
+Files load in the background. **Loading…** tabs become ready for **Analyze** when
+reading and decoding finish. A failed load stays in its tab with the error details;
+open that file again to retry. Closing a loading tab cancels the request and
+discards any late result.
 Tabs with identical filenames include a distinguishing directory suffix; hover
 over a tab to see its full path.
 Use **Ctrl+Tab** and **Ctrl+Shift+Tab** to cycle forward and backward through tabs.
 The shared controls and status follow the selected tab. Background failures stay
 in their document's status so their details are available when you return to it.
 Close a tab with its **×** or **Ctrl+W**. Closing the last tab returns to the empty
-state. Closing tabs or the application cancels their analysis and stops rendering.
-Cancellation is cooperative: it cannot interrupt a single regex operation already
-executing; shutdown waits for running workers to return before exiting.
+state. Closing tabs or the application cancels their loading and analysis and stops
+rendering. Cancellation is cooperative: a file read, decoding/splitting operation,
+or single regex operation already executing must return before it can stop.
+Shutdown waits for running workers to return before exiting.
 
 **Combined view** and **Line-separator** are enabled by default. Combined view
 merges every enabled filter into one result category while keeping individual

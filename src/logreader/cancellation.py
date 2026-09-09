@@ -25,20 +25,22 @@ class CancellationToken:
 
 
 T = TypeVar("T")
+CANCELLATION_CHECK_INTERVAL = 256
 
 
 def checked(items: Iterable[T], token: CancellationToken | None) -> Iterator[T]:
-    """Check between work items; cannot interrupt an executing regex or sort."""
+    """Poll once per batch, without polling empty inner loops.
+
+    Analysis entry, stage boundaries, and completion check separately. Native
+    iterator operations (including regex searches) must still return normally.
+    """
     if token is None:
         yield from items
         return
-    iterator = iter(items)
-    while True:
-        token.check()
-        try:
-            item = next(iterator)
-        except StopIteration:
+    remaining = 0
+    for item in items:
+        if remaining == 0:
             token.check()
-            return
-        token.check()
+            remaining = CANCELLATION_CHECK_INTERVAL
+        remaining -= 1
         yield item

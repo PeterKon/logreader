@@ -158,6 +158,8 @@ def analyze_lines(
             states.append(state)
 
     _collect_pattern_matches(source_lines, states, exclusions, cancellation)
+    if cancellation is not None:
+        cancellation.check()
     category_match_counts = {
         state.pattern.key: len(state.match_spans_by_index)
         for state in states
@@ -177,6 +179,8 @@ def analyze_lines(
             for state in states
         }
 
+    if cancellation is not None:
+        cancellation.check()
     return AnalysisResult(
         line_count=len(source_lines),
         pattern_count=len(states),

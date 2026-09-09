@@ -8,6 +8,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
+    from qt_helpers import capture_analysis, wait_for_load
     from PySide6.QtCore import QCoreApplication, QEvent, QThreadPool, Qt
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QTabBar
@@ -42,6 +43,7 @@ class TabClosingTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("ERROR: example\n" * 100, encoding="utf-8")
         self.assertTrue(self.window.load_file(path))
+        wait_for_load(self.window._document)
         return self.window._document
 
     def wait_for(self, spy):
@@ -144,13 +146,14 @@ class TabClosingTests(unittest.TestCase):
             with self.subTest(active=active):
                 first = self.open_log(f"render-{active}-first.log")
                 workers = []
-                with patch.object(QThreadPool, "start", side_effect=workers.append):
+                with capture_analysis(workers):
                     self.window.analyze_current()
                 workers[0].run()
                 renderer = first.results_view._renderer
                 self.assertTrue(renderer._timer.isActive())
                 with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
                     renderer._render_next_batch()
+                renderer._timer.stop()
                 if active:
                     self.window.close_tab(self.window._pages.indexOf(first))
                 else:
@@ -172,7 +175,7 @@ class TabClosingTests(unittest.TestCase):
             with self.subTest(quit_signal=quit_signal):
                 first = self.open_log(f"shutdown-{quit_signal}-first.log")
                 workers = []
-                with patch.object(QThreadPool, "start", side_effect=workers.append):
+                with capture_analysis(workers):
                     self.window.analyze_current()
                     second = self.open_log(f"shutdown-{quit_signal}-second.log")
                     self.window.analyze_current()

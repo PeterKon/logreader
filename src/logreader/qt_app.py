@@ -44,7 +44,7 @@ from PySide6.QtWidgets import (
 
 from .config import APP_VERSION, LogreaderConfig
 from .document_page import DocumentPage
-from .file_loader import LogDecodeError, load_log
+from .document_session import LoadPhase
 from .theme import THEME_COLORS
 
 
@@ -595,6 +595,7 @@ class LogreaderWindow(QMainWindow):
 
     @Slot(str)
     def _present_document_status(self, message: str) -> None:
+        self._refresh_tab_labels()
         if self.sender() is self._document:
             self.statusBar().showMessage(message)
 
@@ -617,6 +618,10 @@ class LogreaderWindow(QMainWindow):
                     if all(suffix != Path(*peer.parent.parts[-depth:]) for peer in peers):
                         break
                 label = f"{path.name} — {suffix}"
+            if page.session.load_phase is LoadPhase.LOADING:
+                label += " (Loading…)"
+            elif page.session.load_phase is LoadPhase.FAILED:
+                label += " (Failed)"
             self._tabs.setTabText(index, label)
             self._tabs.setTabToolTip(index, str(path))
 
@@ -667,32 +672,27 @@ class LogreaderWindow(QMainWindow):
             self.load_file(filename)
 
     def load_file(self, source_path: str | Path) -> bool:
-        """Load a file without analyzing it, returning whether it could be read."""
+        """Select or create a loading tab; True means the open was accepted."""
 
         path = Path(source_path)
         try:
             path = path.resolve()
-            key = os.path.normcase(str(path))
-            existing = self._documents_by_path.get(key)
-            if existing is not None:
-                self._select_document(existing)
-                return True
-            loaded = load_log(path)
-        except (OSError, LogDecodeError) as error:
-            QMessageBox.critical(
-                self,
-                "Unable to open log",
-                f"Could not read:\n{path}\n\n{error}",
-            )
-            self.statusBar().showMessage(f"Unable to read {path.name}")
-            return False
+        except (OSError, ValueError):
+            path = Path(os.path.abspath(path))
+        key = os.path.normcase(str(path))
+        existing = self._documents_by_path.get(key)
+        if existing is not None:
+            self._select_document(existing)
+            if existing.session.load_phase is LoadPhase.FAILED:
+                existing.load_file(path)
+            return True
 
         page = DocumentPage(self._pages)
-        page.stage_loaded_log(path, loaded)
         page.status_changed.connect(self._present_document_status)
         page.busy_changed.connect(self._present_analysis_busy)
         page.analysis_failed.connect(self._present_analysis_failure)
         page.analysis_finished.connect(self.analysis_finished.emit)
+        page.load_file(path)
         self._documents_by_path[key] = page
         self._pages.addWidget(page)
         index = self._tabs.addTab(path.name)
@@ -718,7 +718,10 @@ class LogreaderWindow(QMainWindow):
         self._analyze_button.setEnabled(
             page is not None and page.session.has_document and not busy
         )
-        self._analyze_button.setText("Analyzing…" if busy else "&Analyze")
+        loading = page is not None and page.session.load_phase is LoadPhase.LOADING
+        self._analyze_button.setText(
+            "Loading…" if loading else "Analyzing…" if busy else "&Analyze"
+        )
         if page is not None and page.busy_visible:
             self.setCursor(Qt.CursorShape.WaitCursor)
         else:
