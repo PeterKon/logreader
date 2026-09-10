@@ -359,6 +359,15 @@ QToolTip {{
 """
 
 
+class DocumentTabBar(QTabBar):
+    """Keep long filenames from consuming the neighboring tabs' label space."""
+
+    def tabSizeHint(self, index: int) -> QSize:  # noqa: N802 - Qt API name
+        size = super().tabSizeHint(index)
+        size.setWidth(min(size.width(), 280))
+        return size
+
+
 class TabCloseButton(QAbstractButton):
     """A standalone cross with a generous hit target and no button frame."""
 
@@ -487,10 +496,11 @@ class LogreaderWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        self._tabs = QTabBar(central)
+        self._tabs = DocumentTabBar(central)
         self._tabs.setObjectName("documentTabs")
         self._tabs.setDrawBase(False)
         self._tabs.setExpanding(False)
+        self._tabs.setElideMode(Qt.TextElideMode.ElideRight)
         self._tabs.setUsesScrollButtons(True)
         self._tabs.hide()
         root.addWidget(self._tabs)
@@ -630,7 +640,7 @@ class LogreaderWindow(QMainWindow):
                 label += " (Queued)" if page.load_queued else " (Loading…)"
             elif page.session.load_phase is LoadPhase.FAILED:
                 label += " (Failed)"
-            self._tabs.setTabText(index, label)
+            self._tabs.setTabText(index, label.replace("&", "&&"))
             self._tabs.setTabToolTip(index, str(path))
 
     def _apply_interface_palette(self) -> None:

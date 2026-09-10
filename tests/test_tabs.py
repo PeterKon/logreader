@@ -9,9 +9,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
     from qt_helpers import wait_for_search, capture_analysis, wait_for_load
     from PySide6.QtCore import QThreadPool, Qt
-    from PySide6.QtGui import QTextCursor
+    from PySide6.QtGui import QKeySequence, QTextCursor
     from PySide6.QtTest import QSignalSpy, QTest
-    from PySide6.QtWidgets import QApplication, QCheckBox, QLineEdit, QPushButton, QSpinBox
+    from PySide6.QtWidgets import QApplication, QCheckBox, QLineEdit, QPushButton, QSpinBox, QTabBar
 
     from logreader.config import APP_VERSION, LogreaderConfig
     from logreader.document_session import AnalysisPhase
@@ -111,6 +111,39 @@ class TabTests(unittest.TestCase):
         self.assertNotEqual(self.window._tabs.tabText(0), self.window._tabs.tabText(1))
         for index, page in enumerate((first, second)):
             self.assertIn("server.log", self.window._tabs.tabText(index))
+            self.assertEqual(self.window._tabs.tabToolTip(index), str(page.session.path))
+
+    def test_long_selected_tab_keeps_close_control_visible_with_overflow(self):
+        self.window.resize(820, 560)
+        self.window.show()
+        self.open_log("ordinary.log")
+        page = self.open_log("long_" + "a" * 180 + ".log")
+        path = page.session.path
+        self.app.processEvents()
+        self.assertLessEqual(self.window._tabs.tabRect(1).width(), 280)
+        self.assertGreater(self.window._tabs.tabRect(0).width(),
+                           self.window._tabs.fontMetrics().horizontalAdvance("ordinary.log") + 20)
+        for index in range(11):
+            self.open_log(f"document-{index}.log")
+        index = self.window._pages.indexOf(page)
+        for selected in (0, index, 5, index):
+            self.window._tabs.setCurrentIndex(selected)
+            self.app.processEvents()
+            button = self.window._tabs.tabButton(selected, QTabBar.ButtonPosition.RightSide)
+            self.assertTrue(self.window._tabs.rect().contains(button.geometry()))
+            self.assertIs(self.window._tabs.childAt(button.geometry().center()), button)
+        self.assertEqual(self.window._tabs.tabToolTip(index), str(path))
+        button.click()
+        self.assertEqual(self.window._tabs.count(), 12)
+        self.assertNotIn(str(path), [self.window._tabs.tabToolTip(i) for i in range(12)])
+
+    def test_ampersands_in_filenames_and_duplicate_parent_labels_are_literal(self):
+        pages = [self.open_log(f"{parent}/error&warning.log") for parent in ("one&two", "three&four")]
+        for index, page in enumerate(pages):
+            label = self.window._tabs.tabText(index)
+            self.assertTrue(QKeySequence.mnemonic(label).isEmpty())
+            self.assertIn(page.session.path.name, label.replace("&&", "&"))
+            self.assertIn(page.session.path.parent.name, label.replace("&&", "&"))
             self.assertEqual(self.window._tabs.tabToolTip(index), str(page.session.path))
 
     def test_switching_preserves_filters_drafts_and_results_interaction(self):

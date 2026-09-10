@@ -497,7 +497,8 @@ class LogreaderQtTests(unittest.TestCase):
 
     def test_spin_arrow_hover_outlines_each_button_on_all_sides(self):
         self.window.show()
-        self.app.processEvents()
+        self.window.activateWindow()
+        self.assertTrue(QTest.qWaitForWindowExposed(self.window))
 
         for object_name in (
             "contextSpin",
@@ -522,7 +523,9 @@ class LogreaderQtTests(unittest.TestCase):
                         spin_box,
                     )
                     QTest.mouseMove(spin_box, button.center())
-                    self.app.processEvents()
+                    # Native Windows mouse moves arrive through the window
+                    # system, rather than synchronously as with offscreen Qt.
+                    QTest.qWait(30)
                     image = spin_box.grab().toImage()
 
                     edge_points = {
