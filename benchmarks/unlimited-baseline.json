@@ -1,0 +1,148 @@
+{
+  "environment": {
+    "python": "3.14.7",
+    "pyside": "6.11.2",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "qt_platform": "windows"
+  },
+  "parameters": {
+    "documents": 3,
+    "lines": 30000,
+    "limit": 0,
+    "cycles": 2,
+    "output": "benchmarks/unlimited-baseline.json"
+  },
+  "cycles": [
+    {
+      "cycle": 1,
+      "loading_seconds": 0.06569319999834988,
+      "loaded_memory": {
+        "rss_mib": 102.24609375,
+        "private_mib": 62.04296875
+      },
+      "analysis_seconds": [
+        0.10583989999940968,
+        0.111751300000833,
+        0.11359400000037567
+      ],
+      "analyzed_memory": {
+        "rss_mib": 129.16796875,
+        "private_mib": 89.421875
+      },
+      "rendering_seconds": [
+        0.4293455000024551,
+        0.3682614999997895,
+        0.37015840000094613
+      ],
+      "rendered_memory": {
+        "rss_mib": 233.36328125,
+        "private_mib": 238.1953125
+      },
+      "search_seconds": 6.048193800001172,
+      "searched_memory": {
+        "rss_mib": 836.6640625,
+        "private_mib": 854.60546875
+      },
+      "close_seconds": 0.11460970000007364,
+      "closed_memory": {
+        "rss_mib": 122.9609375,
+        "private_mib": 84.125
+      },
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "queue_references": 0
+    },
+    {
+      "cycle": 2,
+      "loading_seconds": 0.06373490000078164,
+      "loaded_memory": {
+        "rss_mib": 128.26171875,
+        "private_mib": 89.06640625
+      },
+      "analysis_seconds": [
+        0.1021694999999454,
+        0.10883819999980915,
+        0.11843869999938761
+      ],
+      "analyzed_memory": {
+        "rss_mib": 137.1875,
+        "private_mib": 98.78125
+      },
+      "rendering_seconds": [
+        0.4271357000015996,
+        0.392716799999107,
+        0.4018423999987135
+      ],
+      "rendered_memory": {
+        "rss_mib": 241.09765625,
+        "private_mib": 249.27734375
+      },
+      "search_seconds": 6.341722999999547,
+      "searched_memory": {
+        "rss_mib": 839.14453125,
+        "private_mib": 862.671875
+      },
+      "close_seconds": 0.10728819999894768,
+      "closed_memory": {
+        "rss_mib": 145.2734375,
+        "private_mib": 106.69140625
+      },
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "queue_references": 0
+    }
+  ],
+  "input_mib": 12.273788452148438,
+  "baseline_memory": {
+    "rss_mib": 76.4453125,
+    "private_mib": 37.5546875
+  },
+  "heartbeat_intervals": {
+    "settle": {
+      "samples": 63,
+      "p95_ms": 10.325000001103035,
+      "max_ms": 11.691699999573757
+    },
+    "loading": {
+      "samples": 8,
+      "p95_ms": 9.828800000832416,
+      "max_ms": 12.606000000232598
+    },
+    "analysis": {
+      "samples": 13,
+      "p95_ms": 118.13029999939317,
+      "max_ms": 119.35950000042794
+    },
+    "rendering": {
+      "samples": 228,
+      "p95_ms": 14.169300000503426,
+      "max_ms": 24.040700000114157
+    },
+    "searching": {
+      "samples": 832,
+      "p95_ms": 21.442599998408696,
+      "max_ms": 26.511699999900884
+    }
+  },
+  "switch_to_event_loop": {
+    "analysis": {
+      "samples": 7,
+      "p95_ms": 112.06110000057379,
+      "max_ms": 114.58040000070469
+    },
+    "rendering": {
+      "samples": 23,
+      "p95_ms": 13.46689999991213,
+      "max_ms": 13.678499999514315
+    },
+    "searching": {
+      "samples": 113,
+      "p95_ms": 14.063100001294515,
+      "max_ms": 14.244699999835575
+    }
+  },
+  "sampled_peak_memory": {
+    "rss_mib": 839.14453125,
+    "private_mib": 862.671875
+  }
+}

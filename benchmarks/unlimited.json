@@ -1,0 +1,394 @@
+{
+  "environment": {
+    "python": "3.14.7",
+    "pyside": "6.11.2",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "qt_platform": "windows"
+  },
+  "parameters": {
+    "documents": 3,
+    "lines": 30000,
+    "limit": 0,
+    "cycles": 2,
+    "output": "benchmarks/unlimited.json"
+  },
+  "cycles": [
+    {
+      "cycle": 1,
+      "open_dispatch_seconds": 0.042439100001502084,
+      "loading_seconds": 0.0672524000001431,
+      "loaded_memory": {
+        "rss_mib": 106.74609375,
+        "private_mib": 65.41015625
+      },
+      "analysis_seconds": [
+        0.13417529999969702,
+        0.14320430000043416,
+        0.17568199999914214
+      ],
+      "analyzed_memory": {
+        "rss_mib": 138.88671875,
+        "private_mib": 98.3828125
+      },
+      "retained_analysis_lines": [
+        30000,
+        30000,
+        30000
+      ],
+      "rendering_seconds": [
+        0.45085199999812176,
+        0.44685179999942193,
+        0.38945310000053723
+      ],
+      "rendered_memory": {
+        "rss_mib": 237.94140625,
+        "private_mib": 241.74609375
+      },
+      "search_dispatch_seconds": 0.00034589999995660037,
+      "search_seconds": 5.984948399998757,
+      "searched_memory": {
+        "rss_mib": 841.58203125,
+        "private_mib": 858.68359375
+      },
+      "close_seconds": 0.1164042000000336,
+      "closed_memory": {
+        "rss_mib": 134.83203125,
+        "private_mib": 95.140625
+      },
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "queue_references": 0
+    },
+    {
+      "cycle": 2,
+      "open_dispatch_seconds": 0.038263299999016454,
+      "loading_seconds": 0.06354339999961667,
+      "loaded_memory": {
+        "rss_mib": 139.015625,
+        "private_mib": 99.5234375
+      },
+      "analysis_seconds": [
+        0.13144719999945664,
+        0.14387039999928675,
+        0.15963380000175675
+      ],
+      "analyzed_memory": {
+        "rss_mib": 148.6875,
+        "private_mib": 110.00390625
+      },
+      "retained_analysis_lines": [
+        30000,
+        30000,
+        30000
+      ],
+      "rendering_seconds": [
+        0.4640292000003683,
+        0.4885880999991059,
+        0.39928169999984675
+      ],
+      "rendered_memory": {
+        "rss_mib": 248.25390625,
+        "private_mib": 254.53515625
+      },
+      "search_dispatch_seconds": 0.00037909999991825316,
+      "search_seconds": 6.325236099999529,
+      "searched_memory": {
+        "rss_mib": 843.3671875,
+        "private_mib": 866.74609375
+      },
+      "close_seconds": 0.11117939999894588,
+      "closed_memory": {
+        "rss_mib": 152.76171875,
+        "private_mib": 113.31640625
+      },
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "queue_references": 0
+    }
+  ],
+  "input_mib": 12.273788452148438,
+  "baseline_memory": {
+    "rss_mib": 81.34765625,
+    "private_mib": 42.1015625
+  },
+  "cancellation": [
+    {
+      "phase": "loading",
+      "queued_before_close": 2,
+      "close_seconds": 0.0008766000009927666,
+      "drained_seconds": 0.009324800001195399,
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "memory": {
+        "rss_mib": 152.8359375,
+        "private_mib": 114.32421875
+      }
+    },
+    {
+      "phase": "analysis",
+      "queued_before_close": 2,
+      "close_seconds": 0.00980840000011085,
+      "drained_seconds": 0.014976000000388012,
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "memory": {
+        "rss_mib": 152.61328125,
+        "private_mib": 113.2421875
+      }
+    },
+    {
+      "phase": "rendering",
+      "queued_before_close": 1,
+      "close_seconds": 0.0037123000001884066,
+      "drained_seconds": 0.009016800000608782,
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "memory": {
+        "rss_mib": 152.74609375,
+        "private_mib": 112.8515625
+      }
+    },
+    {
+      "phase": "searching",
+      "queued_before_close": 0,
+      "close_seconds": 0.03515770000012708,
+      "drained_seconds": 0.04190290000042296,
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "memory": {
+        "rss_mib": 153.6328125,
+        "private_mib": 113.921875
+      }
+    }
+  ],
+  "heartbeat_intervals": {
+    "settle": {
+      "samples": 144,
+      "p95_ms": 10.359400001107133,
+      "max_ms": 10.4351999998471
+    },
+    "loading": {
+      "samples": 6,
+      "p95_ms": 12.011200000415556,
+      "max_ms": 12.277499999981956
+    },
+    "analysis": {
+      "samples": 69,
+      "p95_ms": 36.91239999898244,
+      "max_ms": 47.41400000057183
+    },
+    "rendering": {
+      "samples": 226,
+      "p95_ms": 14.22889999957988,
+      "max_ms": 20.43700000103854
+    },
+    "searching": {
+      "samples": 840,
+      "p95_ms": 21.019099998738966,
+      "max_ms": 26.49079999901005
+    },
+    "cancelling": {
+      "samples": 6,
+      "p95_ms": 5.9184000001550885,
+      "max_ms": 7.333300000027521
+    },
+    "cancel_setup": {
+      "samples": 174,
+      "p95_ms": 19.72089999981108,
+      "max_ms": 28.695900000457186
+    }
+  },
+  "switch_to_event_loop": {
+    "analysis": {
+      "samples": 9,
+      "p95_ms": 20.804599998882622,
+      "max_ms": 21.67390000067826
+    },
+    "rendering": {
+      "samples": 23,
+      "p95_ms": 12.276800000108778,
+      "max_ms": 13.262399999803165
+    },
+    "searching": {
+      "samples": 112,
+      "p95_ms": 14.032699999006581,
+      "max_ms": 14.98139999966952
+    },
+    "cancel_setup": {
+      "samples": 14,
+      "p95_ms": 12.495500001023174,
+      "max_ms": 13.051400001131697
+    }
+  },
+  "sampled_peak_memory": {
+    "rss_mib": 843.11328125,
+    "private_mib": 866.484375
+  },
+  "worker_timings": [
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 5.0999999075429514e-05,
+      "service_seconds": 0.03342929999962507
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.025190700000166544,
+      "service_seconds": 0.004691100000854931
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.019639500000266708,
+      "service_seconds": 0.004327399999965564
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.0003316999991511693,
+      "service_seconds": 0.13473230000090552
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.13466080000034708,
+      "service_seconds": 0.1580255999997462
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.305279199999859,
+      "service_seconds": 0.18625220000103582
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 5.1500001063686796e-05,
+      "service_seconds": 0.03143709999858402
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.023226499999509542,
+      "service_seconds": 0.004259900000761263
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.017805999999836786,
+      "service_seconds": 0.003930700000637444
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.00016829999913170468,
+      "service_seconds": 0.13217550000081246
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.13219439999920723,
+      "service_seconds": 0.15869240000029095
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.3032953000001726,
+      "service_seconds": 0.16728150000017195
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.7099998735357076e-05,
+      "service_seconds": 0.028590300000360003
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.009880000001430744,
+      "service_seconds": null
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.0006798999984312104,
+      "service_seconds": null
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.699999979289714e-05,
+      "service_seconds": 0.027568800000153715
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.02027520000046934,
+      "service_seconds": 0.004020600001240382
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.01611339999908523,
+      "service_seconds": 0.003909500001100241
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.00018079999972542282,
+      "service_seconds": 0.015002000000094995
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.0011408000009396346,
+      "service_seconds": null
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.00047869999980321154,
+      "service_seconds": null
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.5999999454361387e-05,
+      "service_seconds": 0.02841460000126972
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.019362300001375843,
+      "service_seconds": 0.005370099999709055
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.01633179999953427,
+      "service_seconds": 0.004149299998971401
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.0001740000006975606,
+      "service_seconds": 0.1330920000000333
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.14347989999987476,
+      "service_seconds": 0.026075599998875987
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.16286129999934928,
+      "service_seconds": null
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.459999970800709e-05,
+      "service_seconds": 0.03122830000029353
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.02259520000006887,
+      "service_seconds": 0.004898400000456604
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.01778299999932642,
+      "service_seconds": 0.0038724000005458947
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.0001747999995131977,
+      "service_seconds": 0.13300549999985378
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.14321149999886984,
+      "service_seconds": 0.16112190000058035
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.31477889999951003,
+      "service_seconds": 0.15878979999979492
+    }
+  ]
+}

@@ -61,6 +61,12 @@ and the navigation arrows reuse cached matches. Editing the query, replacing
 results, or closing the tab cancels pending search work. Match counts and scrollbar
 markers appear when scanning finishes.
 
+Display limits only reduce rendered output. They currently **do not bound analysis
+memory**: each open tab retains its loaded lines and full analysis, including
+matches and context beyond the display limit. Dense results and search highlights
+also consume native Qt memory. See [the multi-document benchmark](benchmarks/README.md)
+for repeatable measurements, cancellation checks, and current limitations.
+
 **Combined view** and **Line-separator** are enabled by default. Combined view
 merges every enabled filter into one result category while keeping individual
 filter counts in the summary. The results limit counts each matching source line

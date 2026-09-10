@@ -1,0 +1,546 @@
+{
+  "environment": {
+    "python": "3.14.7",
+    "pyside": "6.11.2",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "qt_platform": "windows"
+  },
+  "parameters": {
+    "documents": 3,
+    "lines": 100000,
+    "limit": 10000,
+    "cycles": 4,
+    "output": "benchmarks/limited.json"
+  },
+  "cycles": [
+    {
+      "cycle": 1,
+      "open_dispatch_seconds": 0.047217499999533175,
+      "loading_seconds": 0.08792840000023716,
+      "loaded_memory": {
+        "rss_mib": 148.41796875,
+        "private_mib": 107.5625
+      },
+      "analysis_seconds": [
+        0.4776631000004272,
+        0.5169139999998151,
+        0.5421251999996457
+      ],
+      "analyzed_memory": {
+        "rss_mib": 237.6875,
+        "private_mib": 199.30078125
+      },
+      "retained_analysis_lines": [
+        100000,
+        100000,
+        100000
+      ],
+      "rendering_seconds": [
+        0.4085739000001922,
+        0.32155729999976757,
+        0.11697870000170951
+      ],
+      "rendered_memory": {
+        "rss_mib": 262.28125,
+        "private_mib": 226.453125
+      },
+      "search_dispatch_seconds": 0.0003493000003800262,
+      "search_seconds": 2.0258560000002035,
+      "searched_memory": {
+        "rss_mib": 453.53515625,
+        "private_mib": 422.12109375
+      },
+      "close_seconds": 0.04693770000085351,
+      "closed_memory": {
+        "rss_mib": 147.328125,
+        "private_mib": 108.1015625
+      },
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "queue_references": 0
+    },
+    {
+      "cycle": 2,
+      "open_dispatch_seconds": 0.04060399999980291,
+      "loading_seconds": 0.07536939999954484,
+      "loaded_memory": {
+        "rss_mib": 159.5390625,
+        "private_mib": 121.59765625
+      },
+      "analysis_seconds": [
+        0.47321059999922,
+        0.5202868999986094,
+        0.5404873000006774
+      ],
+      "analyzed_memory": {
+        "rss_mib": 245.31640625,
+        "private_mib": 211.515625
+      },
+      "retained_analysis_lines": [
+        100000,
+        100000,
+        100000
+      ],
+      "rendering_seconds": [
+        0.4339454000019032,
+        0.32885090000127093,
+        0.12232860000040091
+      ],
+      "rendered_memory": {
+        "rss_mib": 267.3671875,
+        "private_mib": 235.3046875
+      },
+      "search_dispatch_seconds": 0.00035069999830739107,
+      "search_seconds": 1.980368599999565,
+      "searched_memory": {
+        "rss_mib": 454.53125,
+        "private_mib": 425.90234375
+      },
+      "close_seconds": 0.05243030000019644,
+      "closed_memory": {
+        "rss_mib": 189.67578125,
+        "private_mib": 148.3671875
+      },
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "queue_references": 0
+    },
+    {
+      "cycle": 3,
+      "open_dispatch_seconds": 0.041928599999664584,
+      "loading_seconds": 0.07701789999919129,
+      "loaded_memory": {
+        "rss_mib": 200.64453125,
+        "private_mib": 160.29296875
+      },
+      "analysis_seconds": [
+        0.4634163999999146,
+        0.49816550000105053,
+        0.5635055000002467
+      ],
+      "analyzed_memory": {
+        "rss_mib": 245.6796875,
+        "private_mib": 208.06640625
+      },
+      "retained_analysis_lines": [
+        100000,
+        100000,
+        100000
+      ],
+      "rendering_seconds": [
+        0.4125808999997389,
+        0.3181864000016503,
+        0.11783570000079635
+      ],
+      "rendered_memory": {
+        "rss_mib": 270.0,
+        "private_mib": 238.1015625
+      },
+      "search_dispatch_seconds": 0.000413499999922351,
+      "search_seconds": 2.0458461999987776,
+      "searched_memory": {
+        "rss_mib": 456.7265625,
+        "private_mib": 428.7109375
+      },
+      "close_seconds": 0.046750400000746595,
+      "closed_memory": {
+        "rss_mib": 207.4375,
+        "private_mib": 167.33984375
+      },
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "queue_references": 0
+    },
+    {
+      "cycle": 4,
+      "open_dispatch_seconds": 0.04222780000054627,
+      "loading_seconds": 0.08229680000113149,
+      "loaded_memory": {
+        "rss_mib": 217.41796875,
+        "private_mib": 177.35546875
+      },
+      "analysis_seconds": [
+        0.4957912000008946,
+        0.5432421999994403,
+        0.5807764999990468
+      ],
+      "analyzed_memory": {
+        "rss_mib": 250.5859375,
+        "private_mib": 213.91796875
+      },
+      "retained_analysis_lines": [
+        100000,
+        100000,
+        100000
+      ],
+      "rendering_seconds": [
+        0.5297197999989294,
+        0.25999440000123286,
+        0.13974790000065695
+      ],
+      "rendered_memory": {
+        "rss_mib": 273.26171875,
+        "private_mib": 242.12109375
+      },
+      "search_dispatch_seconds": 0.00031090000084077474,
+      "search_seconds": 2.1523651000006794,
+      "searched_memory": {
+        "rss_mib": 457.859375,
+        "private_mib": 430.87109375
+      },
+      "close_seconds": 0.04688380000152392,
+      "closed_memory": {
+        "rss_mib": 210.265625,
+        "private_mib": 171.54296875
+      },
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "queue_references": 0
+    }
+  ],
+  "input_mib": 40.912628173828125,
+  "baseline_memory": {
+    "rss_mib": 81.40234375,
+    "private_mib": 42.29296875
+  },
+  "cancellation": [
+    {
+      "phase": "loading",
+      "queued_before_close": 2,
+      "close_seconds": 0.0010103000004164642,
+      "drained_seconds": 0.010015099998781807,
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "memory": {
+        "rss_mib": 208.53125,
+        "private_mib": 170.5
+      }
+    },
+    {
+      "phase": "analysis",
+      "queued_before_close": 2,
+      "close_seconds": 0.01923440000064147,
+      "drained_seconds": 0.026271700000506826,
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "memory": {
+        "rss_mib": 207.296875,
+        "private_mib": 168.3828125
+      }
+    },
+    {
+      "phase": "rendering",
+      "queued_before_close": 1,
+      "close_seconds": 0.017588200000318466,
+      "drained_seconds": 0.023249400001077447,
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "memory": {
+        "rss_mib": 206.44140625,
+        "private_mib": 164.921875
+      }
+    },
+    {
+      "phase": "searching",
+      "queued_before_close": 0,
+      "close_seconds": 0.02581839999947988,
+      "drained_seconds": 0.03163230000063777,
+      "retained_pages": 0,
+      "retained_workers": 0,
+      "memory": {
+        "rss_mib": 214.3046875,
+        "private_mib": 173.0
+      }
+    }
+  ],
+  "heartbeat_intervals": {
+    "settle": {
+      "samples": 185,
+      "p95_ms": 10.372900000220397,
+      "max_ms": 10.475300001417054
+    },
+    "loading": {
+      "samples": 19,
+      "p95_ms": 12.920200000735349,
+      "max_ms": 13.094899999487097
+    },
+    "analysis": {
+      "samples": 391,
+      "p95_ms": 46.95319999882486,
+      "max_ms": 83.91529999971681
+    },
+    "rendering": {
+      "samples": 155,
+      "p95_ms": 14.818499999819323,
+      "max_ms": 22.85940000001574
+    },
+    "searching": {
+      "samples": 553,
+      "p95_ms": 21.49749999989581,
+      "max_ms": 26.211799999146024
+    },
+    "cancelling": {
+      "samples": 8,
+      "p95_ms": 5.433100001027924,
+      "max_ms": 8.829399999740417
+    },
+    "cancel_setup": {
+      "samples": 211,
+      "p95_ms": 28.741800000716466,
+      "max_ms": 54.432399998404435
+    }
+  },
+  "switch_to_event_loop": {
+    "analysis": {
+      "samples": 60,
+      "p95_ms": 29.464900000675698,
+      "max_ms": 55.57320000116306
+    },
+    "rendering": {
+      "samples": 16,
+      "p95_ms": 13.167699999030447,
+      "max_ms": 13.223600000856095
+    },
+    "searching": {
+      "samples": 73,
+      "p95_ms": 14.047200000277371,
+      "max_ms": 14.360900000610854
+    },
+    "cancel_setup": {
+      "samples": 14,
+      "p95_ms": 21.47569999942789,
+      "max_ms": 28.311199999734527
+    }
+  },
+  "sampled_peak_memory": {
+    "rss_mib": 457.85546875,
+    "private_mib": 430.87109375
+  },
+  "worker_timings": [
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 4.239999907440506e-05,
+      "service_seconds": 0.038962200000241864
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.023881500001152745,
+      "service_seconds": 0.01348839999991469
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.027723900000637514,
+      "service_seconds": 0.013040199999522883
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.00017669999942881986,
+      "service_seconds": 0.47941030000038154
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.47942499999953725,
+      "service_seconds": 0.5190223999998125
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 1.0141925999996602,
+      "service_seconds": 0.5497859999995853
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.680000008898787e-05,
+      "service_seconds": 0.03424129999984871
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.020179499999358086,
+      "service_seconds": 0.011621400000876747
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.023042400000122143,
+      "service_seconds": 0.011479799999506213
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.00017160000061267056,
+      "service_seconds": 0.4777192000001378
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.4776278999997885,
+      "service_seconds": 0.5307132999987516
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 1.0205116999986785,
+      "service_seconds": 0.5545237000005727
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.7200001315795816e-05,
+      "service_seconds": 0.03544789999978093
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.01987360000020999,
+      "service_seconds": 0.011762500000259024
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.022866900000735768,
+      "service_seconds": 0.0116424999996525
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.0001726000009512063,
+      "service_seconds": 0.46808079999937036
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.4682066000004852,
+      "service_seconds": 0.5086515999992116
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.9875265999999101,
+      "service_seconds": 0.5652250999992248
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.749999996216502e-05,
+      "service_seconds": 0.03589319999991858
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.019816100000753067,
+      "service_seconds": 0.013767599999482627
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.025152399999569752,
+      "service_seconds": 0.011492000001453562
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.00017289999959757552,
+      "service_seconds": 0.4967666000011377
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.49650819999988016,
+      "service_seconds": 0.5474560999991809
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 1.0550922000002174,
+      "service_seconds": 0.5848962999989453
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.719999949680641e-05,
+      "service_seconds": 0.036419300000488875
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.010066100001495215,
+      "service_seconds": null
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.0007603000012750272,
+      "service_seconds": null
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.640000068116933e-05,
+      "service_seconds": 0.035245900000518304
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.0197186999994301,
+      "service_seconds": 0.013657600000442471
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.0244077000006655,
+      "service_seconds": 0.013504499998816755
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.00017360000128974207,
+      "service_seconds": 0.026623099998687394
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.015664800001104595,
+      "service_seconds": null
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.000925600001210114,
+      "service_seconds": null
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.6899999031447805e-05,
+      "service_seconds": 0.03817390000040177
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.02210910000030708,
+      "service_seconds": 0.013508600000932347
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.02575780000006489,
+      "service_seconds": 0.012774599999829661
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.00018080000154441223,
+      "service_seconds": 0.4926849999992555
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.5030901999998605,
+      "service_seconds": 0.042213700000502286
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.5256809000002249,
+      "service_seconds": null
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 3.640000068116933e-05,
+      "service_seconds": 0.037188899999819114
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.021827599999596714,
+      "service_seconds": 0.011747799999284325
+    },
+    {
+      "kind": "LoadWorker",
+      "queue_seconds": 0.023678600000494043,
+      "service_seconds": 0.011692399999446934
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.00017809999917517416,
+      "service_seconds": 0.49279759999990347
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 0.5029612999987876,
+      "service_seconds": 0.5338640000009036
+    },
+    {
+      "kind": "AnalysisWorker",
+      "queue_seconds": 1.048159800000576,
+      "service_seconds": 0.6006749999996828
+    }
+  ]
+}

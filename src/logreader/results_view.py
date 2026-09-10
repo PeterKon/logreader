@@ -358,6 +358,10 @@ class IncrementalAnalysisRenderer(QObject):
         self._cancelled = True
         self._timer.stop()
         self._cursor = None
+        # A suspended generator owns the full analysis (and source strings).
+        # Release it now, even if a caller retains the renderer wrapper until
+        # after Qt processes deleteLater().
+        self._operations = iter(())
         self._view.setUpdatesEnabled(True)
 
     def set_paused(self, paused: bool) -> None:

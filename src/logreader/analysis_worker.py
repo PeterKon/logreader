@@ -2,12 +2,33 @@
 
 from __future__ import annotations
 
-from time import perf_counter
+from time import monotonic, perf_counter, sleep
 
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
 from .core import SearchPattern, analyze_lines
 from .cancellation import AnalysisCancelled, CancellationToken
+
+
+class InteractiveAnalysisToken(CancellationToken):
+    """Periodically give Qt's GUI thread time to finish a render batch.
+
+    Python analysis and PySide calls compete for the GIL. A short worker-only
+    pause avoids repeated GIL handoffs stretching a GUI batch across hundreds
+    of milliseconds. Pure engine callers keep the ordinary cancellation token.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._next_yield = 0.0
+
+    def check(self) -> None:
+        super().check()
+        now = monotonic()
+        if now >= self._next_yield:
+            sleep(0.001)
+            self._next_yield = monotonic() + 0.008
+            super().check()
 
 
 class AnalysisWorkerSignals(QObject):
@@ -35,7 +56,7 @@ class AnalysisWorker(QRunnable):
         self.patterns = patterns
         self.combined = combined
         self.signals = AnalysisWorkerSignals()
-        self.cancellation = CancellationToken()
+        self.cancellation = InteractiveAnalysisToken()
 
     def cancel(self) -> None:
         self.cancellation.cancel()
