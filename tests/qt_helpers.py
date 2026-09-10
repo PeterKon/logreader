@@ -34,3 +34,14 @@ def capture_analysis(workers):
 
     with patch.object(WorkQueue, "submit", new=dispatch):
         yield
+
+
+def wait_for_search(widget):
+    from logreader.results_view import ResultsView
+    views = [widget] if isinstance(widget, ResultsView) else widget.findChildren(ResultsView)
+    for _ in range(1000):
+        if all(not view.is_searching and not view._search_highlighter._highlight_timer.isActive()
+               for view in views):
+            return
+        QTest.qWait(5)
+    raise AssertionError("Results search did not finish")

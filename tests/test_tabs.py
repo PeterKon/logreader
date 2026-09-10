@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import capture_analysis, wait_for_load
+    from qt_helpers import wait_for_search, capture_analysis, wait_for_load
     from PySide6.QtCore import QThreadPool, Qt
     from PySide6.QtGui import QTextCursor
     from PySide6.QtTest import QSignalSpy, QTest
@@ -138,7 +138,9 @@ class TabTests(unittest.TestCase):
         view = first.results_view
         view.findChild(QLineEdit, "resultsSearch").setText("first")
         view.search_results()
+        wait_for_search(self.window)
         view.find_next()
+        wait_for_search(self.window)
         editor = view.editor
         cursor = editor.textCursor()
         cursor.setPosition(100)

@@ -9,7 +9,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import wait_for_load
+    from qt_helpers import wait_for_search, wait_for_load
     from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
     from PySide6.QtGui import (
         QColor, QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent,
@@ -751,12 +751,14 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(results.extraSelections(), [])
 
         search.returnPressed.emit()
+        wait_for_search(self.window)
 
         self.assertEqual(count.text(), "0 / 3")
         self.assertEqual(results.textCursor().position(), original_position)
         self.assertEqual(results.extraSelections(), [])
 
         navigation.stepDown()
+        wait_for_search(self.window)
         self.assertEqual(count.text(), "1 / 3")
         self.assertEqual(results.textCursor().position(), 7)
         self.assertEqual(len(results.extraSelections()), 1)
@@ -788,6 +790,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
 
         navigation.stepDown()
+        wait_for_search(self.window)
         self.assertEqual(count.text(), "2 / 3")
         search_highlights = results.extraSelections()
         self.assertEqual(
@@ -807,12 +810,14 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(results.extraSelections(), [])
 
         search.returnPressed.emit()
+        wait_for_search(self.window)
         self.assertFalse(count.isHidden())
         self.assertEqual(count.text(), "No matches")
         self.assertEqual(results.extraSelections(), [])
 
         search.setText("neutral")
         navigation.stepDown()
+        wait_for_search(self.window)
         self.assertEqual(count.text(), "1 / 1")
         self.assertEqual(results.textCursor().position(), 20)
 
@@ -849,6 +854,7 @@ class LogreaderQtTests(unittest.TestCase):
                 )
 
                 view._search_input.returnPressed.emit()
+                wait_for_search(self.window)
                 self.app.processEvents()
 
                 self.assertEqual(view._search_count_label.text(), "0 / 5")
@@ -861,8 +867,10 @@ class LogreaderQtTests(unittest.TestCase):
                 ))
                 if forward:
                     view.find_next()
+                    wait_for_search(self.window)
                 else:
                     view.find_previous()
+                    wait_for_search(self.window)
                 self.assertEqual(editor.textCursor().blockNumber(), expected_block)
 
     def test_results_search_repeated_enter_navigates_cached_matches(self):
@@ -871,12 +879,14 @@ class LogreaderQtTests(unittest.TestCase):
         scrollbar = editor.verticalScrollBar()
         scrollbar.setValue(450)
         view._search_input.returnPressed.emit()
+        wait_for_search(self.window)
         self.assertEqual(scrollbar.value(), 450)
         self.assertEqual(view._search_count_label.text(), "0 / 5")
 
         with patch.object(view, "_refresh_search_matches") as refresh:
             for expected_block in (500, 510, 900, 100):
                 view._search_input.returnPressed.emit()
+                wait_for_search(self.window)
                 self.assertEqual(editor.textCursor().blockNumber(), expected_block)
             refresh.assert_not_called()
 
@@ -889,24 +899,29 @@ class LogreaderQtTests(unittest.TestCase):
         )
         QTest.mouseClick(scrollbar, Qt.MouseButton.LeftButton, pos=thumb.center())
         view._search_input.returnPressed.emit()
+        wait_for_search(self.window)
         self.assertEqual(editor.textCursor().blockNumber(), 900)
 
         # Changing the query starts a fresh search without navigation.
         before = (scrollbar.value(), editor.textCursor().position())
         view._search_input.setText("ordinary")
         view._search_input.returnPressed.emit()
+        wait_for_search(self.window)
         self.assertEqual(before, (scrollbar.value(), editor.textCursor().position()))
         self.assertEqual(editor.extraSelections(), [])
         for query in ("missing", ""):
             view._search_input.setText(query)
             view._search_input.returnPressed.emit()
+            wait_for_search(self.window)
             view._search_input.returnPressed.emit()
+            wait_for_search(self.window)
             self.assertEqual(before, (scrollbar.value(), editor.textCursor().position()))
 
     def test_results_search_repeated_arrows_continue_and_wrap(self):
         view = self._prepare_positioned_search()
         view.editor.verticalScrollBar().setValue(450)
         view._search_input.returnPressed.emit()
+        wait_for_search(self.window)
         for expected_block in (500, 510, 900, 100):
             view._search_navigation.stepDown()
             self.assertEqual(view.editor.textCursor().blockNumber(), expected_block)
@@ -918,11 +933,13 @@ class LogreaderQtTests(unittest.TestCase):
         view = self._prepare_positioned_search()
         scrollbar = view.editor.verticalScrollBar()
         view.find_next()
+        wait_for_search(self.window)
         self.assertEqual(view.editor.textCursor().blockNumber(), 100)
 
         # Layout/programmatic scrolling alone must not reset the match sequence.
         scrollbar.setValue(850)
         view.find_next()
+        wait_for_search(self.window)
         self.assertEqual(view.editor.textCursor().blockNumber(), 110)
 
         for forward, position, expected in ((True, 850, 900), (False, 450, 110)):
@@ -938,10 +955,13 @@ class LogreaderQtTests(unittest.TestCase):
                 self.assertEqual(scrollbar.value(), position)
                 if forward:
                     view.find_next()
+                    wait_for_search(self.window)
                 else:
                     view.find_previous()
+                    wait_for_search(self.window)
                 self.assertEqual(view.editor.textCursor().blockNumber(), expected)
         view.find_previous()
+        wait_for_search(self.window)
         self.assertEqual(view.editor.textCursor().blockNumber(), 100)
 
     def test_results_search_track_drag_and_wheel_scroll_reanchor(self):
@@ -953,6 +973,7 @@ class LogreaderQtTests(unittest.TestCase):
                 view._search_input.setText("error")
                 scrollbar.setValue(0)
                 view.find_next()
+                wait_for_search(self.window)
                 self.assertEqual(view.editor.textCursor().blockNumber(), 100)
                 if interaction in ("track", "drag"):
                     option = QStyleOptionSlider()
@@ -992,6 +1013,7 @@ class LogreaderQtTests(unittest.TestCase):
                 self.assertGreater(top, 110)
                 expected = next(block for block in (500, 510, 900) if block >= top)
                 view.find_next()
+                wait_for_search(self.window)
                 self.assertEqual(view.editor.textCursor().blockNumber(), expected)
 
     def test_results_search_retains_only_the_current_match_cursor(self):
@@ -1003,10 +1025,12 @@ class LogreaderQtTests(unittest.TestCase):
 
         search.setText("error")
         search.returnPressed.emit()
+        wait_for_search(self.window)
 
         self.assertEqual(len(results_view._search_matches), match_count)
         self.assertEqual(results.extraSelections(), [])
         results_view.find_next()
+        wait_for_search(self.window)
         current_highlights = results.extraSelections()
         self.assertEqual(len(current_highlights), 1)
         self.assertEqual(
@@ -1036,6 +1060,7 @@ class LogreaderQtTests(unittest.TestCase):
         results.setPlainText("error\n" * match_count)
         search.setText("error")
         search.returnPressed.emit()
+        wait_for_search(self.window)
 
         self.window.resize(1_000, 700)
         self.window.show()
@@ -1081,6 +1106,7 @@ class LogreaderQtTests(unittest.TestCase):
 
         cached_rows = scrollbar._marker_rows
         results_view.find_next()
+        wait_for_search(self.window)
         self.assertIs(scrollbar._marker_rows, cached_rows)
 
         search.clear()
@@ -1098,6 +1124,7 @@ class LogreaderQtTests(unittest.TestCase):
         results.setPlainText("\n".join(lines))
         search.setText("TARGET")
         search.returnPressed.emit()
+        wait_for_search(self.window)
 
         for height in (700, 350):
             with self.subTest(height=height):
@@ -1135,8 +1162,11 @@ class LogreaderQtTests(unittest.TestCase):
         results_view.set_line_wrapping(True)
         search.setText("TARGET")
         search.returnPressed.emit()
+        wait_for_search(self.window)
         results_view.find_next()
+        wait_for_search(self.window)
         results_view.find_next()
+        wait_for_search(self.window)
         self.assertEqual(results.textCursor().blockNumber(), 100)
 
         for width in (1_200, 650):
@@ -2053,6 +2083,7 @@ class LogreaderQtTests(unittest.TestCase):
 
             search.setText("e")
             search.returnPressed.emit()
+            wait_for_search(self.window)
             self.assertTrue(count.isHidden())
             self.assertEqual(results.extraSelections(), [])
 

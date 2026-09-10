@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from array import array
 from bisect import bisect_left, bisect_right
+from heapq import merge
 from time import perf_counter
 from typing import Callable, Iterator
 
@@ -59,6 +60,8 @@ RESULT_COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
 RULE = "─" * 72
 ENTRY_SEPARATOR = "-------->"
 INCREMENTAL_RENDER_BATCH_MS = 8
+INCREMENTAL_SEARCH_BATCH_MS = 4
+SEARCH_CHUNK_SIZE = 4096
 
 RenderOperation = tuple[str, str, bool]
 CheckBoxFactory = Callable[[], QCheckBox]
@@ -68,22 +71,84 @@ SpinBoxFactory = Callable[[], QSpinBox]
 class SearchMatchHighlighter(QSyntaxHighlighter):
     """Paint result-search matches without retaining text cursors."""
 
-    def __init__(self, document: QTextDocument) -> None:
-        super().__init__(document)
+    def __init__(self, editor: QPlainTextEdit) -> None:
+        super().__init__(editor.document())
+        self._editor = editor
         self._matches: tuple[tuple[int, int], ...] = ()
-        self._match_ends: tuple[int, ...] = ()
+        self._match_blocks = array("I")
+        self._painted_blocks: set[int] = set()
+        self._fresh_blocks: set[int] = set()
+        self._targets = iter(())
+        self._visible_targets = iter(())
+        self._cancelled = False
+        self._painting = False
+        self._highlight_timer = QTimer(self)
+        self._highlight_timer.setSingleShot(True)
+        self._highlight_timer.timeout.connect(self._highlight_next_batch)
+        editor.updateRequest.connect(self._prioritize_viewport)
         self._match_format = QTextCharFormat()
         self._match_format.setBackground(QColor(THEME_COLORS["ui_primary"]))
         self._match_format.setForeground(QColor("#ffffff"))
 
-    def set_matches(self, matches: tuple[tuple[int, int], ...]) -> None:
-        """Replace the integer match ranges used for block highlighting."""
-
-        if matches == self._matches:
+    def _prioritize_viewport(self, *_args) -> None:
+        if self._cancelled or self._painting:
             return
-        self._matches = matches
-        self._match_ends = tuple(end for _start, end in matches)
-        self.rehighlight()
+        rect = self._editor.viewport().rect()
+        first = self._editor.firstVisibleBlock().blockNumber()
+        last = self._editor.cursorForPosition(rect.bottomRight()).blockNumber()
+        self._visible_targets = iter(range(first, last + 1))
+        self._highlight_timer.start(0)
+
+    @Slot()
+    def _highlight_next_batch(self) -> None:
+        if self._cancelled:
+            return
+        elapsed = QElapsedTimer()
+        elapsed.start()
+        while True:
+            number = next(self._visible_targets, None)
+            if number is None:
+                number = next(self._targets, None)
+            if number is None:
+                return
+            if number not in self._fresh_blocks:
+                index = bisect_left(self._match_blocks, number)
+                has_matches = (index < len(self._match_blocks)
+                               and self._match_blocks[index] == number)
+                if has_matches or number in self._painted_blocks:
+                    block = self.document().findBlockByNumber(number)
+                    if block.isValid():
+                        self._painting = True
+                        try:
+                            self.rehighlightBlock(block)
+                        finally:
+                            self._painting = False
+                    self._fresh_blocks.add(number)
+                    if has_matches:
+                        self._painted_blocks.add(number)
+                    else:
+                        self._painted_blocks.discard(number)
+            if elapsed.elapsed() >= INCREMENTAL_SEARCH_BATCH_MS:
+                self._highlight_timer.start(1)
+                return
+
+    def cancel(self) -> None:
+        self._cancelled = True
+        self._highlight_timer.stop()
+
+    def set_matches(
+        self, matches: tuple[tuple[int, int], ...], match_blocks: array | None = None,
+    ) -> None:
+        """Paint visible matches first, then only matching or previously painted blocks."""
+        self._cancelled = False
+        if matches is not self._matches:
+            self._matches = matches
+            self._match_blocks = match_blocks if match_blocks is not None else array("I")
+            self._fresh_blocks.clear()
+            # Include formats left by an interrupted older query so rapid edits
+            # cannot leave stale highlights elsewhere in the document.
+            self._targets = merge(sorted(self._painted_blocks), self._match_blocks)
+        self._prioritize_viewport()
 
     def highlightBlock(self, text: str) -> None:  # noqa: N802
         """Apply the ordinary match format to ranges in the current block."""
@@ -92,8 +157,10 @@ class SearchMatchHighlighter(QSyntaxHighlighter):
             return
 
         block_start = self.currentBlock().position()
-        block_end = block_start + len(text)
-        match_index = bisect_right(self._match_ends, block_start)
+        block_end = block_start + self.currentBlock().length() - 1
+        match_index = bisect_right(
+            self._matches, block_start, key=lambda match: match[1],
+        )
         while match_index < len(self._matches):
             start, end = self._matches[match_index]
             if start >= block_end:
@@ -215,22 +282,32 @@ class SearchMarkerScrollBar(QScrollBar):
         document_extent = max(document_block_count, scroll_extent)
         document_span = max(1, document_extent - 1)
         use_visual_lines = scroll_extent > document_block_count
-        occupied_rows = bytearray(height)
-        for block_number in self._match_blocks:
-            position = block_number
+        # Skip directly to the next occupied pixel row. Work scales with the
+        # scrollbar height, rather than the number of matching document lines.
+        def position_for_block(block_number):
             if use_visual_lines:
                 block = self._document.findBlockByNumber(block_number)
                 first_line = block.firstLineNumber() if block.isValid() else -1
                 if first_line >= 0:
-                    position = first_line
-            relative_row = min(row_span, position * row_span // document_span)
-            occupied_rows[relative_row] = 1
+                    return first_line
+            return block_number
 
-        self._marker_rows = tuple(
-            groove.top() + row
-            for row, occupied in enumerate(occupied_rows)
-            if occupied
-        )
+        rows = []
+        index = 0
+        while index < len(self._match_blocks):
+            position = position_for_block(self._match_blocks[index])
+            relative_row = min(row_span, position * row_span // document_span)
+            rows.append(groove.top() + relative_row)
+            if relative_row == row_span:
+                break
+            next_position = (
+                (relative_row + 1) * document_span + row_span - 1
+            ) // row_span
+            index = bisect_left(
+                self._match_blocks, next_position, lo=index + 1,
+                key=position_for_block,
+            )
+        self._marker_rows = tuple(rows)
         return self._marker_rows
 
 
@@ -338,6 +415,48 @@ class IncrementalAnalysisRenderer(QObject):
         )
 
 
+def _iter_search_matches(
+    document: QTextDocument, query: str,
+) -> Iterator[tuple[int, int, int] | None]:
+    """Use Qt's literal matching on bounded slices, including boundary overlap.
+
+    Positions and slice lengths are UTF-16 units, as required by QTextCursor.
+    Yield even on empty slices so sparse/no-match searches also yield to the UI.
+    """
+    query_length = len(query.encode("utf-16-le", errors="surrogatepass")) // 2
+    scratch = QTextDocument()
+    cursor = QTextCursor(document)
+    position = 0
+    last_position = document.characterCount() - 1
+    while position < last_position:
+        boundary = min(position + SEARCH_CHUNK_SIZE, last_position)
+        # PySide's QString conversion drops an isolated surrogate. Never cut
+        # a supplementary character in half or subsequent offsets would drift.
+        if (boundary < last_position
+                and 0xDC00 <= ord(document.characterAt(boundary)) <= 0xDFFF):
+            boundary += 1
+        end = min(boundary + query_length - 1, last_position)
+        if (end < last_position
+                and 0xDC00 <= ord(document.characterAt(end)) <= 0xDFFF):
+            end += 1
+        cursor.setPosition(position)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        scratch.setPlainText(cursor.selectedText())
+        local_position = 0
+        next_position = boundary
+        while True:
+            match = scratch.find(query, local_position)
+            if match.isNull() or position + match.selectionStart() >= boundary:
+                break
+            start = position + match.selectionStart()
+            stop = position + match.selectionEnd()
+            yield start, stop, document.findBlock(start).blockNumber()
+            local_position = match.selectionEnd()
+            next_position = max(next_position, stop)
+        position = next_position
+        yield None
+
+
 class ResultsView(QWidget):
     """Results editor, controls, and incremental rendering lifecycle."""
 
@@ -361,6 +480,14 @@ class ResultsView(QWidget):
         self._current_search_match: int | None = None
         self._searched_query: str | None = None
         self._search_from_viewport = True
+        self._search_generation = 0
+        self._search_work: Iterator[tuple[int, int, int] | None] | None = None
+        self._pending_matches: list[tuple[int, int]] = []
+        self._pending_blocks = array("I")
+        self._pending_navigation: bool | None = None
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.timeout.connect(self._search_next_batch)
 
         panel_layout = QVBoxLayout(self)
         panel_layout.setContentsMargins(0, 0, 0, 0)
@@ -514,8 +641,9 @@ class ResultsView(QWidget):
             scrollbar.sliderPressed.connect(self._use_viewport_search_anchor)
             scrollbar.actionTriggered.connect(self._use_viewport_search_anchor)
         self._search_highlighter = SearchMatchHighlighter(
-            self._editor.document()
+            self._editor
         )
+        self._editor.document().contentsChange.connect(self._results_changed)
         panel_layout.addWidget(self._editor, 1)
 
     @property
@@ -609,44 +737,81 @@ class ResultsView(QWidget):
         if not query:
             return
 
-        document = self._editor.document()
-        matches = []
-        match_blocks = array("I")
-        previous_block = -1
-        search_position = 0
-        while True:
-            match_cursor = document.find(query, search_position)
-            if match_cursor.isNull():
-                break
+        self._search_work = _iter_search_matches(self._editor.document(), query)
+        self._search_count_label.setText("Searching…")
+        self._search_count_label.show()
+        self._search_timer.start(0)
 
-            start = match_cursor.selectionStart()
-            end = match_cursor.selectionEnd()
-            if end <= start:
-                break
-            matches.append((start, end))
-            block_number = match_cursor.blockNumber()
-            if block_number != previous_block:
-                match_blocks.append(block_number)
-                previous_block = block_number
-            search_position = end
+    @property
+    def is_searching(self) -> bool:
+        return self._search_work is not None
 
-        self._search_matches = tuple(matches)
-        self._search_match_blocks = match_blocks
-        self._current_search_match = None
-        if matches:
-            self._search_count_label.setText(f"0 / {len(matches)}")
-            self._search_count_label.show()
-        else:
-            self._search_count_label.setText("No matches")
-            self._search_count_label.show()
-        self._search_highlighter.set_matches(self._search_matches)
-        self._search_marker_scrollbar.set_match_blocks(
-            self._search_match_blocks,
-            document,
-        )
-        self._update_current_search_highlight()
+    @Slot(int, int, int)
+    def _results_changed(self, _position: int, removed: int, added: int) -> None:
+        if (removed or added) and (
+            self.is_searching or self._searched_query is not None
+        ):
+            self._clear_search_results()
+
+    @Slot()
+    def _search_next_batch(self) -> None:
+        self._advance_search(self._search_generation)
+
+    def _advance_search(self, generation: int) -> None:
+        if generation != self._search_generation or self._search_work is None:
+            return
+        elapsed = QElapsedTimer()
+        elapsed.start()
+        while elapsed.elapsed() < INCREMENTAL_SEARCH_BATCH_MS:
+            try:
+                match = next(self._search_work)
+            except StopIteration:
+                self._search_work = None
+                self._search_matches = tuple(self._pending_matches)
+                self._pending_matches = []
+                self._search_match_blocks = self._pending_blocks
+                self._pending_blocks = array("I")
+                count = len(self._search_matches)
+                self._search_count_label.setText(
+                    f"0 / {count}" if count else "No matches",
+                )
+                self._search_highlighter.set_matches(
+                    self._search_matches, self._search_match_blocks,
+                )
+                self._search_marker_scrollbar.set_match_blocks(
+                    self._search_match_blocks, self._editor.document(),
+                )
+                navigation = self._pending_navigation
+                self._pending_navigation = None
+                if navigation is not None:
+                    self._navigate_search(forward=navigation)
+                return
+            if match is not None:
+                start, end, block = match
+                self._pending_matches.append((start, end))
+                if not self._pending_blocks or self._pending_blocks[-1] != block:
+                    self._pending_blocks.append(block)
+        self._search_timer.start(1)
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        self.cancel_search()
+        super().closeEvent(event)
+
+    def cancel_search(self) -> None:
+        """Invalidate pending batches and release their document references."""
+        if self.is_searching:
+            self._searched_query = None
+            self._search_count_label.hide()
+        self._search_generation += 1
+        self._search_timer.stop()
+        self._search_work = None
+        self._pending_matches = []
+        self._pending_blocks = array("I")
+        self._pending_navigation = None
+        self._search_highlighter.cancel()
 
     def _clear_search_results(self) -> None:
+        self.cancel_search()
         self._search_matches = ()
         self._search_match_blocks = array("I")
         self._current_search_match = None
@@ -677,6 +842,9 @@ class ResultsView(QWidget):
             return
         if self._searched_query != self._search_input.text():
             self._refresh_search_matches()
+        if self.is_searching:
+            self._pending_navigation = forward
+            return
         if not self._search_matches:
             return
 

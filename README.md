@@ -54,6 +54,13 @@ rendering. Cancellation is cooperative: a file read, decoding/splitting operatio
 or single regex operation already executing must return before it can stop.
 Shutdown waits for running workers to return before exiting.
 
+Press **Enter** in the results search field to find literal text. Searching and
+highlighting run in small batches so tabs remain usable during dense searches.
+The initial search preserves selection and scrolling; subsequent Enter presses
+and the navigation arrows reuse cached matches. Editing the query, replacing
+results, or closing the tab cancels pending search work. Match counts and scrollbar
+markers appear when scanning finishes.
+
 **Combined view** and **Line-separator** are enabled by default. Combined view
 merges every enabled filter into one result category while keeping individual
 filter counts in the summary. The results limit counts each matching source line

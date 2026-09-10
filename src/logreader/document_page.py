@@ -252,6 +252,7 @@ class DocumentPage(QWidget):
         self._load_worker = None
         self._finish_analysis_request()
         self.results_view.reset_for_loaded_file("")
+        self.results_view.cancel_search()
         self.hide()
         if not self._workers:
             self.deleteLater()
