@@ -64,8 +64,8 @@ class TabTests(unittest.TestCase):
         self.fail("Analysis did not finish")
 
     def test_empty_state_and_file_picker_open_without_analysis(self):
-        self.assertEqual(self.window.size().width(), 1080)
-        self.assertEqual(self.window.size().height(), 950)
+        self.assertEqual(self.window.size().width(), 975)
+        self.assertEqual(self.window.size().height(), 1097)
         self.window.show()
         self.app.processEvents()
         self.assertIsNone(self.window._document)
@@ -79,6 +79,8 @@ class TabTests(unittest.TestCase):
         self.assertEqual(self.window._empty_subtitle.text(), "Each file opens in its own tab.")
         self.assertFalse(self.window._action_margin.isVisible())
         self.assertTrue(self.window._empty_tab_label.isVisible())
+        self.assertTrue(self.window._empty_version_label.isVisible())
+        self.assertEqual(self.window._empty_version_label.text(), APP_VERSION)
         self.assertEqual(self.window.statusBar().currentMessage(), "Ready")
         self.assertEqual(
             self.window._empty_heading.alignment(),
@@ -109,6 +111,7 @@ class TabTests(unittest.TestCase):
         self.assertEqual(self.window._tabs.count(), 1)
         self.assertFalse(self.window._empty_page.isVisible())
         self.assertFalse(self.window._empty_tab_label.isVisible())
+        self.assertFalse(self.window._empty_version_label.isVisible())
         self.assertTrue(self.window._action_margin.isVisible())
         self.assertTrue(self.window._tabs.isVisible())
         self.assertTrue(self.window._analyze_button.isEnabled())

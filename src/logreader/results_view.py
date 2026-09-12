@@ -1109,8 +1109,8 @@ def _iter_summary_entries(
         if count is None:
             yield label, "muted", False
         else:
-            yield f"{label} ", "body", False
-            yield count_text, _match_count_role(count), False
+            yield f"{label} ", _match_count_role(count), False
+            yield count_text, "body", False
         line_length += entry_length
 
 

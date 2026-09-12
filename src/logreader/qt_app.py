@@ -426,7 +426,7 @@ class LogreaderWindow(QMainWindow):
         self._apply_interface_palette()
         self.setStyleSheet(INTERFACE_STYLE_SHEET)
         self.setWindowTitle(APP_VERSION)
-        self.resize(1080, 950)
+        self.resize(975, 1097)
         self.setMinimumSize(820, 560)
         self._scheduler = WorkScheduler(self)
         self._build_interface()
@@ -538,7 +538,14 @@ class LogreaderWindow(QMainWindow):
         self._empty_tab_label.setObjectName("emptyTabLabel")
         self._empty_tab_label.setContentsMargins(12, 0, 0, 0)
         self._empty_tab_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        tab_row.addWidget(self._empty_tab_label, 1)
+        tab_row.addWidget(self._empty_tab_label)
+        self._empty_version_label = QLabel(APP_VERSION)
+        self._empty_version_label.setObjectName("emptyVersionLabel")
+        self._empty_version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_font = self._empty_version_label.font()
+        version_font.setPointSizeF(version_font.pointSizeF() + 1)
+        self._empty_version_label.setFont(version_font)
+        tab_row.addWidget(self._empty_version_label, 1)
         tab_row.addWidget(self._tabs, 1)
         self._open_button = QPushButton("&Open file")
         self._open_button.setObjectName("openButton")
@@ -671,6 +678,7 @@ class LogreaderWindow(QMainWindow):
     def _update_file_controls_visibility(self) -> None:
         page = self._document
         self._empty_tab_label.setVisible(page is None)
+        self._empty_version_label.setVisible(page is None)
         self._action_margin.setVisible(page is not None and not page.results_view.is_maximized)
 
     @Slot(str)
