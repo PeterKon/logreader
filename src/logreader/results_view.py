@@ -56,6 +56,8 @@ from .theme import THEME_COLORS, configure_clear_button, vertical_resize_icon
 
 
 RESULT_COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
+# Lazily built for the fixed results palette; never mutate a cached format.
+_RESULT_FORMATS: dict[tuple[str, bool], QTextCharFormat] = {}
 RULE = "─" * 72
 ENTRY_SEPARATOR = "-------->"
 INCREMENTAL_RENDER_BATCH_MS = 8
@@ -1158,10 +1160,18 @@ def _iter_result_line_render_operations(
         yield f"{line.text}\n", "body", False
         return
 
-    yield line_number, "match", True
     position = 0
-    for span in line.match_spans:
-        yield line.text[position : span.start], "matched_text", False
+    spans = iter(line.match_spans)
+    if line.match_spans[0].start == 0:
+        # The prefix and a leading match share the same format.
+        first = next(spans)
+        yield line_number + line.text[:first.end], "match", True
+        position = first.end
+    else:
+        yield line_number, "match", True
+    for span in spans:
+        if span.start > position:
+            yield line.text[position : span.start], "matched_text", False
         yield line.text[span.start : span.end], "match", True
         position = span.end
     yield f"{line.text[position:]}\n", "matched_text", False
@@ -1178,10 +1188,14 @@ def _insert(
     *,
     bold: bool = False,
 ) -> None:
-    text_format = QTextCharFormat()
-    text_format.setForeground(RESULT_COLORS[role])
-    if bold:
-        text_format.setFontWeight(QFont.Weight.Bold)
+    key = (role, bold)
+    text_format = _RESULT_FORMATS.get(key)
+    if text_format is None:
+        text_format = QTextCharFormat()
+        text_format.setForeground(RESULT_COLORS[role])
+        if bold:
+            text_format.setFontWeight(QFont.Weight.Bold)
+        _RESULT_FORMATS[key] = text_format
     cursor.insertText(text, text_format)
 
 
