@@ -2088,7 +2088,7 @@ class LogreaderQtTests(unittest.TestCase):
             renderer._timer.stop()
             renderer._render_next_batch()
             renderer._timer.stop()
-            self.assertEqual(results.toPlainText(), f"{'ERROR:':<20}")
+            self.assertEqual(results.toPlainText(), "Matches:\n")
             self.assertEqual(completed.count(), 0)
 
             search.setText("e")
@@ -2162,6 +2162,48 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(results_view.editor.textCursor().position(), 0)
 
+    def test_summary_wraps_at_entry_boundaries_and_preserves_long_entries(self):
+        from logreader.results_view import _iter_summary_entries
+
+        def text(entries):
+            return "".join(value for value, _, _ in _iter_summary_entries(entries))
+
+        fits = "A" * 88
+        oversized = "Z" * 101
+        self.assertEqual(
+            text([("ERROR", 13), (fits, 2), ("FAILED", 1), (oversized, 3), ("FATAL", 4)]),
+            f"ERROR 13, {fits} 2\nFAILED 1\n{oversized} 3\nFATAL 4",
+        )
+        self.assertEqual(
+            text([("A" * 100, None), ("FAILED", None), (oversized, None), ("FATAL", None)]),
+            f"{'A' * 100}\nFAILED\n{oversized}\nFATAL",
+        )
+
+    def test_summary_places_custom_and_regex_entries_after_presets(self):
+        from dataclasses import replace
+        from logreader.config import LogreaderConfig
+        from logreader.results_view import _iter_analysis_render_operations
+
+        for combined in (False, True):
+            config = LogreaderConfig(
+                enabled_patterns=("error_colon",), custom_patterns=("needle",),
+                regex_patterns=(r"code=\d+",), combined_view=combined,
+            )
+            for source, expected in (
+                ("ERROR: needle code=42", "Matches:\nERROR: 1, needle 1, code=\\d+ 1\n"),
+                ("ordinary", "Matches:\n0\n\n0 matches:\nERROR:, needle, code=\\d+\n"),
+            ):
+                analysis = analyze_lines((source,), config.search_patterns(), combined=combined)
+                analysis = replace(
+                    analysis,
+                    categories=dict(reversed(list(analysis.categories.items()))),
+                    category_match_counts=dict(reversed(list(analysis.category_match_counts.items()))),
+                )
+                output = "".join(
+                    value for value, _, _ in _iter_analysis_render_operations("test.log", analysis, config)
+                )
+                self.assertTrue(output.startswith(expected), output)
+
     def test_zero_match_patterns_stay_in_summary_without_blank_sections(self):
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "summary.log"
@@ -2175,14 +2217,14 @@ class LogreaderQtTests(unittest.TestCase):
             ).toPlainText()
 
         self.assertIn(
-            "0 matches: ERROR, EXCEPTION:, EXCEPTION, FAILED, FAILURE, FATAL, CRITICAL, REFUSED\n",
+            "0 matches:\nERROR, EXCEPTION:, EXCEPTION, FAILED, FAILURE, FATAL, CRITICAL, REFUSED\n",
             output,
         )
         self.assertNotIn(APP_VERSION, output)
         self.assertNotIn(str(log_path), output)
         self.assertNotIn("source lines", output)
         self.assertNotIn(RULE, output)
-        self.assertIn("Total matches — 1 matches\n1      -> ERROR: boom", output)
+        self.assertIn("Total matches — 1 matches\n\n1      -> ERROR: boom", output)
         self.assertNotIn("FAILED — 0 matches", output)
         self.assertNotIn("FATAL — 0 matches", output)
         self.assertNotIn("No matches.", output)
@@ -2215,14 +2257,11 @@ class LogreaderQtTests(unittest.TestCase):
             ("combined",),
         )
         summary = output.split("\nTotal matches —", 1)[0]
-        self.assertRegex(summary, r"ERROR:\s+1 matches")
-        self.assertIn("0 matches: ERROR, EXCEPTION:, EXCEPTION, FAILURE, CRITICAL, REFUSED\n", summary)
-        self.assertRegex(summary, r"FAILED\s+1 matches")
-        self.assertRegex(summary, r"panic\s+1 matches")
-        self.assertRegex(summary, r"code=\\d\+\s+1 matches")
+        self.assertTrue(summary.startswith("Matches:\nERROR: 1, FAILED 1, panic 1, code=\\d+ 1\n\n"))
+        self.assertIn("0 matches:\nERROR, EXCEPTION:, EXCEPTION, FAILURE, CRITICAL, REFUSED\n", summary)
         self.assertNotIn("Total matches", summary)
         self.assertEqual(output.count("Total matches"), 1)
-        self.assertEqual(summary.count(" matches\n"), 4)
+        self.assertNotIn(" · ", summary)
         self.assertIn("ERROR: failed", output)
         self.assertIn("panic code=42", output)
         self.assertNotIn("FATAL ignored", output)

@@ -60,6 +60,7 @@ ENTRY_SEPARATOR = "-------->"
 INCREMENTAL_RENDER_BATCH_MS = 8
 INCREMENTAL_SEARCH_BATCH_MS = 4
 SEARCH_CHUNK_SIZE = 4096
+SUMMARY_LINE_LENGTH = 100
 
 RenderOperation = tuple[str, str, bool]
 CheckBoxFactory = Callable[[], QCheckBox]
@@ -1059,24 +1060,58 @@ def _iter_analysis_render_operations(
             for key, result in analysis.categories.items()
         )
 
-    zero_match_labels = []
-    for key, match_count in summary_counts:
+    positive_entries = []
+    zero_entries = []
+    # Stable ordering keeps presets first, then custom literals, then regexes.
+    ordered_counts = sorted(
+        summary_counts,
+        key=lambda item: 2 if item[0].startswith("regex_") else
+        1 if item[0].startswith("custom_") else 0,
+    )
+    for key, match_count in ordered_counts:
         label = config.label_for(key)
         if match_count == 0:
-            zero_match_labels.append(label)
-            continue
-        yield f"{label:<20}", "body", False
-        yield (
-            f"{match_count:>8} matches\n",
-            _match_count_role(match_count),
-            False,
-        )
+            zero_entries.append((label, None))
+        else:
+            positive_entries.append((label, match_count))
 
-    if zero_match_labels:
-        yield f"0 matches: {', '.join(zero_match_labels)}\n", "muted", False
+    yield "Matches:\n", "body", True
+    if positive_entries:
+        yield from _iter_summary_entries(positive_entries)
+    else:
+        yield "0", "muted", False
+    yield "\n", "body", False
+
+    if zero_entries:
+        yield "\n0 matches:\n", "muted", False
+        yield from _iter_summary_entries(zero_entries)
+        yield "\n", "muted", False
 
     for presentation in build_category_presentations(analysis, config.limit):
         yield from _iter_category_render_operations(presentation, config)
+
+
+def _iter_summary_entries(
+    entries: list[tuple[str, int | None]],
+) -> Iterator[RenderOperation]:
+    """Wrap plain-text lists at entry boundaries, preserving oversized entries."""
+    line_length = 0
+    for label, count in entries:
+        count_text = "" if count is None else str(count)
+        entry_length = len(label) + (1 + len(count_text) if count is not None else 0)
+        if line_length:
+            if line_length + 2 + entry_length > SUMMARY_LINE_LENGTH:
+                yield "\n", "muted", False
+                line_length = 0
+            else:
+                yield ", ", "muted", False
+                line_length += 2
+        if count is None:
+            yield label, "muted", False
+        else:
+            yield f"{label} ", "body", False
+            yield count_text, _match_count_role(count), False
+        line_length += entry_length
 
 
 def _iter_category_render_operations(
@@ -1084,7 +1119,7 @@ def _iter_category_render_operations(
     config: LogreaderConfig,
 ) -> Iterator[RenderOperation]:
     label = config.label_for(presentation.key)
-    yield f"\n{presentation.heading(label)}\n", "heading", True
+    yield f"\n{presentation.heading(label)}\n\n", "heading", True
 
     for excerpt_index, excerpt in enumerate(presentation.excerpts):
         for line in excerpt.lines:
