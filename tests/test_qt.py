@@ -334,7 +334,7 @@ class LogreaderQtTests(unittest.TestCase):
             style_sheet,
         )
         self.assertIn(
-            "QPushButton#openButton,\nQPushButton#toggleAllButton {\n"
+            "QPushButton#toggleAllButton {\n"
             f"    background-color: {COLORS['ui_island'].name()}",
             style_sheet,
         )
@@ -654,7 +654,13 @@ class LogreaderQtTests(unittest.TestCase):
 
         button.click()
 
-        self.assertFalse(file_controls.isHidden())
+        self.app.processEvents()
+        self.assertFalse(file_controls.isVisible())
+        self.assertTrue(self.window._tabs.isVisible())
+        self.assertEqual(
+            results_panel.mapTo(self.window.centralWidget(), results_panel.rect().topLeft()).y(),
+            self.window._tab_controls.geometry().bottom() + 1,
+        )
         self.assertTrue(filter_group.isHidden())
         self.assertTrue(controls_container.isHidden())
         self.assertFalse(results_header.isHidden())

@@ -64,11 +64,40 @@ class TabTests(unittest.TestCase):
         self.fail("Analysis did not finish")
 
     def test_empty_state_and_file_picker_open_without_analysis(self):
+        self.assertEqual(self.window.size().width(), 1080)
+        self.assertEqual(self.window.size().height(), 950)
         self.window.show()
         self.app.processEvents()
         self.assertIsNone(self.window._document)
         self.assertEqual(self.window._tabs.count(), 0)
         self.assertTrue(self.window._empty_page.isVisible())
+        self.assertEqual(self.window._open_button.text(), "&Open file")
+        self.assertIs(self.window._open_button.parentWidget(), self.window._tab_controls)
+        self.assertIs(self.window._file_controls.layout().itemAt(0).widget(), self.window._analyze_button)
+        self.assertIs(self.window._file_controls.layout().itemAt(1).widget(), self.window._path_label)
+        self.assertEqual(self.window._empty_heading.text(), "Open or drop log files")
+        self.assertEqual(self.window._empty_subtitle.text(), "Each file opens in its own tab.")
+        self.assertFalse(self.window._action_margin.isVisible())
+        self.assertTrue(self.window._empty_tab_label.isVisible())
+        self.assertEqual(self.window.statusBar().currentMessage(), "Ready")
+        self.assertEqual(
+            self.window._empty_heading.alignment(),
+            Qt.AlignmentFlag.AlignCenter,
+        )
+        self.assertTrue(self.window._empty_heading.font().bold())
+        for width, height in ((1080, 760), (900, 640)):
+            self.window.resize(width, height)
+            self.app.processEvents()
+            center = self.window._empty_page.mapTo(
+                self.window.centralWidget(), self.window._empty_page.contentsRect().center(),
+            )
+            expected = self.window.centralWidget().rect().center()
+            self.assertLessEqual(abs(center.x() - expected.x()), 1)
+            self.assertLessEqual(abs(center.y() - expected.y()), 1)
+        self.assertEqual(
+            self.window._empty_heading.font().pointSizeF(),
+            self.window.font().pointSizeF() + 6,
+        )
         self.assertFalse(self.window._analyze_button.isEnabled())
         self.assertEqual(self.window.windowTitle(), APP_VERSION)
         self.window.analyze_current()  # Safe in the empty state.
@@ -79,10 +108,14 @@ class TabTests(unittest.TestCase):
         wait_for_load(page)
         self.assertEqual(self.window._tabs.count(), 1)
         self.assertFalse(self.window._empty_page.isVisible())
+        self.assertFalse(self.window._empty_tab_label.isVisible())
+        self.assertTrue(self.window._action_margin.isVisible())
         self.assertTrue(self.window._tabs.isVisible())
         self.assertTrue(self.window._analyze_button.isEnabled())
         self.assertEqual(page.session.path, path)
         self.assertEqual(page.session.lines, ())
+        self.assertEqual(page.results_view.editor.toPlainText(), "")
+        self.assertEqual(page.results_view.editor.placeholderText(), "")
         self.assertIsNone(page.session.analysis)
         self.assertEqual(page.session.phase, AnalysisPhase.IDLE)
         self.assertEqual(page.results_view.editor.toPlainText(), "")
@@ -261,9 +294,10 @@ class TabTests(unittest.TestCase):
         first.results_view.set_maximized(True)
         self.window._select_document(second)
         self.assertFalse(second.results_view.is_maximized)
+        self.assertFalse(self.window._action_margin.isHidden())
         self.window._select_document(first)
         self.assertTrue(first.results_view.is_maximized)
-        self.assertFalse(self.window._file_controls.isHidden())
+        self.assertTrue(self.window._action_margin.isHidden())
         self.assertFalse(self.window._tabs.isHidden())
 
     def test_keyboard_navigation_wraps_from_controls_and_maximized_results(self):

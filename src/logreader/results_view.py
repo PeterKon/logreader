@@ -624,9 +624,6 @@ class ResultsView(QWidget):
         self._editor.setObjectName("resultsView")
         self._editor.setReadOnly(True)
         self._editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self._editor.setPlaceholderText(
-            "Open a log file to display the analyzed results here."
-        )
         self._editor.setFont(
             QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         )
@@ -661,15 +658,13 @@ class ResultsView(QWidget):
         return self._maximized
 
     def reset_for_loaded_file(self, source_name: str) -> None:
-        """Clear old output and describe the newly staged source file."""
+        """Clear old output while the newly staged source awaits analysis."""
 
         self.cancel_rendering()
         self._search_input.clear()
         self._clear_search_results()
         self._editor.clear()
-        self._editor.setPlaceholderText(
-            f"{source_name} is loaded. Choose Analyze to display results."
-        )
+        self._editor.setPlaceholderText("")
 
     def focus_editor(self) -> None:
         self._search_input.deselect()

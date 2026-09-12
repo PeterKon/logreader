@@ -98,7 +98,7 @@ QLabel {{
     border: none;
     color: {THEME_COLORS['ui_text']};
 }}
-QLabel#pathLabel {{
+QLabel#pathLabel, QLabel#emptyTabLabel, QLabel#emptySubtitle {{
     color: {THEME_COLORS['ui_muted']};
 }}
 QGroupBox#filterGroup {{
@@ -160,7 +160,22 @@ QPushButton:disabled {{
     border-color: {THEME_COLORS['ui_border']};
     color: {THEME_COLORS['ui_disabled_text']};
 }}
-QPushButton#openButton,
+QPushButton#openButton {{
+    background-color: {THEME_COLORS['ui_open_tab']};
+    border: 1px solid {THEME_COLORS['ui_border']};
+    border-radius: 0;
+    padding: 6px 12px;
+}}
+QPushButton#openButton:hover {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QPushButton#openButton:focus {{
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QPushButton#openButton:pressed {{
+    background-color: {THEME_COLORS['ui_button_pressed']};
+}}
 QPushButton#toggleAllButton {{
     background-color: {THEME_COLORS['ui_island']};
 }}
@@ -409,7 +424,7 @@ class LogreaderWindow(QMainWindow):
         self._apply_interface_palette()
         self.setStyleSheet(INTERFACE_STYLE_SHEET)
         self.setWindowTitle(APP_VERSION)
-        self.resize(1080, 760)
+        self.resize(1080, 950)
         self.setMinimumSize(820, 560)
         self._scheduler = WorkScheduler(self)
         self._build_interface()
@@ -422,7 +437,7 @@ class LogreaderWindow(QMainWindow):
             lambda: self.close_tab(self._tabs.currentIndex())
         )
         QApplication.instance().aboutToQuit.connect(self._shutdown_documents)
-        self.statusBar().showMessage("Ready: Open a log file to begin")
+        self.statusBar().showMessage("Ready")
         self._drop_overlay = QLabel("Drop file", self)
         self._drop_overlay.setObjectName("dropOverlay")
         self._drop_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -441,6 +456,16 @@ class LogreaderWindow(QMainWindow):
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Route file drops over every child control through normal file loading."""
+
+        if watched is self._empty_page and event.type() in (
+            QEvent.Type.Resize, QEvent.Type.Move, QEvent.Type.Show,
+        ):
+            # Balance the space occupied by the file bar above the label so its
+            # text is centered in the full content area above the status bar.
+            top = self._empty_page.mapTo(
+                self.centralWidget(), self._empty_page.rect().topLeft(),
+            ).y()
+            self._empty_page.setContentsMargins(12, 0, 12, max(0, top))
 
         if watched is self:
             if event.type() == QEvent.Type.Resize:
@@ -503,16 +528,32 @@ class LogreaderWindow(QMainWindow):
         self._tabs.setElideMode(Qt.TextElideMode.ElideRight)
         self._tabs.setUsesScrollButtons(True)
         self._tabs.hide()
-        root.addWidget(self._tabs)
+        self._tab_controls = QWidget(central)
+        tab_row = QHBoxLayout(self._tab_controls)
+        tab_row.setContentsMargins(0, 0, 0, 0)
+        tab_row.setSpacing(8)
+        self._empty_tab_label = QLabel("No file selected")
+        self._empty_tab_label.setObjectName("emptyTabLabel")
+        self._empty_tab_label.setContentsMargins(12, 0, 0, 0)
+        self._empty_tab_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        tab_row.addWidget(self._empty_tab_label, 1)
+        tab_row.addWidget(self._tabs, 1)
+        self._open_button = QPushButton("&Open file")
+        self._open_button.setObjectName("openButton")
+        self._open_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self._open_button.clicked.connect(self.open_file)
+        tab_row.addWidget(self._open_button, 0, Qt.AlignmentFlag.AlignRight)
+        root.addWidget(self._tab_controls)
         self._file_controls = QWidget(central)
         self._file_controls.setObjectName("fileControlsRow")
         file_row = QHBoxLayout(self._file_controls)
         file_row.setContentsMargins(8, 6, 8, 6)
         file_row.setSpacing(8)
-        self._open_button = QPushButton("&Open log…")
-        self._open_button.setObjectName("openButton")
-        self._open_button.clicked.connect(self.open_file)
-        file_row.addWidget(self._open_button)
+        self._analyze_button = QPushButton("&Analyze")
+        self._analyze_button.setObjectName("analyzeButton")
+        self._analyze_button.setEnabled(False)
+        self._analyze_button.clicked.connect(self.analyze_current)
+        file_row.addWidget(self._analyze_button)
 
         self._path_label = QLabel("No file selected")
         self._path_label.setObjectName("pathLabel")
@@ -525,21 +566,33 @@ class LogreaderWindow(QMainWindow):
         )
         file_row.addWidget(self._path_label, 1)
 
-        self._analyze_button = QPushButton("&Analyze")
-        self._analyze_button.setObjectName("analyzeButton")
-        self._analyze_button.setEnabled(False)
-        self._analyze_button.clicked.connect(self.analyze_current)
-        file_row.addWidget(self._analyze_button)
-        action_margin = QWidget(central)
-        action_layout = QVBoxLayout(action_margin)
+        self._action_margin = QWidget(central)
+        action_layout = QVBoxLayout(self._action_margin)
         action_layout.setContentsMargins(12, 12, 12, 0)
         action_layout.addWidget(self._file_controls)
-        root.addWidget(action_margin)
+        root.addWidget(self._action_margin)
+        self._action_margin.hide()
         self._workspace = QStackedWidget(central)
         self._workspace.setObjectName("documentWorkspace")
-        self._empty_page = QLabel("Open or drop a log file to begin", self._workspace)
+        self._empty_page = QWidget(self._workspace)
         self._empty_page.setObjectName("emptyDocumentPage")
-        self._empty_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_page.setContentsMargins(12, 12, 12, 12)
+        empty_layout = QVBoxLayout(self._empty_page)
+        empty_layout.setContentsMargins(0, 0, 0, 0)
+        empty_layout.setSpacing(8)
+        empty_layout.addStretch(1)
+        self._empty_heading = QLabel("Open or drop log files")
+        self._empty_heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_font = self._empty_heading.font()
+        empty_font.setPointSizeF(empty_font.pointSizeF() + 6)
+        empty_font.setBold(True)
+        self._empty_heading.setFont(empty_font)
+        empty_layout.addWidget(self._empty_heading)
+        self._empty_subtitle = QLabel("Each file opens in its own tab.")
+        self._empty_subtitle.setObjectName("emptySubtitle")
+        self._empty_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(self._empty_subtitle)
+        empty_layout.addStretch(1)
         self._workspace.addWidget(self._empty_page)
         self._pages = QStackedWidget(self._workspace)
         self._pages.setObjectName("documentPages")
@@ -602,14 +655,21 @@ class LogreaderWindow(QMainWindow):
         if page is not None:
             page.set_render_active(True)
         self._workspace.setCurrentWidget(self._pages if page else self._empty_page)
+        self._update_file_controls_visibility()
         path = page.session.path if page else None
         self._path_label.setText(path.name if path else "No file selected")
         self._path_label.setToolTip(str(path) if path else "")
         self.setWindowTitle(f"{APP_VERSION} — {path.name}" if path else APP_VERSION)
         self.statusBar().showMessage(
-            page.status_message if page else "Ready: Open a log file to begin"
+            page.status_message if page else "Ready"
         )
         self._present_analysis_busy()
+
+    @Slot()
+    def _update_file_controls_visibility(self) -> None:
+        page = self._document
+        self._empty_tab_label.setVisible(page is None)
+        self._action_margin.setVisible(page is not None and not page.results_view.is_maximized)
 
     @Slot(str)
     def _present_document_status(self, message: str) -> None:
@@ -723,6 +783,7 @@ class LogreaderWindow(QMainWindow):
         page.busy_changed.connect(self._present_analysis_busy)
         page.analysis_failed.connect(self._present_analysis_failure)
         page.analysis_finished.connect(self.analysis_finished.emit)
+        page.results_view.maximized_changed.connect(self._update_file_controls_visibility)
         page.load_file(path)
         self._documents_by_path[key] = page
         self._pages.addWidget(page)

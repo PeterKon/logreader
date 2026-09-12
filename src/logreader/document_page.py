@@ -119,7 +119,6 @@ class DocumentPage(QWidget):
         self.results_view.reset_for_loaded_file(path.name)
         self.load_queued = True
         message = f"Queued for loading {path.name}…"
-        self.results_view.editor.setPlaceholderText(message)
         self._set_status(message)
         worker = LoadWorker(request_id, path)
         worker.signals.started.connect(self._load_started)
@@ -136,7 +135,6 @@ class DocumentPage(QWidget):
             return
         self.load_queued = False
         message = f"Loading {self.session.path.name}…"
-        self.results_view.editor.setPlaceholderText(message)
         self._set_status(message)
         self.busy_changed.emit()
 
@@ -155,10 +153,6 @@ class DocumentPage(QWidget):
             return
         self._load_worker = None
         self.load_queued = False
-        self.results_view.editor.setPlaceholderText(
-            f"Unable to load {self.session.path.name}\n{message}\n\n"
-            "Open this file again to retry."
-        )
         self._set_status(f"Unable to load {self.session.path.name}: {message}")
         self.busy_changed.emit()
         self.load_finished.emit()
