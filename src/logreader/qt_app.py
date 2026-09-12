@@ -425,7 +425,7 @@ class LogreaderWindow(QMainWindow):
         self._show_performance = show_performance
         self._apply_interface_palette()
         self.setStyleSheet(INTERFACE_STYLE_SHEET)
-        self.setWindowTitle(APP_VERSION)
+        self._set_window_title(APP_VERSION)
         self.resize(975, 1097)
         self.setMinimumSize(820, 560)
         self._scheduler = WorkScheduler(self)
@@ -668,11 +668,17 @@ class LogreaderWindow(QMainWindow):
         path = page.session.path if page else None
         self._path_label.setText(path.name if path else "No file selected")
         self._path_label.setToolTip(str(path) if path else "")
-        self.setWindowTitle(f"{APP_VERSION} — {path.name}" if path else APP_VERSION)
+        self._set_window_title(f"{APP_VERSION} - {path.name}" if path else APP_VERSION)
         self.statusBar().showMessage(
             page.status_message if page else "Ready"
         )
         self._present_analysis_busy()
+
+    def _set_window_title(self, title: str) -> None:
+        # Qt appends the application display name to native Windows captions
+        # unless it is already at the end of the title.
+        QApplication.instance().setApplicationDisplayName(title)
+        self.setWindowTitle(title)
 
     @Slot()
     def _update_file_controls_visibility(self) -> None:
