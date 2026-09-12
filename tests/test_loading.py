@@ -16,7 +16,7 @@ try:
     from qt_helpers import wait_for_load
     from logreader.document_page import DocumentPage
     from logreader.document_session import LoadPhase
-    from logreader.file_loader import LoadedLog, decode_log_bytes
+    from logreader.file_loader import LoadedLog, _iter_decoded_lines
     from logreader.qt_app import LogreaderWindow
     from logreader.work_queue import WorkQueue
 except ModuleNotFoundError:
@@ -63,26 +63,17 @@ class LoadingTests(unittest.TestCase):
         stages = []
         started, release = Event(), Event()
 
-        def read_bytes(path):
-            stages.append(("read", get_ident()))
+        slow_path = self.root / "slow.log"
+        slow_path.write_bytes(b"ERROR: loaded\n")
+
+        def decoded_lines(stream, codec, cancellation):
+            stages.append(("read/decode/split", get_ident()))
             started.set()
             if not release.wait(5):
                 raise TimeoutError("Test read was not released")
-            return b"ERROR: loaded\n"
+            yield from _iter_decoded_lines(stream, codec, cancellation)
 
-        class RecordedText(str):
-            def splitlines(self):
-                stages.append(("split", get_ident()))
-                return super().splitlines()
-
-        def decode(data):
-            stages.append(("decode", get_ident()))
-            text, encoding = decode_log_bytes(data)
-            return RecordedText(text), encoding
-
-        with patch.object(Path, "read_bytes", new=read_bytes), patch(
-            "logreader.file_loader.decode_log_bytes", side_effect=decode
-        ):
+        with patch("logreader.file_loader._iter_decoded_lines", side_effect=decoded_lines):
             try:
                 self.assertTrue(self.window.load_file(self.root / "slow.log"))
                 loading = self.window._document
@@ -123,7 +114,7 @@ class LoadingTests(unittest.TestCase):
             finally:
                 release.set()
                 QThreadPool.globalInstance().waitForDone(5000)
-        self.assertEqual([stage for stage, _ in stages], ["read", "decode", "split"])
+        self.assertEqual([stage for stage, _ in stages], ["read/decode/split"])
         self.assertTrue(all(thread != main_thread for _, thread in stages))
 
     def test_loads_preserve_encoding_policy_and_empty_file_readiness(self):
@@ -168,7 +159,7 @@ class LoadingTests(unittest.TestCase):
         self.assertIn("Invalid UTF-16", second.session.load_error)
         self.assertEqual(self.window.statusBar().currentMessage(), status)
         self.window._select_document(second)
-        self.assertFalse(self.window._analyze_button.isEnabled())
+        self.assertTrue(self.window._analyze_button.isEnabled())
         self.assertIn("Failed", self.window._tabs.tabText(1))
         self.assertEqual(second.results_view.editor.placeholderText(), "")
         self.assertIn(second.session.load_error, second.status_message)
@@ -190,7 +181,7 @@ class LoadingTests(unittest.TestCase):
             with self.subTest(shutdown=shutdown):
                 started, release = Event(), Event()
 
-                def blocked(path, *, cancellation=None):
+                def blocked(path, *, max_lines_scanned=1_000_000, cancellation=None):
                     started.set()
                     if not release.wait(5):
                         raise TimeoutError("Test load was not released")

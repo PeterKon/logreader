@@ -236,7 +236,7 @@ class LogreaderQtTests(unittest.TestCase):
 
         self.assertEqual(self.window.build_config(), config)
         self.assertEqual(config.context, 3)
-        self.assertIsNone(config.limit)
+        self.assertEqual(config.max_lines_scanned, 1_000_000)
         self.assertEqual(
             config.enabled_patterns,
             (
@@ -257,7 +257,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertTrue(config.combined_view)
         self.assertEqual(
             self.window.findChild(QLabel, "limitLabel").text(),
-            "Total errors limit",
+            "Max lines scanned",
         )
         self.assertEqual(
             self.window.findChild(QLabel, "contextLabel").text(),
@@ -273,7 +273,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(
             self.window.statusBar().currentMessage(),
-            "0 lines loaded as UTF-8  •  press Analyze to begin",
+            "Last 0 of 0 source lines loaded as UTF-8  •  press Analyze to begin",
         )
 
     def test_results_scrollbars_use_visible_theme_colors(self):
@@ -1351,7 +1351,7 @@ class LogreaderQtTests(unittest.TestCase):
         config = self.window.build_config()
 
         self.assertEqual(config.context, 5)
-        self.assertEqual(config.limit, 10)
+        self.assertEqual(config.max_lines_scanned, 10)
         self.assertEqual(
             config.enabled_patterns,
             (
@@ -1917,7 +1917,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertTrue(loaded)
         self.assertEqual(staged_output, "")
         self.assertEqual(output_after_return, "")
-        self.assertIn("3 lines loaded as UTF-8", staged_status)
+        self.assertIn("Last 3 of 3 source lines loaded as UTF-8", staged_status)
         self.assertIn("press Analyze to begin", staged_status)
         self.assertNotIn("Performance timing", output)
         self.assertNotIn("Analysis time:", output)
@@ -1940,11 +1940,11 @@ class LogreaderQtTests(unittest.TestCase):
             started = Event()
             release = Event()
 
-            def blocking_analysis(lines, patterns, *, combined=False, cancellation=None):
+            def blocking_analysis(lines, patterns, *, combined=False, line_offset=0, cancellation=None):
                 started.set()
                 if not release.wait(2):
                     raise TimeoutError("Test analysis was not released")
-                return analyze_lines(lines, patterns, combined=combined, cancellation=cancellation)
+                return analyze_lines(lines, patterns, combined=combined, line_offset=line_offset, cancellation=cancellation)
 
             completed = QSignalSpy(self.window.analysis_finished)
             analyze_button = self.window.findChild(
@@ -2266,11 +2266,11 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIn("panic code=42", output)
         self.assertNotIn("FATAL ignored", output)
         self.assertIn(
-            "4 matches  •  10 active patterns",
+            "4 matches in scanned lines  •  10 active patterns",
             self.window.statusBar().currentMessage(),
         )
 
-    def test_results_view_respects_the_per_pattern_limit(self):
+    def test_scan_limit_selects_tail_and_preserves_source_numbers(self):
         self.window.findChild(QSpinBox, "contextSpin").setValue(0)
         self.window.findChild(QSpinBox, "limitSpin").setValue(1)
 
@@ -2288,9 +2288,10 @@ class LogreaderQtTests(unittest.TestCase):
                 "resultsView",
             ).toPlainText()
 
-        self.assertIn("ERROR: first", output)
-        self.assertNotIn("ERROR: second", output)
-        self.assertIn("Showing 1 of 2 matches.", output)
+        self.assertNotIn("ERROR: first", output)
+        self.assertIn("3      -> ERROR: second", output)
+        self.assertNotIn("Showing", output)
+        self.assertIn("Scanned last 1 of 3 source lines", self.window.statusBar().currentMessage())
 
     def test_entry_separation_is_optional_and_uses_a_short_arrow(self):
         self.window.findChild(QSpinBox, "contextSpin").setValue(0)

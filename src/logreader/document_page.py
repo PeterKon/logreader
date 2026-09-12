@@ -11,7 +11,7 @@ from .analysis_worker import AnalysisWorker
 from .config import LogreaderConfig
 from .core import AnalysisResult
 from .document_session import AnalysisPhase, DocumentSession
-from .file_loader import LoadedLog
+from .file_loader import DEFAULT_MAX_LINES_SCANNED, LoadedLog
 from .load_worker import LoadWorker
 from .filter_panel import FilterPanel, VisibleCheckBox, VisibleSpinBox
 from .results_view import ResultsView
@@ -43,6 +43,7 @@ class DocumentPage(QWidget):
         self._analysis_worker: AnalysisWorker | None = None
         self._workers: dict[int, AnalysisWorker | LoadWorker] = {}
         self._load_worker: LoadWorker | None = None
+        self._pending_analysis: LogreaderConfig | None = None
         self._disposed = False
         self._scheduler = scheduler if scheduler is not None else WorkScheduler(self)
         self.load_queued = False
@@ -91,6 +92,7 @@ class DocumentPage(QWidget):
         """Replace this document, invalidating its previous work."""
         if self._disposed:
             return
+        self._pending_analysis = None
         if self._analysis_worker is not None:
             self._scheduler.cancel(self._analysis_worker)
         if self._load_worker is not None:
@@ -106,14 +108,20 @@ class DocumentPage(QWidget):
         self.results_view.reset_for_loaded_file(path.name)
         self.busy_changed.emit()
         self._set_status(
-            f"{len(loaded.lines):,} lines loaded as {loaded.encoding}  •  "
+            f"Last {len(loaded.lines):,} of {loaded.total_line_count:,} source lines "
+            f"loaded as {loaded.encoding}  •  "
             "press Analyze to begin"
         )
 
-    def load_file(self, path: Path) -> None:
+    def load_file(
+        self, path: Path, *,
+        max_lines_scanned: int = DEFAULT_MAX_LINES_SCANNED,
+        analyze_after_load: LogreaderConfig | None = None,
+    ) -> None:
         """Start a document-owned load without blocking the GUI thread."""
         if self._disposed:
             return
+        self._pending_analysis = analyze_after_load
         for worker in tuple(self._workers.values()):
             self._scheduler.cancel(worker)
         request_id = self.session.begin_loading(path)
@@ -122,7 +130,7 @@ class DocumentPage(QWidget):
         self.load_queued = True
         message = f"Queued for loading {path.name}…"
         self._set_status(message)
-        worker = LoadWorker(request_id, path)
+        worker = LoadWorker(request_id, path, max_lines_scanned)
         worker.signals.started.connect(self._load_started)
         worker.signals.completed.connect(self._complete_load)
         worker.signals.failed.connect(self._fail_load)
@@ -146,7 +154,11 @@ class DocumentPage(QWidget):
             return
         self._load_worker = None
         self.load_queued = False
+        config = self._pending_analysis
+        self._pending_analysis = None
         self._show_loaded_log(self.session.path, loaded)
+        if config is not None:
+            self._start_analysis(config)
         self.load_finished.emit()
 
     @Slot(int, str)
@@ -155,32 +167,49 @@ class DocumentPage(QWidget):
             return
         self._load_worker = None
         self.load_queued = False
-        self._set_status(f"Unable to load {self.session.path.name}: {message}")
+        self._pending_analysis = None
+        self._set_status(f"Unable to load {self.session.path.name}: {message}  •  Press Analyze to retry")
         self.busy_changed.emit()
         self.load_finished.emit()
 
     def analyze(self) -> None:
         """Analyze the loaded file using the current controls."""
 
-        if self._disposed or not self.session.has_document or self.session.is_busy:
+        if self._disposed or self.session.path is None or self.session.is_busy:
             return
 
         try:
             config = self.build_config()
-            patterns = config.search_patterns()
+            config.search_patterns()  # Validate before discarding the loaded snapshot.
         except ValueError as error:
             self._set_status(f"Analysis could not be completed: {error}")
             self.analysis_failed.emit(str(error))
             return
 
+        if (not self.session.has_document or
+                len(self.session.lines) < min(config.max_lines_scanned, self.session.total_line_count)):
+            self.load_file(
+                self.session.path, max_lines_scanned=config.max_lines_scanned,
+                analyze_after_load=config,
+            )
+            return
+        self._start_analysis(config)
+
+    def _start_analysis(self, config: LogreaderConfig) -> None:
+        """Analyze the captured settings after any required replacement load."""
+        if self._disposed or not self.session.has_document or self.session.is_busy:
+            return
+        patterns = config.search_patterns()
         request = self.session.begin_analysis(
             config, sum(not pattern.exclude for pattern in patterns),
         )
+        lines = self.session.lines[-config.max_lines_scanned:]
         worker = AnalysisWorker(
             request.request_id,
-            self.session.lines,
+            lines,
             patterns,
             config.combined_view,
+            line_offset=self.session.total_line_count - len(lines),
         )
         worker.signals.started.connect(self._analysis_started)
         worker.signals.completed.connect(self._complete_analysis)
@@ -242,6 +271,7 @@ class DocumentPage(QWidget):
         if self._disposed:
             return
         self._disposed = True
+        self._pending_analysis = None
         self.session.clear()
         for worker in tuple(self._workers.values()):
             self._scheduler.cancel(worker)
@@ -315,7 +345,8 @@ class DocumentPage(QWidget):
         )
         self._finish_analysis_request()
         self._set_status(
-            f"{analysis.line_count:,} lines  •  {match_count:,} matches  •  "
+            f"Scanned last {analysis.line_count:,} of {self.session.total_line_count:,} source lines"
+            f"  •  {match_count:,} matches in scanned lines  •  "
             f"{analysis.pattern_count} active patterns  •  "
             f"{self.session.encoding or 'unknown encoding'}"
         )

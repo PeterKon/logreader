@@ -90,7 +90,7 @@ class AnalyzeLinesTests(unittest.TestCase):
         combined = result.category(COMBINED_CATEGORY_KEY)
         self.assertIsNone(combined.pattern)
         self.assertEqual(combined.match_count, 4)
-        self.assertEqual(combined.limit_count, 2)
+        self.assertEqual(combined.matched_line_count, 2)
         self.assertEqual(
             tuple(line.number for line in combined.excerpts[0].lines),
             (1, 2, 3),

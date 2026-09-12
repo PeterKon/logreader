@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import QPointF, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -37,6 +37,7 @@ from .config import (
     LogreaderConfig,
 )
 from .theme import THEME_COLORS, configure_clear_button
+from .file_loader import DEFAULT_MAX_LINES_SCANNED
 
 
 FILTER_ALIGNMENT_EXTRA_WIDTH = 115
@@ -201,6 +202,38 @@ class VisibleSpinBox(QSpinBox):
         )
 
 
+class ScanLimitSpinBox(VisibleSpinBox):
+    """Positive source-line count with locale-independent space grouping."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setRange(1, 2_147_483_647)
+        self.setValue(DEFAULT_MAX_LINES_SCANNED)
+        self.setKeyboardTracking(False)
+        self.setAccessibleName("Max lines scanned")
+        self.setToolTip("Scan this many lines from the end of the file when Analyze is pressed.")
+
+    def textFromValue(self, value: int) -> str:  # noqa: N802
+        return f"{value:,}".replace(",", " ")
+
+    def valueFromText(self, text: str) -> int:  # noqa: N802
+        digits = "".join(text.split())
+        return int(digits) if digits else self.minimum()
+
+    def validate(self, text: str, position: int):
+        digits = "".join(text.split())
+        state = QValidator.State.Invalid
+        if not digits:
+            state = QValidator.State.Intermediate
+        elif digits.isascii() and digits.isdecimal() and len(digits) <= 10:
+            value = int(digits)
+            if self.minimum() <= value <= self.maximum():
+                state = QValidator.State.Acceptable
+            elif value < self.minimum():
+                state = QValidator.State.Intermediate
+        return state, text, position
+
+
 class UnclippedPushButton(QPushButton):
     """Push button that paints its label clear of stylesheet padding clips."""
 
@@ -273,10 +306,9 @@ class FilterPanel(QGroupBox):
         top_layout.addWidget(self._context_spin)
         top_layout.addWidget(self._make_top_separator("topSeparatorContext"))
 
-        self._limit_spin = self._make_spin_box(0, 1_000_000, 0)
+        self._limit_spin = ScanLimitSpinBox()
         self._limit_spin.setObjectName("limitSpin")
-        self._limit_spin.setSpecialValueText("Unlimited")
-        limit_label = QLabel("Total errors limit")
+        limit_label = QLabel("Max lines scanned")
         limit_label.setObjectName("limitLabel")
         top_layout.addWidget(limit_label)
         top_layout.addWidget(self._limit_spin)
@@ -590,9 +622,10 @@ class FilterPanel(QGroupBox):
     def build_config(self) -> LogreaderConfig:
         """Build the shared configuration represented by the controls."""
 
+        self._limit_spin.interpretText()
         return LogreaderConfig(
             context=self._context_spin.value(),
-            limit=self._limit_spin.value() or None,
+            max_lines_scanned=self._limit_spin.value(),
             enabled_patterns=tuple(
                 key
                 for key in PATTERN_KEYS

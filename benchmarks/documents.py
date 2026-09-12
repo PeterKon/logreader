@@ -139,7 +139,7 @@ def run(args):
     report = {"environment": {"python": platform.python_version(), "pyside": qt_binding_version,
                               "platform": platform.platform(), "qt_platform": app.platformName()},
               "parameters": vars(args), "cycles": []}
-    config = LogreaderConfig(context=0, limit=args.limit or None, enabled_patterns=("error_colon",))
+    config = LogreaderConfig(context=0, max_lines_scanned=args.max_lines_scanned, enabled_patterns=("error_colon",))
     original_submit = WorkQueue.submit
 
     def track_submit(queue, worker):
@@ -172,14 +172,14 @@ def run(args):
                 refs = [weakref.ref(page) for page in pages]
                 probe.wait("loading", lambda: all(p.session.load_phase != LoadPhase.LOADING for p in pages))
                 row["loading_seconds"] = perf_counter() - start
-                assert all(len(p.session.lines) == args.lines for p in pages)
+                assert all(len(p.session.lines) == min(args.lines, 1_000_000) for p in pages)
                 row["loaded_memory"] = memory_mib()
                 for page in pages:
                     page.build_config = lambda: config
                     page.analyze()
                 probe.wait("analysis", lambda: all(p.session.analysis is not None for p in pages))
                 row["analysis_seconds"] = [p.session.analysis_seconds for p in pages]
-                assert all(sum(c.match_count for c in p.session.analysis.categories.values()) == args.lines
+                assert all(sum(c.match_count for c in p.session.analysis.categories.values()) == min(args.lines, args.max_lines_scanned)
                            for p in pages)
                 row["analyzed_memory"] = memory_mib()
                 row["retained_analysis_lines"] = [sum(len(excerpt.lines)
@@ -196,7 +196,7 @@ def run(args):
                 probe.wait("searching", lambda: all(not p.results_view.is_searching and
                     not p.results_view._search_highlighter._highlight_timer.isActive() for p in pages))
                 row["search_seconds"] = perf_counter() - start
-                expected = 2 * min(args.limit or args.lines, args.lines)
+                expected = 2 * min(args.max_lines_scanned, args.lines)
                 assert all(len(p.results_view._search_matches) == expected for p in pages)
                 row["searched_memory"] = memory_mib()
                 probe.switch_timer.stop()
@@ -277,12 +277,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--documents", type=int, default=3)
     parser.add_argument("--lines", type=int, default=100000)
-    parser.add_argument("--limit", type=int, default=10000, help="Displayed matching lines per tab; 0 is unlimited")
+    parser.add_argument("--max-lines-scanned", type=int, default=10000, help="Source lines analyzed from the tail of each file")
     parser.add_argument("--cycles", type=int, default=2)
     parser.add_argument("--output", default="benchmark-results.json")
     args = parser.parse_args()
-    if min(args.documents, args.lines, args.cycles) < 1 or args.limit < 0:
-        parser.error("Counts must be positive and limit must be nonnegative")
+    if min(args.documents, args.lines, args.cycles, args.max_lines_scanned) < 1:
+        parser.error("Counts and max lines scanned must be positive")
     result = run(args)
     Path(args.output).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(f"Report: {args.output}")

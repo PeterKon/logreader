@@ -31,6 +31,26 @@ To show analysis and rendering timings above the results, run `logreader -p`
 
 Open a log file, choose filters, then press **Analyze**.
 
+Each new tab retains the last **1 000 000** source lines by default. **Max lines
+scanned** selects how many lines from the end to analyze; it accepts positive
+numbers with or without spaces. All matches in the scanned portion are displayed
+in source order, with original source line numbers and context contained within
+that portion. The status shows how many source lines were scanned.
+
+Changing the number does not reload or analyze immediately. Press **Analyze** to
+apply it. Smaller scans reuse the loaded contents; requesting more lines than are
+available in the retained portion replaces that portion from disk and then
+analyzes automatically. Replacement clears old results and search state, but keeps
+the tab's filters and requested limit. If loading fails, press **Analyze** to retry.
+The source file on disk is never modified. Files shorter than the limit use all
+available lines; there is no Entire file option.
+
+Loading reads progressively through the file to count original lines while
+retaining only the requested tail. Lowering the scan limit keeps the larger loaded
+portion available until replacement or tab closure. Results reflect that loaded
+snapshot. Very long lines and dense matches can still use substantial memory;
+the line limit is not a fixed memory budget.
+
 Logreader will read UTF-8 and UTF-16/32-BOM files, with Windows-1252 as fallback.
 
 ## Tests

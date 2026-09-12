@@ -59,7 +59,7 @@ class FilterPanelTests(unittest.TestCase):
         config = self.panel.build_config()
 
         self.assertEqual(config.context, 7)
-        self.assertEqual(config.limit, 25)
+        self.assertEqual(config.max_lines_scanned, 25)
         self.assertEqual(
             config.enabled_patterns,
             (

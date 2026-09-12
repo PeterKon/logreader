@@ -49,12 +49,15 @@ class AnalysisWorker(QRunnable):
         lines: tuple[str, ...],
         patterns: tuple[SearchPattern, ...],
         combined: bool = False,
+        *,
+        line_offset: int = 0,
     ) -> None:
         super().__init__()
         self.request_id = request_id
         self.lines = lines
         self.patterns = patterns
         self.combined = combined
+        self.line_offset = line_offset
         self.signals = AnalysisWorkerSignals()
         self.cancellation = InteractiveAnalysisToken()
 
@@ -77,6 +80,7 @@ class AnalysisWorker(QRunnable):
                 self.lines,
                 self.patterns,
                 combined=self.combined,
+                line_offset=self.line_offset,
                 cancellation=self.cancellation,
             )
             self.cancellation.check()

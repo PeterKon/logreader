@@ -3,8 +3,8 @@
 Run from the repository root after installing the project into `.venv`:
 
 ```powershell
-.\.venv\Scripts\python.exe -B benchmarks/documents.py --cycles 4 --output benchmarks/limited.json
-.\.venv\Scripts\python.exe -B benchmarks/documents.py --lines 30000 --limit 0 --output benchmarks/unlimited.json
+.\.venv\Scripts\python.exe -B benchmarks/documents.py --cycles 4 --output benchmarks/tail-10k.json
+.\.venv\Scripts\python.exe -B benchmarks/documents.py --lines 30000 --max-lines-scanned 30000 --output benchmarks/tail-30k.json
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -q
 ```
 
@@ -12,7 +12,10 @@ The benchmark opens a real Qt window, generates temporary UTF-8 logs, and remove
 the input files afterward. The default workload is three files of 100,000 unique
 143-byte lines (40.9 MiB total). Every line contains one `ERROR:` and two `needle`
 occurrences. It uses one literal analysis pattern, combined results, zero context,
-and 10,000 displayed matching lines per document. `--limit 0` displays everything.
+and the last 10,000 source lines analyzed per document. All matches in that
+portion are displayed. Use `--max-lines-scanned` to change the positive scan limit.
+Initial loading retains at most the last 1,000,000 lines; Analyze reloads if more
+are needed. Loading counts every source line using bounded reads.
 Use `--documents`, `--lines`, and `--cycles` to scale the workload.
 
 Each cycle loads all files, queues analysis, renders each tab, searches all three
@@ -50,7 +53,12 @@ use the recorded default workloads to exercise in-flight rendering.
   scalar timing records and weak references. Queue/service timings include signal
   delivery overhead. Cancelled queued jobs have no service time.
 
-## Recorded assessment — 10 September 2026
+## Historical assessment — 10 September 2026
+
+The reports and measurements below predate the tail scan limit. They describe
+the previous display-only cap, not the current loader or analysis behavior.
+Do not compare them as identical workloads: the current scan cap also reduces
+the analyzed portion. The recorded JSON files remain unchanged.
 
 Windows 11, Python 3.14.7, PySide 6.11.2, native Windows Qt platform. Machine load,
 allocator state, log contents, patterns, and wrapping can change the results.

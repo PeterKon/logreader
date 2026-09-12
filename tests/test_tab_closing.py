@@ -94,11 +94,11 @@ class TabClosingTests(unittest.TestCase):
                 self.window._select_document(first)
                 started, release = Event(), Event()
 
-                def blocked(lines, patterns, *, combined=False, cancellation=None):
+                def blocked(lines, patterns, *, combined=False, line_offset=0, cancellation=None):
                     started.set()
                     if not release.wait(5):
                         raise TimeoutError("Test worker was not released")
-                    return analyze_lines(lines, patterns, combined=combined, cancellation=cancellation)
+                    return analyze_lines(lines, patterns, combined=combined, line_offset=line_offset, cancellation=cancellation)
 
                 with patch("logreader.analysis_worker.analyze_lines", side_effect=blocked):
                     try:

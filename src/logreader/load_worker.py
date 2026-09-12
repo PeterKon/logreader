@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
 from .cancellation import AnalysisCancelled, CancellationToken
-from .file_loader import load_log
+from .file_loader import DEFAULT_MAX_LINES_SCANNED, load_log
 
 
 class LoadWorkerSignals(QObject):
@@ -16,10 +16,14 @@ class LoadWorkerSignals(QObject):
 
 
 class LoadWorker(QRunnable):
-    def __init__(self, request_id: int, source_path: Path) -> None:
+    def __init__(
+        self, request_id: int, source_path: Path,
+        max_lines_scanned: int = DEFAULT_MAX_LINES_SCANNED,
+    ) -> None:
         super().__init__()
         self.request_id = request_id
         self.source_path: Path | None = source_path
+        self.max_lines_scanned = max_lines_scanned
         self.cancellation = CancellationToken()
         self.signals = LoadWorkerSignals()
 
@@ -36,7 +40,10 @@ class LoadWorker(QRunnable):
     def run(self) -> None:
         try:
             self.cancellation.check()
-            loaded = load_log(self.source_path, cancellation=self.cancellation)
+            loaded = load_log(
+                self.source_path, max_lines_scanned=self.max_lines_scanned,
+                cancellation=self.cancellation,
+            )
             self.cancellation.check()
             self.signals.completed.emit(self.request_id, loaded)
         except AnalysisCancelled:

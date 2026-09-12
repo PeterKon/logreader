@@ -44,6 +44,7 @@ class DocumentSession:
 
     path: Path | None = None
     lines: tuple[str, ...] = ()
+    total_line_count: int = 0
     encoding: str | None = None
     analysis: AnalysisResult | None = None
     analysis_config: LogreaderConfig | None = None
@@ -107,6 +108,7 @@ class DocumentSession:
 
         self.path = Path(source_path)
         self.lines = loaded.lines
+        self.total_line_count = loaded.total_line_count
         self.encoding = loaded.encoding
         self.analysis = None
         self.analysis_config = None
@@ -147,6 +149,7 @@ class DocumentSession:
         self.cancel_request()
         self.path = None
         self.lines = ()
+        self.total_line_count = 0
         self.encoding = None
         self.analysis = None
         self.analysis_config = None

@@ -87,14 +87,6 @@ class CategoryResult:
     excerpts: tuple[LogExcerpt, ...]
     matched_line_count: int | None = None
 
-    @property
-    def limit_count(self) -> int:
-        """Return the number of matching lines used by display limits."""
-
-        if self.matched_line_count is None:
-            return self.match_count
-        return self.matched_line_count
-
 
 @dataclass(frozen=True, slots=True)
 class AnalysisResult:
@@ -125,13 +117,14 @@ def analyze_lines(
     patterns: Iterable[SearchPattern],
     *,
     combined: bool = False,
+    line_offset: int = 0,
     cancellation: CancellationToken | None = None,
 ) -> AnalysisResult:
     """Analyze lines using literal or regex searches and global exclusions.
 
     Context ranges that overlap or touch are merged into a single excerpt.  The
     returned objects retain the original text, match spans, and one-based source
-    line numbers. Patterns may validate individual regex candidates before they
+    line numbers, starting at line_offset + 1. Patterns may validate individual regex candidates before they
     become matches. Combined analysis returns one detail category, retains the
     individual pattern counts, and includes each matching source line once.
     Exclusion patterns suppress all matches on a line, but retain its context.
@@ -139,6 +132,8 @@ def analyze_lines(
     operations; an individual regex operation already executing must return.
     """
 
+    if line_offset < 0:
+        raise ValueError("Source line offset cannot be negative")
     if cancellation is not None:
         cancellation.check()
     source_lines = (
@@ -170,12 +165,13 @@ def analyze_lines(
                 source_lines,
                 states,
                 match_count=sum(category_match_counts.values()),
+                line_offset=line_offset,
                 cancellation=cancellation,
             )
         }
     else:
         categories = {
-            state.pattern.key: _build_category_result(source_lines, state, cancellation)
+            state.pattern.key: _build_category_result(source_lines, state, cancellation, line_offset)
             for state in states
         }
 
@@ -329,6 +325,7 @@ def _build_category_result(
     source_lines: tuple[str, ...],
     state: _PatternMatchState,
     cancellation: CancellationToken | None = None,
+    line_offset: int = 0,
 ) -> CategoryResult:
     pattern = state.pattern
     match_spans_by_index = state.match_spans_by_index
@@ -345,6 +342,7 @@ def _build_category_result(
         match_spans_by_index,
         ranges,
         pattern=pattern,
+        line_offset=line_offset,
         cancellation=cancellation,
     )
 
@@ -354,6 +352,7 @@ def _build_combined_category_result(
     states: list[_PatternMatchState],
     *,
     match_count: int,
+    line_offset: int = 0,
     cancellation: CancellationToken | None = None,
 ) -> CategoryResult:
     combined_spans: dict[int, list[MatchSpan]] = {}
@@ -381,6 +380,7 @@ def _build_combined_category_result(
         merged_spans,
         _merge_ranges(ranges, cancellation),
         match_count=match_count,
+        line_offset=line_offset,
         cancellation=cancellation,
     )
 
@@ -454,13 +454,14 @@ def _build_result_from_ranges(
     *,
     pattern: SearchPattern | None = None,
     match_count: int | None = None,
+    line_offset: int = 0,
     cancellation: CancellationToken | None = None,
 ) -> CategoryResult:
     excerpts = tuple(
         LogExcerpt(
             lines=tuple(
                 ResultLine(
-                    number=index + 1,
+                    number=line_offset + index + 1,
                     text=source_lines[index],
                     match_spans=match_spans_by_index.get(index, ()),
                 )

@@ -826,7 +826,7 @@ class LogreaderWindow(QMainWindow):
         page = self._document
         busy = page is not None and page.session.is_busy
         self._analyze_button.setEnabled(
-            page is not None and page.session.has_document and not busy
+            page is not None and page.session.path is not None and not busy
         )
         loading = page is not None and page.session.load_phase is LoadPhase.LOADING
         self._analyze_button.setText(

@@ -130,7 +130,7 @@ class MultiFileWorkTests(unittest.TestCase):
             with lock:
                 active[kind] -= 1
 
-        def load(path, *, cancellation=None):
+        def load(path, *, max_lines_scanned=1_000_000, cancellation=None):
             enter("load", path.name)
             try:
                 if path.name == "load-first.log":
@@ -141,14 +141,14 @@ class MultiFileWorkTests(unittest.TestCase):
             finally:
                 leave("load")
 
-        def analyze(lines, patterns, *, combined=False, cancellation=None):
+        def analyze(lines, patterns, *, combined=False, line_offset=0, cancellation=None):
             enter("analysis", lines[0])
             try:
                 if "a.log" in lines[0]:
                     analysis_started.set()
                     if not release_analysis.wait(5):
                         raise TimeoutError("Analysis not released")
-                return analyze_lines(lines, patterns, combined=combined, cancellation=cancellation)
+                return analyze_lines(lines, patterns, combined=combined, line_offset=line_offset, cancellation=cancellation)
             finally:
                 leave("analysis")
 

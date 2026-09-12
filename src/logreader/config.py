@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from . import __version__
 from .core import COMBINED_CATEGORY_KEY, MatchValidator, SearchPattern
 from .matchers import is_http_status_candidate
+from .file_loader import DEFAULT_MAX_LINES_SCANNED
 
 
 APP_VERSION = f"Logreader v{__version__}"
@@ -128,7 +129,7 @@ class LogreaderConfig:
     """Analysis and presentation options used by the desktop application."""
 
     context: int = 3
-    limit: int | None = None
+    max_lines_scanned: int = DEFAULT_MAX_LINES_SCANNED
     enabled_patterns: tuple[str, ...] = DEFAULT_ENABLED_PATTERNS
     custom_patterns: tuple[str, ...] = ()
     separate_entries: bool = True
@@ -141,8 +142,10 @@ class LogreaderConfig:
     def __post_init__(self) -> None:
         if self.context < 0:
             raise ValueError("Context cannot be negative")
-        if self.limit is not None and self.limit <= 0:
-            raise ValueError("Limit must be positive or None")
+        if (isinstance(self.max_lines_scanned, bool)
+                or not isinstance(self.max_lines_scanned, int)
+                or self.max_lines_scanned < 1):
+            raise ValueError("Max lines scanned must be a positive integer")
 
         enabled_patterns = tuple(dict.fromkeys(self.enabled_patterns))
         unknown_patterns = set(enabled_patterns) - set(PATTERN_KEYS)

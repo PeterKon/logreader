@@ -1087,7 +1087,7 @@ def _iter_analysis_render_operations(
         yield from _iter_summary_entries(zero_entries)
         yield "\n", "muted", False
 
-    for presentation in build_category_presentations(analysis, config.limit):
+    for presentation in build_category_presentations(analysis):
         yield from _iter_category_render_operations(presentation, config)
 
 
@@ -1131,9 +1131,6 @@ def _iter_category_render_operations(
         ):
             yield f"{ENTRY_SEPARATOR}\n", "body", False
 
-    limit_message = presentation.limit_message()
-    if limit_message is not None:
-        yield f"{limit_message}\n", "limit_notice", True
 
 
 def _iter_result_line_render_operations(

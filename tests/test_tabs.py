@@ -294,7 +294,7 @@ class TabTests(unittest.TestCase):
         self.assertIs(self.window._document, failed)
         self.assertFalse(failed.session.has_document)
         self.assertIn("Unable to load missing.log", failed.status_message)
-        self.assertFalse(self.window._analyze_button.isEnabled())
+        self.assertTrue(self.window._analyze_button.isEnabled())
         self.window._select_document(first)
         self.assertTrue(self.window._analyze_button.isEnabled())
         self.assertEqual(self.window.statusBar().currentMessage(), first.status_message)

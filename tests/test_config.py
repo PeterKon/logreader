@@ -310,7 +310,7 @@ class LogreaderConfigTests(unittest.TestCase):
     def test_selected_and_custom_patterns_share_context_and_limits(self):
         config = LogreaderConfig(
             context=5,
-            limit=10,
+            max_lines_scanned=10,
             enabled_patterns=("warning", "exception"),
             custom_patterns=(" timeout ",),
             regex_patterns=(r" ERROR\s+[0-9]+ ",),
@@ -333,8 +333,8 @@ class LogreaderConfigTests(unittest.TestCase):
     def test_invalid_values_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "Context cannot be negative"):
             LogreaderConfig(context=-1)
-        with self.assertRaisesRegex(ValueError, "Limit must be positive"):
-            LogreaderConfig(limit=0)
+        with self.assertRaisesRegex(ValueError, "Max lines scanned must be a positive integer"):
+            LogreaderConfig(max_lines_scanned=0)
         with self.assertRaisesRegex(ValueError, "Unknown pattern"):
             LogreaderConfig(enabled_patterns=("unknown",))
         with self.assertRaisesRegex(ValueError, "Custom patterns cannot be empty"):
