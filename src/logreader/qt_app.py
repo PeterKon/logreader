@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -419,8 +420,9 @@ class LogreaderWindow(QMainWindow):
 
     analysis_finished = Signal()
 
-    def __init__(self) -> None:
+    def __init__(self, *, show_performance: bool = False) -> None:
         super().__init__()
+        self._show_performance = show_performance
         self._apply_interface_palette()
         self.setStyleSheet(INTERFACE_STYLE_SHEET)
         self.setWindowTitle(APP_VERSION)
@@ -777,7 +779,10 @@ class LogreaderWindow(QMainWindow):
                 existing.load_file(path)
             return existing
 
-        page = DocumentPage(self._pages, scheduler=self._scheduler)
+        page = DocumentPage(
+            self._pages, scheduler=self._scheduler,
+            show_performance=self._show_performance,
+        )
         page.set_render_active(False)
         page.status_changed.connect(self._present_document_status)
         page.busy_changed.connect(self._present_analysis_busy)
@@ -829,10 +834,21 @@ class LogreaderWindow(QMainWindow):
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the PySide6 desktop application."""
 
-    app = QApplication(list(argv) if argv is not None else sys.argv)
+    arguments = list(argv) if argv is not None else sys.argv
+    parser = argparse.ArgumentParser(description="Inspect log files for errors and context.")
+    parser.add_argument(
+        "-p", "--performance", action="store_true",
+        help="Show analysis and rendering timings in results.",
+    )
+    # Match our flags exactly: argparse would otherwise interpret Qt's
+    # single-dash options such as -platform as a use of the -p short flag.
+    app_flags = {"-p", "--performance", "-h", "--help"}
+    options = parser.parse_args([arg for arg in arguments[1:] if arg in app_flags])
+    qt_arguments = [arg for arg in arguments[1:] if arg not in app_flags]
+    app = QApplication(arguments[:1] + qt_arguments)
     app.setApplicationName("Logreader")
     app.setApplicationDisplayName(APP_VERSION)
-    window = LogreaderWindow()
+    window = LogreaderWindow(show_performance=options.performance)
     window.show()
     try:
         return app.exec()

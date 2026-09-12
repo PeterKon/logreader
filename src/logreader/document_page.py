@@ -31,11 +31,13 @@ class DocumentPage(QWidget):
     load_finished = Signal()
 
     def __init__(
-        self, parent: QWidget | None = None, *, scheduler: WorkScheduler | None = None
+        self, parent: QWidget | None = None, *, scheduler: WorkScheduler | None = None,
+        show_performance: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("centralWidget")
         self.session = DocumentSession()
+        self.show_performance = show_performance
         self.status_message = "Ready: Open a log file to begin"
         self.busy_visible = False
         self._analysis_worker: AnalysisWorker | None = None
@@ -302,10 +304,11 @@ class DocumentPage(QWidget):
             self._finish_analysis_request()
             return
 
-        self.results_view.prepend_performance_timings(
-            analysis_seconds,
-            rendering_seconds,
-        )
+        if self.show_performance:
+            self.results_view.prepend_performance_timings(
+                analysis_seconds,
+                rendering_seconds,
+            )
 
         match_count = sum(
             result.match_count for result in analysis.categories.values()

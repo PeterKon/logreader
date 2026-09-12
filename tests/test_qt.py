@@ -1810,14 +1810,19 @@ class LogreaderQtTests(unittest.TestCase):
         ]
         self.assertEqual(http_positions, [(0, 0), (1, 0)])
 
-    def test_toggle_all_enables_every_pattern_then_disables_every_pattern(self):
+    def test_toggle_all_preserves_manual_http_selections(self):
         button = self.window.findChild(QPushButton, "toggleAllButton")
 
-        button.click()
-        self.assertEqual(self.window.build_config().enabled_patterns, PATTERN_KEYS)
-
-        button.click()
-        self.assertEqual(self.window.build_config().enabled_patterns, ())
+        for selected_http in ((), ("http_4xx",), ("http_5xx",), HTTP_STATUS_PATTERN_KEYS):
+            for key in PATTERN_KEYS:
+                self.window.findChild(QCheckBox, f"pattern_{key}").setChecked(key in selected_http)
+            button.click()
+            self.assertEqual(
+                self.window.build_config().enabled_patterns,
+                PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + selected_http,
+            )
+            button.click()
+            self.assertEqual(self.window.build_config().enabled_patterns, selected_http)
 
     def test_category_toggle_buttons_only_change_their_own_group(self):
         paired_toggle = self.window.findChild(QPushButton, "togglePairedButton")
@@ -1914,13 +1919,9 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(output_after_return, "")
         self.assertIn("3 lines loaded as UTF-8", staged_status)
         self.assertIn("press Analyze to begin", staged_status)
-        self.assertTrue(
-            output.startswith(
-                "Performance timing\n"
-                "Analysis time: 2.346 s\n"
-                "Result rendering time: 4.568 s\n\n"
-            )
-        )
+        self.assertNotIn("Performance timing", output)
+        self.assertNotIn("Analysis time:", output)
+        self.assertNotIn("Result rendering time:", output)
         self.assertIn("ERROR: boom", output)
         self.assertNotIn("\033[", output)
         self.assertIn(COLORS["match"].name(), html)
@@ -2087,7 +2088,7 @@ class LogreaderQtTests(unittest.TestCase):
             renderer._timer.stop()
             renderer._render_next_batch()
             renderer._timer.stop()
-            self.assertEqual(results.toPlainText(), f"{APP_VERSION}\n")
+            self.assertEqual(results.toPlainText(), f"{'ERROR:':<20}")
             self.assertEqual(completed.count(), 0)
 
             search.setText("e")
@@ -2103,7 +2104,7 @@ class LogreaderQtTests(unittest.TestCase):
             self._wait_for_signal(completed)
 
         self.assertTrue(results.updatesEnabled())
-        self.assertIn("incremental.log", results.toPlainText())
+        self.assertNotIn("incremental.log", results.toPlainText())
         self.assertIn("ERROR: boom", results.toPlainText())
         self.assertTrue(count.isHidden())
         self.assertEqual(results.extraSelections(), [])
@@ -2173,9 +2174,15 @@ class LogreaderQtTests(unittest.TestCase):
                 "resultsView",
             ).toPlainText()
 
-        summary = output.split(f"\n{RULE}\n", 1)[0]
-        self.assertRegex(summary, r"FAILED\s+0 matches")
-        self.assertRegex(summary, r"FATAL\s+0 matches")
+        self.assertIn(
+            "0 matches: ERROR, EXCEPTION:, EXCEPTION, FAILED, FAILURE, FATAL, CRITICAL, REFUSED\n",
+            output,
+        )
+        self.assertNotIn(APP_VERSION, output)
+        self.assertNotIn(str(log_path), output)
+        self.assertNotIn("source lines", output)
+        self.assertNotIn(RULE, output)
+        self.assertIn("Total matches — 1 matches\n1      -> ERROR: boom", output)
         self.assertNotIn("FAILED — 0 matches", output)
         self.assertNotIn("FATAL — 0 matches", output)
         self.assertNotIn("No matches.", output)
@@ -2207,14 +2214,15 @@ class LogreaderQtTests(unittest.TestCase):
             tuple(self.window._document.session.analysis.categories),
             ("combined",),
         )
-        summary = output.split(f"\n{RULE}\n", 1)[0]
+        summary = output.split("\nTotal matches —", 1)[0]
         self.assertRegex(summary, r"ERROR:\s+1 matches")
-        self.assertRegex(summary, r"ERROR\s+0 matches")
+        self.assertIn("0 matches: ERROR, EXCEPTION:, EXCEPTION, FAILURE, CRITICAL, REFUSED\n", summary)
         self.assertRegex(summary, r"FAILED\s+1 matches")
         self.assertRegex(summary, r"panic\s+1 matches")
         self.assertRegex(summary, r"code=\\d\+\s+1 matches")
-        self.assertRegex(summary, r"\n\nTotal matches\s+4 matches")
-        self.assertEqual(summary.count(" matches\n"), 11)
+        self.assertNotIn("Total matches", summary)
+        self.assertEqual(output.count("Total matches"), 1)
+        self.assertEqual(summary.count(" matches\n"), 4)
         self.assertIn("ERROR: failed", output)
         self.assertIn("panic code=42", output)
         self.assertNotIn("FATAL ignored", output)

@@ -120,6 +120,35 @@ class TabTests(unittest.TestCase):
         self.assertEqual(page.session.phase, AnalysisPhase.IDLE)
         self.assertEqual(page.results_view.editor.toPlainText(), "")
 
+    def test_performance_option_applies_to_each_document(self):
+        self.window.close()
+        self.window = LogreaderWindow(show_performance=True)
+        self.window.show()
+        for name in ("first.log", "second.log"):
+            page = self.open_log(name)
+            done = QSignalSpy(page.analysis_finished)
+            page.analyze()
+            self.wait_for_completion(done)
+            output = page.results_view.editor.toPlainText()
+            self.assertTrue(output.startswith("Performance timing\nAnalysis time:"))
+            self.assertIn("Result rendering time:", output)
+            self.assertIn("ERROR: example", output)
+
+    def test_performance_cli_flag_preserves_qt_options(self):
+        from logreader.qt_app import main
+
+        for flags, enabled in (([], False), (["-p"], True), (["--performance"], True)):
+            with (
+                self.subTest(flags=flags),
+                patch("logreader.qt_app.QApplication") as app,
+                patch("logreader.qt_app.LogreaderWindow") as window,
+                patch("logreader.qt_app.QThreadPool"),
+            ):
+                app.return_value.exec.return_value = 0
+                self.assertEqual(main(["logreader", *flags, "-platform", "offscreen"]), 0)
+                window.assert_called_once_with(show_performance=enabled)
+                app.assert_called_once_with(["logreader", "-platform", "offscreen"])
+
     def test_normalized_duplicate_selects_existing_page_without_reloading(self):
         first = self.open_log("first.log")
         self.open_log("second.log")

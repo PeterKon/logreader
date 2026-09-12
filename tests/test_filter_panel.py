@@ -116,9 +116,12 @@ class FilterPanelTests(unittest.TestCase):
         )
 
         global_toggle.click()
-        self.assertEqual(self.panel.build_config().enabled_patterns, PATTERN_KEYS)
-        global_toggle.click()
         self.assertEqual(self.panel.build_config().enabled_patterns, ())
+        global_toggle.click()
+        self.assertEqual(
+            self.panel.build_config().enabled_patterns,
+            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS,
+        )
 
     def test_plain_text_list_adds_trims_orders_and_removes_items(self):
         input_box = self.panel.findChild(QLineEdit, "customPattern")

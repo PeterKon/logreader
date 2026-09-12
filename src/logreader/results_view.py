@@ -45,11 +45,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .config import APP_VERSION, LogreaderConfig
+from .config import LogreaderConfig
 from .core import (
-    COMBINED_CATEGORY_KEY,
     AnalysisResult,
-    CategoryResult,
     ResultLine,
 )
 from .presentation import CategoryPresentation, build_category_presentations
@@ -1049,8 +1047,6 @@ def _iter_analysis_render_operations(
 ) -> Iterator[RenderOperation]:
     """Yield ordered formatting operations without touching Qt widgets."""
 
-    yield f"{APP_VERSION}\n", "heading", True
-    yield f"{source_name}\n\n", "muted", False
     if config.combined_view:
         summary_counts = (
             analysis.category_match_counts.items()
@@ -1063,8 +1059,12 @@ def _iter_analysis_render_operations(
             for key, result in analysis.categories.items()
         )
 
+    zero_match_labels = []
     for key, match_count in summary_counts:
         label = config.label_for(key)
+        if match_count == 0:
+            zero_match_labels.append(label)
+            continue
         yield f"{label:<20}", "body", False
         yield (
             f"{match_count:>8} matches\n",
@@ -1072,22 +1072,8 @@ def _iter_analysis_render_operations(
             False,
         )
 
-    if config.combined_view:
-        combined_result = analysis.category(COMBINED_CATEGORY_KEY)
-        label = config.label_for(COMBINED_CATEGORY_KEY)
-        yield f"\n{label:<20}", "body", False
-        yield (
-            f"{combined_result.match_count:>8} matches\n",
-            _count_role(combined_result),
-            False,
-        )
-
-    yield (
-        f"\n{analysis.line_count:,} source lines  •  "
-        f"context {config.context}\n",
-        "muted",
-        False,
-    )
+    if zero_match_labels:
+        yield f"0 matches: {', '.join(zero_match_labels)}\n", "muted", False
 
     for presentation in build_category_presentations(analysis, config.limit):
         yield from _iter_category_render_operations(presentation, config)
@@ -1098,9 +1084,7 @@ def _iter_category_render_operations(
     config: LogreaderConfig,
 ) -> Iterator[RenderOperation]:
     label = config.label_for(presentation.key)
-    yield f"\n{RULE}\n", "muted", False
-    yield f"{presentation.heading(label)}\n", "heading", True
-    yield f"{RULE}\n", "muted", False
+    yield f"\n{presentation.heading(label)}\n", "heading", True
 
     for excerpt_index, excerpt in enumerate(presentation.excerpts):
         for line in excerpt.lines:
@@ -1133,10 +1117,6 @@ def _iter_result_line_render_operations(
         yield line.text[span.start : span.end], "match", True
         position = span.end
     yield f"{line.text[position:]}\n", "matched_text", False
-
-
-def _count_role(result: CategoryResult) -> str:
-    return _match_count_role(result.match_count)
 
 
 def _match_count_role(match_count: int) -> str:

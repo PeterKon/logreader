@@ -285,7 +285,7 @@ class FilterPanel(QGroupBox):
         toggle_all_button = UnclippedPushButton("Global toggle all")
         toggle_all_button.setObjectName("toggleAllButton")
         toggle_all_button.setToolTip(
-            "Enable every pattern, or disable every pattern when all are enabled."
+            "Toggle all text error patterns. HTTP 4xx and 5xx are controlled manually."
         )
         toggle_all_button.clicked.connect(self.toggle_all_patterns)
         top_layout.addWidget(toggle_all_button)
@@ -732,9 +732,9 @@ class FilterPanel(QGroupBox):
             item_widget.deleteLater()
 
     def toggle_all_patterns(self) -> None:
-        """Enable all patterns, or disable them when all are already enabled."""
+        """Toggle text error presets while preserving manual HTTP selections."""
 
-        self.toggle_patterns(PATTERN_KEYS)
+        self.toggle_patterns(PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS)
 
     def toggle_patterns(self, pattern_keys: tuple[str, ...]) -> None:
         """Toggle every checkbox in one pattern category as a unit."""

@@ -24,6 +24,9 @@ logreader
 
 You can also use `python -m logreader`.
 
+To show analysis and rendering timings above the results, run `logreader -p`
+(or `python -m logreader -p`). Timings are hidden by default.
+
 ## Use
 
 Open a log file, choose filters, then press **Analyze**.
