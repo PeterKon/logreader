@@ -1,5 +1,9 @@
 # Multi-document memory and responsiveness
 
+For the compact search-storage comparison, see [search-storage.md](search-storage.md).
+It compares the current search implementation with commit `8364966`, including
+native wrapped scrolling, navigation, highlighting, and large-state query resets.
+
 Run from the repository root after installing the project into `.venv`:
 
 ```powershell

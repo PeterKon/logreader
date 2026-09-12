@@ -1,0 +1,191 @@
+{
+  "qt": "6.11.2",
+  "python": "3.14.7",
+  "platform": "offscreen",
+  "mode": "searches",
+  "undo_enabled": false,
+  "source_lines": 6000,
+  "displayed_result_lines": 35994,
+  "measurements": [
+    {
+      "stage": "rendered",
+      "rss_mib": 121.7578125,
+      "private_mib": 98.4375,
+      "blocks": 36015,
+      "matches": 0,
+      "undo_steps": 0,
+      "python_search_mib": 0.000507354736328125
+    },
+    {
+      "stage": "cycle 1 error",
+      "rss_mib": 279.5703125,
+      "private_mib": 259.04296875,
+      "blocks": 36015,
+      "matches": 12001,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 1 error scrolled",
+      "rss_mib": 281.328125,
+      "private_mib": 260.87890625,
+      "blocks": 36015,
+      "matches": 12001,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 1 error query cleared",
+      "rss_mib": 281.3359375,
+      "private_mib": 260.87890625,
+      "blocks": 36015,
+      "matches": 0,
+      "undo_steps": 0,
+      "python_search_mib": 0.021148681640625
+    },
+    {
+      "stage": "cycle 1 warning",
+      "rss_mib": 402.41796875,
+      "private_mib": 384.4453125,
+      "blocks": 36015,
+      "matches": 12004,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 1 warning scrolled",
+      "rss_mib": 402.4453125,
+      "private_mib": 384.4453125,
+      "blocks": 36015,
+      "matches": 12004,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 1 warning query cleared",
+      "rss_mib": 402.4453125,
+      "private_mib": 384.4453125,
+      "blocks": 36015,
+      "matches": 0,
+      "undo_steps": 0,
+      "python_search_mib": 0.021148681640625
+    },
+    {
+      "stage": "cycle 1 exception",
+      "rss_mib": 517.4296875,
+      "private_mib": 501.6953125,
+      "blocks": 36015,
+      "matches": 12001,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 1 exception scrolled",
+      "rss_mib": 517.45703125,
+      "private_mib": 501.6953125,
+      "blocks": 36015,
+      "matches": 12001,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 1 exception query cleared",
+      "rss_mib": 517.45703125,
+      "private_mib": 501.6953125,
+      "blocks": 36015,
+      "matches": 0,
+      "undo_steps": 0,
+      "python_search_mib": 0.021148681640625
+    },
+    {
+      "stage": "cycle 2 error",
+      "rss_mib": 518.26171875,
+      "private_mib": 502.48046875,
+      "blocks": 36015,
+      "matches": 12001,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 2 error scrolled",
+      "rss_mib": 518.26171875,
+      "private_mib": 502.48046875,
+      "blocks": 36015,
+      "matches": 12001,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 2 error query cleared",
+      "rss_mib": 518.26171875,
+      "private_mib": 502.48046875,
+      "blocks": 36015,
+      "matches": 0,
+      "undo_steps": 0,
+      "python_search_mib": 0.021148681640625
+    },
+    {
+      "stage": "cycle 2 warning",
+      "rss_mib": 518.76171875,
+      "private_mib": 502.8828125,
+      "blocks": 36015,
+      "matches": 12004,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 2 warning scrolled",
+      "rss_mib": 518.81640625,
+      "private_mib": 502.8828125,
+      "blocks": 36015,
+      "matches": 12004,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 2 warning query cleared",
+      "rss_mib": 518.81640625,
+      "private_mib": 502.8828125,
+      "blocks": 36015,
+      "matches": 0,
+      "undo_steps": 0,
+      "python_search_mib": 0.021148681640625
+    },
+    {
+      "stage": "cycle 2 exception",
+      "rss_mib": 518.87109375,
+      "private_mib": 502.8828125,
+      "blocks": 36015,
+      "matches": 12001,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 2 exception scrolled",
+      "rss_mib": 518.87109375,
+      "private_mib": 502.8828125,
+      "blocks": 36015,
+      "matches": 12001,
+      "undo_steps": 0,
+      "python_search_mib": 0.21418380737304688
+    },
+    {
+      "stage": "cycle 2 exception query cleared",
+      "rss_mib": 518.87109375,
+      "private_mib": 502.8828125,
+      "blocks": 36015,
+      "matches": 0,
+      "undo_steps": 0,
+      "python_search_mib": 0.021148681640625
+    },
+    {
+      "stage": "rendered document cleared; source and analysis retained",
+      "rss_mib": 76.0546875,
+      "private_mib": 50.6640625,
+      "blocks": 1,
+      "matches": 0,
+      "undo_steps": 0,
+      "python_search_mib": 0.004917144775390625
+    }
+  ]
+}

@@ -48,7 +48,7 @@ class IncrementalSearchTests(unittest.TestCase):
                     expected.append((match.selectionStart(), match.selectionEnd()))
                     position = match.selectionEnd()
                 wait_for_search(self.view)
-                self.assertEqual(self.view._search_matches, tuple(expected))
+                self.assertEqual(tuple(self.view._search_matches), tuple(expected))
 
     def test_query_change_and_stale_batch_cannot_publish(self):
         self.search("error\n" * 15000, "error")
@@ -61,11 +61,11 @@ class IncrementalSearchTests(unittest.TestCase):
         work = self.view._search_work
         self.view._advance_search(generation)
         self.assertIs(self.view._search_work, work)
-        self.assertEqual(self.view._pending_matches, [])
+        self.assertFalse(self.view._pending_matches)
         wait_for_search(self.view)
         self.assertEqual(self.view._search_count_label.text(), "No matches")
-        self.assertEqual(self.view._search_matches, ())
-        self.assertEqual(self.view._search_highlighter._matches, ())
+        self.assertFalse(self.view._search_matches)
+        self.assertFalse(self.view._search_highlighter._matches)
 
     def test_result_changes_invalidate_pending_and_cached_searches(self):
         self.search("error\n" * 15000, "error")
@@ -86,7 +86,7 @@ class IncrementalSearchTests(unittest.TestCase):
         cursor = QTextCursor(self.view.editor.document())
         cursor.insertText("new ")
         self.assertIsNone(self.view._searched_query)
-        self.assertEqual(self.view._search_matches, ())
+        self.assertFalse(self.view._search_matches)
 
     def test_sparse_search_yields_and_can_be_cancelled(self):
         self.search("ordinary line\n" * 30000, "missing")
@@ -98,7 +98,7 @@ class IncrementalSearchTests(unittest.TestCase):
         self.assertFalse(self.view.is_searching)
         self.assertFalse(self.view._search_timer.isActive())
         self.assertIsNone(self.view._search_work)
-        self.assertEqual(self.view._pending_matches, [])
+        self.assertFalse(self.view._pending_matches)
 
     def test_highlighting_yields_and_clear_replaces_pending_formats(self):
         self.search("error\n" * 6000, "error")
@@ -116,7 +116,7 @@ class IncrementalSearchTests(unittest.TestCase):
         self.view._search_input.setText("new")
         wait_for_search(self.view)
         self.assertEqual(self.view.editor.document().begin().layout().formats(), [])
-        self.assertEqual(highlighter._matches, ())
+        self.assertFalse(highlighter._matches)
 
     def test_scrolling_prioritizes_visible_highlights_ahead_of_backlog(self):
         self.view.resize(800, 400)

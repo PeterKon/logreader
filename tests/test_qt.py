@@ -1056,7 +1056,7 @@ class LogreaderQtTests(unittest.TestCase):
 
         search.clear()
         self.assertEqual(results.extraSelections(), [])
-        self.assertEqual(results_view._search_highlighter._matches, ())
+        self.assertFalse(results_view._search_highlighter._matches)
 
     def test_results_search_marks_each_occupied_scrollbar_row_once(self):
         results_view = self.window.findChild(ResultsView, "resultsPanel")

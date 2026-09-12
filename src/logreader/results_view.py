@@ -51,6 +51,7 @@ from .core import (
     ResultLine,
 )
 from .presentation import CategoryPresentation, build_category_presentations
+from .search_storage import BlockSet, SearchMatches
 from .theme import THEME_COLORS, configure_clear_button, vertical_resize_icon
 
 
@@ -73,10 +74,10 @@ class SearchMatchHighlighter(QSyntaxHighlighter):
     def __init__(self, editor: QPlainTextEdit) -> None:
         super().__init__(editor.document())
         self._editor = editor
-        self._matches: tuple[tuple[int, int], ...] = ()
+        self._matches = SearchMatches()
         self._match_blocks = array("I")
-        self._painted_blocks: set[int] = set()
-        self._fresh_blocks: set[int] = set()
+        self._painted_blocks = BlockSet()
+        self._fresh_blocks = BlockSet()
         self._targets = iter(())
         self._visible_targets = iter(())
         self._cancelled = False
@@ -119,6 +120,20 @@ class SearchMatchHighlighter(QSyntaxHighlighter):
                     if block.isValid():
                         self._painting = True
                         try:
+                            # Qt 6.11 retains a HarfBuzz shaping buffer per text engine.
+                            # Rehighlighting additional document blocks can therefore
+                            # increase retained native memory, even after search
+                            # highlights are cleared. Our Qt 6.10.0 / 6.11.2 comparison
+                            # showed substantially higher repeated-search memory use
+                            # on 6.11.2. This is not evidence of an ever-growing
+                            # Python match cache.
+                            #
+                            # Before changing this highlighting path, compare Qt
+                            # versions and benchmark native scrolling, wrapping,
+                            # and search responsiveness.
+                            # Investigation: benchmarks/layout-memory-investigation.md
+                            # Upstream change:
+                            # https://github.com/qt/qtbase/commit/8209078e0eb1f100f0f822d75856c9f557f60195
                             self.rehighlightBlock(block)
                         finally:
                             self._painting = False
@@ -136,7 +151,7 @@ class SearchMatchHighlighter(QSyntaxHighlighter):
         self._highlight_timer.stop()
 
     def set_matches(
-        self, matches: tuple[tuple[int, int], ...], match_blocks: array | None = None,
+        self, matches: SearchMatches, match_blocks: array | None = None,
     ) -> None:
         """Paint visible matches first, then only matching or previously painted blocks."""
         self._cancelled = False
@@ -146,7 +161,7 @@ class SearchMatchHighlighter(QSyntaxHighlighter):
             self._fresh_blocks.clear()
             # Include formats left by an interrupted older query so rapid edits
             # cannot leave stale highlights elsewhere in the document.
-            self._targets = merge(sorted(self._painted_blocks), self._match_blocks)
+            self._targets = merge(self._painted_blocks.ordered_snapshot(), self._match_blocks)
         self._prioritize_viewport()
 
     def highlightBlock(self, text: str) -> None:  # noqa: N802
@@ -157,11 +172,10 @@ class SearchMatchHighlighter(QSyntaxHighlighter):
 
         block_start = self.currentBlock().position()
         block_end = block_start + self.currentBlock().length() - 1
-        match_index = bisect_right(
-            self._matches, block_start, key=lambda match: match[1],
-        )
-        while match_index < len(self._matches):
-            start, end = self._matches[match_index]
+        starts, ends = self._matches.starts, self._matches.ends
+        match_index = bisect_right(ends, block_start)
+        while match_index < len(starts):
+            start, end = starts[match_index], ends[match_index]
             if start >= block_end:
                 break
 
@@ -478,14 +492,14 @@ class ResultsView(QWidget):
         self.setObjectName("resultsPanel")
         self._maximized = False
         self._renderer: IncrementalAnalysisRenderer | None = None
-        self._search_matches: tuple[tuple[int, int], ...] = ()
+        self._search_matches = SearchMatches()
         self._search_match_blocks = array("I")
         self._current_search_match: int | None = None
         self._searched_query: str | None = None
         self._search_from_viewport = True
         self._search_generation = 0
         self._search_work: Iterator[tuple[int, int, int] | None] | None = None
-        self._pending_matches: list[tuple[int, int]] = []
+        self._pending_matches = SearchMatches()
         self._pending_blocks = array("I")
         self._pending_navigation: bool | None = None
         self._search_timer = QTimer(self)
@@ -622,6 +636,8 @@ class ResultsView(QWidget):
         self._editor = QPlainTextEdit(self)
         self._editor.setObjectName("resultsView")
         self._editor.setReadOnly(True)
+        # Rendering is programmatic; retaining undo commands only wastes memory.
+        self._editor.setUndoRedoEnabled(False)
         self._editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self._editor.setFont(
             QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
@@ -765,8 +781,8 @@ class ResultsView(QWidget):
                 match = next(self._search_work)
             except StopIteration:
                 self._search_work = None
-                self._search_matches = tuple(self._pending_matches)
-                self._pending_matches = []
+                self._search_matches = self._pending_matches
+                self._pending_matches = SearchMatches()
                 self._search_match_blocks = self._pending_blocks
                 self._pending_blocks = array("I")
                 count = len(self._search_matches)
@@ -786,7 +802,7 @@ class ResultsView(QWidget):
                 return
             if match is not None:
                 start, end, block = match
-                self._pending_matches.append((start, end))
+                self._pending_matches.append(start, end)
                 if not self._pending_blocks or self._pending_blocks[-1] != block:
                     self._pending_blocks.append(block)
         self._search_timer.start(1)
@@ -803,20 +819,20 @@ class ResultsView(QWidget):
         self._search_generation += 1
         self._search_timer.stop()
         self._search_work = None
-        self._pending_matches = []
+        self._pending_matches = SearchMatches()
         self._pending_blocks = array("I")
         self._pending_navigation = None
         self._search_highlighter.cancel()
 
     def _clear_search_results(self) -> None:
         self.cancel_search()
-        self._search_matches = ()
+        self._search_matches = SearchMatches()
         self._search_match_blocks = array("I")
         self._current_search_match = None
         self._searched_query = None
         self._search_from_viewport = True
         self._search_count_label.hide()
-        self._search_highlighter.set_matches(())
+        self._search_highlighter.set_matches(self._search_matches)
         self._search_marker_scrollbar.set_match_blocks(
             self._search_match_blocks,
             None,
@@ -852,9 +868,8 @@ class ResultsView(QWidget):
             )
             anchor.movePosition(QTextCursor.MoveOperation.StartOfLine)
             current = bisect_left(
-                self._search_matches,
+                self._search_matches.starts,
                 anchor.position(),
-                key=lambda match: match[0],
             )
             if not forward:
                 current -= 1
