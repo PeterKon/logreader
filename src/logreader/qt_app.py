@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
 from .config import APP_VERSION, LogreaderConfig
 from .document_page import DocumentPage
 from .document_session import LoadPhase
-from .theme import THEME_COLORS
+from .theme import THEME_COLORS, configure_action_button
 from .work_queue import WorkScheduler
 
 
@@ -430,6 +430,7 @@ class LogreaderWindow(QMainWindow):
         self.setMinimumSize(820, 560)
         self._scheduler = WorkScheduler(self)
         self._build_interface()
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
         self._next_tab_shortcut = QShortcut(QKeySequence("Ctrl+Tab"), self)
         self._next_tab_shortcut.activated.connect(lambda: self._cycle_document(1))
         self._previous_tab_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Tab"), self)
@@ -548,6 +549,7 @@ class LogreaderWindow(QMainWindow):
         tab_row.addWidget(self._empty_version_label, 1)
         tab_row.addWidget(self._tabs, 1)
         self._open_button = QPushButton("&Open file")
+        configure_action_button(self._open_button)
         self._open_button.setObjectName("openButton")
         self._open_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self._open_button.clicked.connect(self.open_file)
@@ -806,6 +808,9 @@ class LogreaderWindow(QMainWindow):
         page.load_file(path)
         self._documents_by_path[key] = page
         self._pages.addWidget(page)
+        # Keep the neutral target eligible when Qt restores focus on tab return.
+        page.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        page.setFocus(Qt.FocusReason.OtherFocusReason)
         index = self._tabs.addTab(path.name)
         close_button = TabCloseButton(self._tabs)
         close_button.setAccessibleName(f"Close {path.name}")

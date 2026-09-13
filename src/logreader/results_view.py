@@ -52,7 +52,7 @@ from .core import (
 )
 from .presentation import CategoryPresentation, build_category_presentations
 from .search_storage import BlockSet, SearchMatches
-from .theme import THEME_COLORS, configure_clear_button, vertical_resize_icon
+from .theme import THEME_COLORS, configure_action_button, configure_clear_button, vertical_resize_icon
 
 
 RESULT_COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
@@ -526,6 +526,7 @@ class ResultsView(QWidget):
         self._expand_icon = vertical_resize_icon()
         self._contract_icon = vertical_resize_icon(contract=True)
         self._maximize_button = QPushButton()
+        configure_action_button(self._maximize_button)
         self._maximize_button.setIcon(self._expand_icon)
         self._maximize_button.setIconSize(QSize(18, 18))
         self._maximize_button.setObjectName("maximizeResultsButton")

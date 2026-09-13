@@ -37,7 +37,7 @@ from .config import (
     TEXT_PATTERN_KEYS,
     LogreaderConfig,
 )
-from .theme import THEME_COLORS, configure_clear_button
+from .theme import THEME_COLORS, configure_action_button, configure_clear_button
 from .file_loader import DEFAULT_MAX_LINES_SCANNED
 
 
@@ -208,6 +208,31 @@ class TieredSpinBox(VisibleSpinBox):
 
     STEP_TIERS: tuple[tuple[int, int], ...] = ()
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._stepping_with_mouse = False
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        option = QStyleOptionSpinBox()
+        self.initStyleOption(option)
+        control = self.style().hitTestComplexControl(
+            QStyle.ComplexControl.CC_SpinBox, option, event.position().toPoint(), self,
+        )
+        self._stepping_with_mouse = event.button() == Qt.MouseButton.LeftButton and control in (
+            QStyle.SubControl.SC_SpinBoxUp, QStyle.SubControl.SC_SpinBoxDown,
+        )
+        super().mousePressEvent(event)
+        if self._stepping_with_mouse:
+            self.clearFocus()
+            self.lineEdit().deselect()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        super().mouseReleaseEvent(event)
+        if self._stepping_with_mouse:
+            self.clearFocus()
+            self.lineEdit().deselect()
+        self._stepping_with_mouse = False
+
     def stepBy(self, steps: int) -> None:  # noqa: N802 - Qt API name
         self.interpretText()
         value = self.value()
@@ -228,6 +253,8 @@ class TieredSpinBox(VisibleSpinBox):
                 break
             value = target
         self.setValue(value)
+        if self._stepping_with_mouse:
+            self.lineEdit().deselect()
 
 
 class ContextSpinBox(TieredSpinBox):
@@ -359,6 +386,7 @@ class FilterPanel(QGroupBox):
         top_layout.addWidget(self._make_top_separator("topSeparatorLimit"))
 
         toggle_all_button = UnclippedPushButton("Global toggle all")
+        configure_action_button(toggle_all_button)
         toggle_all_button.setObjectName("toggleAllButton")
         toggle_all_button.setToolTip(
             "Toggle all text error patterns. HTTP 4xx and 5xx are controlled manually."
@@ -533,6 +561,7 @@ class FilterPanel(QGroupBox):
         entry_row.addWidget(input_box)
 
         add_button = QPushButton("+add")
+        configure_action_button(add_button)
         add_button.setObjectName(add_button_object_name)
         add_button.clicked.connect(add_handler)
         entry_row.addWidget(add_button)
@@ -624,6 +653,7 @@ class FilterPanel(QGroupBox):
 
         if toggle_object_name is not None:
             toggle_button = QPushButton("Toggle all")
+            configure_action_button(toggle_button)
             toggle_button.setObjectName(toggle_object_name)
             toggle_button.setMaximumWidth(100)
             toggle_button.setSizePolicy(

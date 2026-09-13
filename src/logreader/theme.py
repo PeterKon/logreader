@@ -2,7 +2,7 @@
 
 from PySide6.QtCore import QPointF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QLineEdit, QToolButton
+from PySide6.QtWidgets import QLineEdit, QPushButton, QToolButton
 
 THEME_COLORS = {
     # Keep the controls area visibly raised above the results well, with its
@@ -40,6 +40,12 @@ THEME_COLORS = {
     "hit_count": "#ff7b72",
     "limit_notice": "#79c0ff",
 }
+
+
+def configure_action_button(button: QPushButton) -> None:
+    """Keep native hover feedback and keyboard access without sticky click focus."""
+    button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+    button.clicked.connect(button.clearFocus)
 
 
 def vertical_resize_icon(*, contract: bool = False) -> QIcon:
