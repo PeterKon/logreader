@@ -63,7 +63,10 @@ ENTRY_SEPARATOR = "-------->"
 INCREMENTAL_RENDER_BATCH_MS = 8
 INCREMENTAL_SEARCH_BATCH_MS = 4
 SEARCH_CHUNK_SIZE = 4096
-SUMMARY_LINE_LENGTH = 100
+SUMMARY_COLUMNS = 3
+SUMMARY_COLUMN_WIDTH = 19
+SUMMARY_COLUMN_GAP = 5
+SUMMARY_LINE_LENGTH = SUMMARY_COLUMNS * SUMMARY_COLUMN_WIDTH + (SUMMARY_COLUMNS - 1) * SUMMARY_COLUMN_GAP
 
 RenderOperation = tuple[str, str, bool]
 CheckBoxFactory = Callable[[], QCheckBox]
@@ -1093,9 +1096,9 @@ def _iter_analysis_render_operations(
         else:
             positive_entries.append((label, match_count))
 
-    yield "Matches:\n", "body", True
+    yield "Matches:\n", "heading", True
     if positive_entries:
-        yield from _iter_summary_entries(positive_entries)
+        yield from _iter_positive_summary_entries(positive_entries)
     else:
         yield "0", "muted", False
     yield "\n", "body", False
@@ -1107,6 +1110,22 @@ def _iter_analysis_render_operations(
 
     for presentation in build_category_presentations(analysis):
         yield from _iter_category_render_operations(presentation, config)
+
+
+def _iter_positive_summary_entries(
+    entries: list[tuple[str, int]],
+) -> Iterator[RenderOperation]:
+    """Fill three 19-character columns per row, with five spaces between them.
+
+    Oversized entries keep their full label and count, extending only their row.
+    """
+    for index, (label, count) in enumerate(entries):
+        if index:
+            yield "\n" if index % SUMMARY_COLUMNS == 0 else " " * SUMMARY_COLUMN_GAP, "muted", False
+        count_text = str(count)
+        padding = " " * max(1, SUMMARY_COLUMN_WIDTH - len(label) - len(count_text))
+        yield label + padding, _match_count_role(count), False
+        yield count_text, "body", False
 
 
 def _iter_summary_entries(

@@ -2162,17 +2162,20 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(results_view.editor.textCursor().position(), 0)
 
-    def test_summary_wraps_at_entry_boundaries_and_preserves_long_entries(self):
-        from logreader.results_view import _iter_summary_entries
+    def test_summary_grid_fills_rows_and_preserves_long_entries(self):
+        from logreader.results_view import _iter_positive_summary_entries, _iter_summary_entries
 
         def text(entries):
             return "".join(value for value, _, _ in _iter_summary_entries(entries))
 
-        fits = "A" * 88
         oversized = "Z" * 101
         self.assertEqual(
-            text([("ERROR", 13), (fits, 2), ("FAILED", 1), (oversized, 3), ("FATAL", 4)]),
-            f"ERROR 13, {fits} 2\nFAILED 1\n{oversized} 3\nFATAL 4",
+            "".join(value for value, _, _ in _iter_positive_summary_entries([
+                ("ERROR:", 13), ("ERROR", 206), ("EXCEPTION", 4),
+                (oversized, 3), ("FATAL", 4),
+            ])),
+            "ERROR:           13     ERROR           206     EXCEPTION         4\n"
+            f"{oversized} 3     FATAL             4",
         )
         self.assertEqual(
             text([("A" * 100, None), ("FAILED", None), (oversized, None), ("FATAL", None)]),
@@ -2190,7 +2193,7 @@ class LogreaderQtTests(unittest.TestCase):
                 regex_patterns=(r"code=\d+",), combined_view=combined,
             )
             for source, expected in (
-                ("ERROR: needle code=42", "Matches:\nERROR: 1, needle 1, code=\\d+ 1\n"),
+                ("ERROR: needle code=42", "Matches:\nERROR:            1     needle            1     code=\\d+          1\n"),
                 ("ordinary", "Matches:\n0\n\n0 matches:\nERROR:, needle, code=\\d+\n"),
             ):
                 analysis = analyze_lines((source,), config.search_patterns(), combined=combined)
@@ -2217,7 +2220,7 @@ class LogreaderQtTests(unittest.TestCase):
             ).toPlainText()
 
         self.assertIn(
-            "0 matches:\nERROR, EXCEPTION:, EXCEPTION, FAILED, FAILURE, FATAL, CRITICAL, REFUSED\n",
+            "0 matches:\nERROR, EXCEPTION:, EXCEPTION, FAILED, FAILURE, FATAL, CRITICAL\nREFUSED\n",
             output,
         )
         self.assertNotIn(APP_VERSION, output)
@@ -2257,7 +2260,10 @@ class LogreaderQtTests(unittest.TestCase):
             ("combined",),
         )
         summary = output.split("\nTotal matches —", 1)[0]
-        self.assertTrue(summary.startswith("Matches:\nERROR: 1, FAILED 1, panic 1, code=\\d+ 1\n\n"))
+        self.assertTrue(summary.startswith(
+            "Matches:\nERROR:            1     FAILED            1     panic             1\n"
+            "code=\\d+          1\n\n"
+        ), summary)
         self.assertIn("0 matches:\nERROR, EXCEPTION:, EXCEPTION, FAILURE, CRITICAL, REFUSED\n", summary)
         self.assertNotIn("Total matches", summary)
         self.assertEqual(output.count("Total matches"), 1)
