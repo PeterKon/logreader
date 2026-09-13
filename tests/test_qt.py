@@ -2220,7 +2220,7 @@ class LogreaderQtTests(unittest.TestCase):
             ).toPlainText()
 
         self.assertIn(
-            "0 matches:\nERROR, EXCEPTION:, EXCEPTION, FAILED, FAILURE, FATAL, CRITICAL\nREFUSED\n",
+            "0 matches:\nERROR, EXCEPTION:, EXCEPTION, FAILED, FAILURE, FATAL, CRITICAL, REFUSED\n",
             output,
         )
         self.assertNotIn(APP_VERSION, output)
