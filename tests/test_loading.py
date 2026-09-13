@@ -181,7 +181,7 @@ class LoadingTests(unittest.TestCase):
             with self.subTest(shutdown=shutdown):
                 started, release = Event(), Event()
 
-                def blocked(path, *, max_lines_scanned=1_000_000, cancellation=None):
+                def blocked(path, *, max_lines_scanned=2_000_000, cancellation=None):
                     started.set()
                     if not release.wait(5):
                         raise TimeoutError("Test load was not released")

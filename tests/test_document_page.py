@@ -83,7 +83,7 @@ class DocumentPageTests(unittest.TestCase):
         self.assertNotIn("ERROR: second", first_output)
         self.assertEqual(self.first.session.analysis_config.context, 7)
         self.assertEqual(self.first.build_config().context, 9)
-        self.assertEqual(self.second.build_config().context, 3)
+        self.assertEqual(self.second.build_config().context, 5)
         self.assertEqual(draft.text(), "unfinished draft")
         self.assertFalse(self.first._analysis_busy_timer.isActive())
         self.assertFalse(self.second._analysis_busy_timer.isActive())

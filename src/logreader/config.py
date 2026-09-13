@@ -11,6 +11,7 @@ from .file_loader import DEFAULT_MAX_LINES_SCANNED
 
 
 APP_VERSION = f"Logreader v{__version__}"
+DEFAULT_CONTEXT = 5
 COMBINED_CATEGORY_LABEL = "Total matches"
 
 
@@ -128,7 +129,7 @@ DEFAULT_ENABLED_PATTERNS = (
 class LogreaderConfig:
     """Analysis and presentation options used by the desktop application."""
 
-    context: int = 3
+    context: int = DEFAULT_CONTEXT
     max_lines_scanned: int = DEFAULT_MAX_LINES_SCANNED
     enabled_patterns: tuple[str, ...] = DEFAULT_ENABLED_PATTERNS
     custom_patterns: tuple[str, ...] = ()

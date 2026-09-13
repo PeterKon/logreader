@@ -18,7 +18,7 @@ class TailLoadingTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / "source.log"
 
-    def test_default_retains_last_million_and_counts_discarded_lines(self):
+    def test_default_retains_last_two_million_and_counts_discarded_lines(self):
         self.path.write_bytes(b"old\n" * 7 + b"new\n" * DEFAULT_MAX_LINES_SCANNED)
         with patch.object(Path, "read_bytes", side_effect=AssertionError("Whole-file read")):
             loaded = load_log(self.path)

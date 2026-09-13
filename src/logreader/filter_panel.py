@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from .config import (
+    DEFAULT_CONTEXT,
     DEFAULT_ENABLED_PATTERNS,
     HTTP_STATUS_PATTERN_KEYS,
     PAIRED_PATTERN_KEYS,
@@ -202,8 +203,51 @@ class VisibleSpinBox(QSpinBox):
         )
 
 
-class ScanLimitSpinBox(VisibleSpinBox):
+class TieredSpinBox(VisibleSpinBox):
+    """Move through step boundaries, using the smaller tier when stepping down."""
+
+    STEP_TIERS: tuple[tuple[int, int], ...] = ()
+
+    def stepBy(self, steps: int) -> None:  # noqa: N802 - Qt API name
+        self.interpretText()
+        value = self.value()
+        for _ in range(abs(steps)):
+            lower = self.minimum()
+            for upper, increment in self.STEP_TIERS:
+                if value < upper or (steps < 0 and value == upper):
+                    if steps > 0:
+                        target = min(upper, (value // increment + 1) * increment)
+                    else:
+                        target = max(lower, ((value - 1) // increment) * increment)
+                    break
+                lower = upper
+            else:
+                target = self.maximum()
+            target = max(self.minimum(), min(self.maximum(), target))
+            if target == value:
+                break
+            value = target
+        self.setValue(value)
+
+
+class ContextSpinBox(TieredSpinBox):
+    STEP_TIERS = ((5, 1), (10, 5), (100, 10), (1_000, 100))
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setRange(0, 1_000)
+        self.setValue(DEFAULT_CONTEXT)
+
+
+class ScanLimitSpinBox(TieredSpinBox):
     """Positive source-line count with locale-independent space grouping."""
+
+    STEP_TIERS = (
+        (10_000, 1_000),
+        (1_000_000, 100_000),
+        (10_000_000, 1_000_000),
+        (2_147_483_647, 10_000_000),
+    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -298,7 +342,7 @@ class FilterPanel(QGroupBox):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(8)
 
-        self._context_spin = self._make_spin_box(0, 1_000, 3)
+        self._context_spin = ContextSpinBox()
         self._context_spin.setObjectName("contextSpin")
         context_label = QLabel("Context around errors")
         context_label.setObjectName("contextLabel")
@@ -611,13 +655,6 @@ class FilterPanel(QGroupBox):
         if key == "http_5xx":
             return "5xx"
         return PATTERN_PRESETS_BY_KEY[key].label.capitalize()
-
-    @staticmethod
-    def _make_spin_box(minimum: int, maximum: int, value: int) -> QSpinBox:
-        spin_box = VisibleSpinBox()
-        spin_box.setRange(minimum, maximum)
-        spin_box.setValue(value)
-        return spin_box
 
     def build_config(self) -> LogreaderConfig:
         """Build the shared configuration represented by the controls."""

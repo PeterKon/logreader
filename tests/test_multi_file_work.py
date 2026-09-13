@@ -130,7 +130,7 @@ class MultiFileWorkTests(unittest.TestCase):
             with lock:
                 active[kind] -= 1
 
-        def load(path, *, max_lines_scanned=1_000_000, cancellation=None):
+        def load(path, *, max_lines_scanned=2_000_000, cancellation=None):
             enter("load", path.name)
             try:
                 if path.name == "load-first.log":
@@ -197,7 +197,7 @@ class MultiFileWorkTests(unittest.TestCase):
                 self.assertIsNone(pages[2].results_view._renderer)
                 self.assertIsNotNone(pages[0].session.analysis)
                 self.assertIsNotNone(pages[2].session.analysis)
-                self.assertEqual(pages[2].session.analysis_config.context, 3)
+                self.assertEqual(pages[2].session.analysis_config.context, 5)
                 self.assertEqual(pages[2].build_config().context, 8)
             finally:
                 release_analysis.set()

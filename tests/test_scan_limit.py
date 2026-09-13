@@ -56,8 +56,8 @@ class ScanLimitTests(unittest.TestCase):
         ))
 
     def test_default_grouped_editing_pasting_and_positive_only(self):
-        self.assertEqual(self.spin.value(), 1_000_000)
-        self.assertEqual(self.spin.text(), "1 000 000")
+        self.assertEqual(self.spin.value(), 2_000_000)
+        self.assertEqual(self.spin.text(), "2 000 000")
         self.assertEqual(self.spin.minimum(), 1)
         self.assertEqual(self.spin.specialValueText(), "")
         for text in ("2 000 000", "2000000", "2\u00a0000\u00a0000"):
@@ -168,12 +168,12 @@ class ScanLimitTests(unittest.TestCase):
                     self.assertIsNone(self.page.session.analysis)
 
     def test_new_tabs_have_independent_default_limits(self):
-        self.spin.setValue(2_000_000)
+        self.spin.setValue(3_000_000)
         other = self.root / "other.log"
         other.write_text("ERROR: other", encoding="utf-8")
         self.window.load_file(other)
         second = self.window._document
         self.wait_until(lambda: second.session.has_document)
-        self.assertEqual(second.build_config().max_lines_scanned, 1_000_000)
+        self.assertEqual(second.build_config().max_lines_scanned, 2_000_000)
         self.window._select_document(self.page)
-        self.assertEqual(self.page.build_config().max_lines_scanned, 2_000_000)
+        self.assertEqual(self.page.build_config().max_lines_scanned, 3_000_000)

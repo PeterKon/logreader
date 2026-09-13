@@ -12,7 +12,7 @@ from typing import BinaryIO, Iterator
 from .cancellation import CancellationToken, checked
 
 
-DEFAULT_MAX_LINES_SCANNED = 1_000_000
+DEFAULT_MAX_LINES_SCANNED = 2_000_000
 READ_CHUNK_BYTES = 64 * 1024
 _LINE_END = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
 _BOM_ENCODINGS = (

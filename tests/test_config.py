@@ -94,8 +94,8 @@ class LogreaderConfigTests(unittest.TestCase):
                 "refused",
             ],
         )
-        self.assertEqual(patterns[0].context, 3)
-        self.assertEqual(patterns[1].context, 3)
+        self.assertEqual(patterns[0].context, 5)
+        self.assertEqual(patterns[1].context, 5)
         self.assertEqual(patterns[1].excluded_substrings, ("error:",))
         self.assertEqual(config.regex_patterns, ())
         self.assertTrue(config.separate_entries)

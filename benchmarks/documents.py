@@ -172,7 +172,7 @@ def run(args):
                 refs = [weakref.ref(page) for page in pages]
                 probe.wait("loading", lambda: all(p.session.load_phase != LoadPhase.LOADING for p in pages))
                 row["loading_seconds"] = perf_counter() - start
-                assert all(len(p.session.lines) == min(args.lines, 1_000_000) for p in pages)
+                assert all(len(p.session.lines) == min(args.lines, 2_000_000) for p in pages)
                 row["loaded_memory"] = memory_mib()
                 for page in pages:
                     page.build_config = lambda: config

@@ -235,8 +235,8 @@ class LogreaderQtTests(unittest.TestCase):
         config = filter_panel.build_config()
 
         self.assertEqual(self.window.build_config(), config)
-        self.assertEqual(config.context, 3)
-        self.assertEqual(config.max_lines_scanned, 1_000_000)
+        self.assertEqual(config.context, 5)
+        self.assertEqual(config.max_lines_scanned, 2_000_000)
         self.assertEqual(
             config.enabled_patterns,
             (
