@@ -7,7 +7,7 @@ from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, QSize, Qt, QTimer, Si
 from PySide6.QtGui import QColor, QFontDatabase, QFontMetricsF, QIcon, QPainter, QPalette, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QTextEdit,
-    QStyle, QStyleOptionButton, QStylePainter, QVBoxLayout, QWidget,
+    QStyle, QStyleOptionButton, QStylePainter, QToolTip, QVBoxLayout, QWidget,
 )
 
 from .search_storage import SearchMatches
@@ -163,7 +163,7 @@ class SourceView(QWidget):
         self.first_button = SegmentedButton("First")
         self.previous_button = SegmentedButton("Previous")
         self.next_button = SegmentedButton("Next", self.previous_button)
-        self.last_button = SegmentedButton("Last")
+        self.last_button = SegmentedButton("Last", self.first_button)
         self.page_navigation = QFrame()
         self.page_navigation.setObjectName("sourcePageNavigation")
         self.page_navigation.setAccessibleName("Source page navigation")
@@ -178,6 +178,8 @@ class SourceView(QWidget):
             " border-top-left-radius: 3px; border-bottom-left-radius: 3px; }"
             "QPushButton#sourceLastPage, QPushButton#sourceGoToLineButton {"
             " border-top-right-radius: 3px; border-bottom-right-radius: 3px; }"
+            "QPushButton#sourceFirstPage, QPushButton#sourceLastPage {"
+            " padding-left: 6px; padding-right: 6px; }"
             f"QLineEdit {{ padding-left: 6px; placeholder-text-color: {THEME_COLORS['ui_muted']}; }}"
             f"QPushButton:hover {{ background: {THEME_COLORS['ui_button_hover']}; }}"
             f"QPushButton:focus, QLineEdit:focus {{ border-color: {THEME_COLORS['ui_accent']}; }}"
@@ -243,14 +245,15 @@ class SourceView(QWidget):
         self.goto_button.clicked.connect(self.go_to_input)
         self.goto_input.returnPressed.connect(self.go_to_input)
         controls.addWidget(self.page_navigation)
+        self.range_label = QLabel()
+        self.range_label.setObjectName("sourceRange")
+        self.range_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.range_label.setContentsMargins(8, 0, 0, 0)
+        self.range_label.setStyleSheet(f"color: {THEME_COLORS['ui_muted']};")
+        controls.addWidget(self.range_label)
         controls.addStretch(1)
         controls.addWidget(self.line_navigation)
         layout.addLayout(controls)
-        self.range_label = QLabel()
-        self.range_label.setObjectName("sourceRange")
-        self.range_label.setContentsMargins(8, 2, 8, 4)
-        self.range_label.setWordWrap(True)
-        layout.addWidget(self.range_label)
         self.editor = SourceEditor(self)
         self.editor.setObjectName("sourceView")
         self.editor.setReadOnly(True)
@@ -289,10 +292,11 @@ class SourceView(QWidget):
         self._materialized = False
         self.query = ""
         self.goto_input.clear()
+        self.goto_input.setToolTip("Enter an original source line number")
         self.editor.clear()
         self.editor.setExtraSelections([])
         self.editor.setPlaceholderText(message)
-        self.range_label.setText(message)
+        self.range_label.clear()
         self.first_button.setEnabled(False)
         self.previous_button.setEnabled(False)
         self.next_button.setEnabled(False)
@@ -303,7 +307,6 @@ class SourceView(QWidget):
         self.lines = lines  # Same immutable tuple as the document session.
         self.total_line_count = total_line_count
         self.editor.setPlaceholderText("Empty source file" if not lines else "")
-        self.range_label.setText(self._retained_range())
 
     def _retained_range(self) -> str:
         if not self.lines:
@@ -350,15 +353,23 @@ class SourceView(QWidget):
 
     def _update_range(self) -> None:
         self.range_label.setText(
-            f"Showing {self.first_line + self.page_start:,}–{self.first_line + self.page_end - 1:,}  •  "
-            f"{self._retained_range()}  •  Search covers all retained lines"
+            f"{self.first_line + self.page_start:,}–{self.first_line + self.page_end - 1:,}"
+        )
+
+    def _show_line_error(self, message: str) -> None:
+        self.goto_input.setToolTip(message)
+        QToolTip.showText(
+            self.goto_input.mapToGlobal(self.goto_input.rect().bottomLeft()),
+            message, self.goto_input,
         )
 
     def go_to_line(self, number: int, *, highlight=True) -> bool:
         index = number - self.first_line
         if not 0 <= index < len(self.lines):
-            self.range_label.setText(f"Line {number:,} is not retained. {self._retained_range()}")
+            self._show_line_error(f"Line {number:,} is not retained. {self._retained_range()}")
             return False
+        self.goto_input.setToolTip("Enter an original source line number")
+        QToolTip.hideText()
         if highlight:
             self.target_line = number
             self._from_viewport = True
@@ -375,11 +386,11 @@ class SourceView(QWidget):
     def go_to_input(self) -> None:
         value = "".join(self.goto_input.text().split())
         if not value.isascii() or not value.isdecimal():
-            self.range_label.setText(f"Enter an original line number. {self._retained_range()}")
+            self._show_line_error(f"Enter an original line number. {self._retained_range()}")
             return
         # Bound parsing of arbitrary pasted input, without QSpinBox's int32 limit.
         if len(value) > 20:
-            self.range_label.setText(f"Line number is outside the retained range. {self._retained_range()}")
+            self._show_line_error(f"Line number is outside the retained range. {self._retained_range()}")
             return
         self.go_to_line(int(value))
 
