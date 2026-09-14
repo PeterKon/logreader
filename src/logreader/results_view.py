@@ -38,6 +38,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollBar,
     QSpinBox,
+    QStackedWidget,
+    QStackedLayout,
     QStyle,
     QStyleOptionSlider,
     QTextEdit,
@@ -52,6 +54,8 @@ from .core import (
 )
 from .presentation import CategoryPresentation, build_category_presentations
 from .search_storage import BlockSet, SearchMatches
+from .result_source_map import ResultSourceMap
+from .source_view import SourceView
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button, vertical_resize_icon
 
 
@@ -344,14 +348,17 @@ class IncrementalAnalysisRenderer(QObject):
         analysis: AnalysisResult,
         config: LogreaderConfig,
         parent: QObject | None = None,
+        source_map: ResultSourceMap | None = None,
     ) -> None:
         super().__init__(parent)
         self.request_id = request_id
         self._view = view
+        self._source_map = source_map
         self._operations = _iter_analysis_render_operations(
             source_name,
             analysis,
             config,
+            on_excerpt=self._record_excerpt,
         )
         self._cursor: QTextCursor | None = None
         self._started = 0.0
@@ -361,6 +368,10 @@ class IncrementalAnalysisRenderer(QObject):
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._render_next_batch)
+
+    def _record_excerpt(self, source_line: int, length: int) -> None:
+        if self._source_map is not None and self._cursor is not None:
+            self._source_map.append(self._cursor.blockNumber(), length, source_line)
 
     def start(self) -> None:
         """Clear the previous document and schedule the first render batch."""
@@ -498,6 +509,11 @@ class ResultsView(QWidget):
         self.setObjectName("resultsPanel")
         self._maximized = False
         self._renderer: IncrementalAnalysisRenderer | None = None
+        self._source_active = False
+        self._rendering_paused = False
+        self._results_query = ""
+        self._source_map = ResultSourceMap()
+        self._return_position = None
         self._search_matches = SearchMatches()
         self._search_match_blocks = array("I")
         self._current_search_match: int | None = None
@@ -541,6 +557,12 @@ class ResultsView(QWidget):
         self._maximize_button.setToolTip("Expand results window")
         self._maximize_button.clicked.connect(self.toggle_maximized)
         header_layout.addWidget(self._maximize_button)
+        self._source_button = QPushButton("Go to source")
+        self._source_button.setObjectName("sourceToggleButton")
+        self._source_button.setToolTip("Open the retained source snapshot")
+        configure_action_button(self._source_button)
+        self._source_button.clicked.connect(self.toggle_source)
+        header_layout.addWidget(self._source_button)
         header_layout.addStretch(1)
 
         self._search_count_label = QLabel()
@@ -556,7 +578,15 @@ class ResultsView(QWidget):
         count_size_policy.setRetainSizeWhenHidden(True)
         self._search_count_label.setSizePolicy(count_size_policy)
         self._search_count_label.hide()
-        header_layout.addWidget(self._search_count_label)
+        self._source_search_count = QLabel()
+        self._source_search_count.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._source_search_count.setMinimumWidth(84)
+        self._count_stack = QStackedWidget()
+        self._count_stack.setObjectName("searchCountStack")
+        self._count_stack.addWidget(self._search_count_label)
+        self._count_stack.addWidget(self._source_search_count)
+        self._search_count_label.hide()
+        header_layout.addWidget(self._count_stack)
 
         search_controls = QWidget(header)
         search_controls.setObjectName("resultsSearchControls")
@@ -667,7 +697,86 @@ class ResultsView(QWidget):
             self._editor
         )
         self._editor.document().contentsChange.connect(self._results_changed)
-        panel_layout.addWidget(self._editor, 1)
+        self._editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._editor.customContextMenuRequested.connect(self._results_context_menu)
+        self.source_view = SourceView(
+            self, highlighter_factory=SearchMatchHighlighter,
+            scrollbar_factory=SearchMarkerScrollBar, editor_style=_results_editor_style_sheet(),
+        )
+        self.source_view.search_status_changed.connect(self._source_search_count.setText)
+        self._view_stack = QStackedLayout()
+        self._view_stack.addWidget(self._editor)
+        self._view_stack.addWidget(self.source_view)
+        panel_layout.addLayout(self._view_stack, 1)
+
+    @property
+    def source_active(self) -> bool:
+        return self._source_active
+
+    def set_source(self, lines: tuple[str, ...], total_line_count: int) -> None:
+        self.source_view.set_source(lines, total_line_count)
+        if self._source_active:
+            self.source_view.ensure_page()
+
+    def toggle_source(self) -> None:
+        self.set_source_active(not self._source_active)
+
+    def set_source_active(self, active: bool) -> None:
+        if active == self._source_active:
+            return
+        if active:
+            self._results_query = self._search_input.text()
+        self._source_active = active
+        self._view_stack.setCurrentWidget(self.source_view if active else self._editor)
+        self._count_stack.setCurrentWidget(self._source_search_count if active else self._search_count_label)
+        if not active:
+            self._search_count_label.setVisible(bool(self._searched_query))
+        self._source_button.setText("Go to results" if active else "Go to source")
+        self._source_button.setToolTip("Return to results" if active else "Open the retained source snapshot")
+        with QSignalBlocker(self._search_input), QSignalBlocker(self._line_wrap_check):
+            self._search_input.setText(self.source_view.query if active else self._results_query)
+            editor = self.source_view.editor if active else self._editor
+            self._line_wrap_check.setChecked(editor.lineWrapMode() != QPlainTextEdit.LineWrapMode.NoWrap)
+        self._search_input.setAccessibleName("Search retained source" if active else "Search results")
+        self._search_input.setToolTip("Search all retained source lines" if active else "Search displayed results")
+        if active:
+            self.source_view.ensure_page()
+        elif self._return_position is not None:
+            position, anchor, vertical, horizontal = self._return_position
+            cursor = QTextCursor(self._editor.document())
+            cursor.setPosition(anchor)
+            cursor.setPosition(position, QTextCursor.MoveMode.KeepAnchor)
+            self._editor.setTextCursor(cursor)
+            self._editor.verticalScrollBar().setValue(vertical)
+            self._editor.horizontalScrollBar().setValue(horizontal)
+            self._return_position = None
+        self.set_rendering_paused(self._rendering_paused)
+        self.focus_editor()
+
+    def source_line_at(self, point) -> int | None:
+        if self._renderer is not None:
+            return None
+        return self._source_map.source_line(self._editor.cursorForPosition(point).blockNumber())
+
+    def show_source_line(self, number: int) -> None:
+        cursor = self._editor.textCursor()
+        self._return_position = (
+            cursor.position(), cursor.anchor(),
+            self._editor.verticalScrollBar().value(), self._editor.horizontalScrollBar().value(),
+        )
+        self.set_source_active(True)
+        self.source_view.go_to_line(number)
+
+    def _results_context_menu(self, point) -> None:
+        number = self.source_line_at(point)
+        menu = self._editor.createStandardContextMenu()
+        menu.addSeparator()
+        action = menu.addAction("Show source line")
+        action.setEnabled(number is not None)
+        if number is not None:
+            action.triggered.connect(lambda: self.show_source_line(number))
+        menu.exec(self._editor.viewport().mapToGlobal(point))
+        menu.deleteLater()
 
     @property
     def editor(self) -> QPlainTextEdit:
@@ -683,6 +792,10 @@ class ResultsView(QWidget):
         """Clear old output while the newly staged source awaits analysis."""
 
         self.cancel_rendering()
+        self._source_map.clear()
+        self._return_position = None
+        self._results_query = ""
+        self.source_view.reset()
         self._search_input.clear()
         self._clear_search_results()
         self._editor.clear()
@@ -691,7 +804,7 @@ class ResultsView(QWidget):
     def focus_editor(self) -> None:
         self._search_input.deselect()
         self._search_input.clearFocus()
-        self._editor.setFocus()
+        (self.source_view.editor if self._source_active else self._editor).setFocus()
 
     @Slot()
     def toggle_maximized(self) -> None:
@@ -723,18 +836,25 @@ class ResultsView(QWidget):
             if enabled
             else QPlainTextEdit.LineWrapMode.NoWrap
         )
-        self._editor.setLineWrapMode(line_wrap_mode)
+        (self.source_view.editor if self._source_active else self._editor).setLineWrapMode(line_wrap_mode)
 
     @Slot(str)
     def _invalidate_search_results(self, _query: str) -> None:
         """Clear stale matches without searching while the user types."""
 
-        self._clear_search_results()
+        if self._source_active:
+            self.source_view.set_query(_query)
+        else:
+            self._results_query = _query
+            self._clear_search_results()
 
     @Slot()
     def search_results(self) -> None:
         """Highlight a new query, or navigate down for an unchanged search."""
 
+        if self._source_active:
+            self.source_view.search()
+            return
         if self._renderer is not None:
             return
         if self._searched_query != self._search_input.text():
@@ -752,7 +872,7 @@ class ResultsView(QWidget):
     def _refresh_search_matches(self) -> None:
         """Find and highlight every literal occurrence in rendered results."""
 
-        query = self._search_input.text()
+        query = self._results_query
         self._clear_search_results()
         self._searched_query = query
         if not query:
@@ -816,6 +936,7 @@ class ResultsView(QWidget):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.cancel_search()
+        self.source_view.reset()
         super().closeEvent(event)
 
     def cancel_search(self) -> None:
@@ -850,18 +971,24 @@ class ResultsView(QWidget):
     def find_next(self) -> None:
         """Move to the next result-search match, wrapping at the end."""
 
-        self._navigate_search(forward=True)
+        if self._source_active:
+            self.source_view.navigate(True)
+        else:
+            self._navigate_search(forward=True)
 
     @Slot()
     def find_previous(self) -> None:
         """Move to the previous result-search match, wrapping at the start."""
 
-        self._navigate_search(forward=False)
+        if self._source_active:
+            self.source_view.navigate(False)
+        else:
+            self._navigate_search(forward=False)
 
     def _navigate_search(self, *, forward: bool) -> None:
         if self._renderer is not None:
             return
-        if self._searched_query != self._search_input.text():
+        if self._searched_query != self._results_query:
             self._refresh_search_matches()
         if self.is_searching:
             self._pending_navigation = forward
@@ -938,6 +1065,8 @@ class ResultsView(QWidget):
         """Start a new incremental render, cancelling any previous one."""
 
         self.cancel_rendering()
+        self._source_map.clear()
+        self._return_position = None
         # Analyze focuses the editor when invoked. A later worker completion
         # must preserve whatever control (or other tab) the user moved to.
         self._clear_search_results()
@@ -948,11 +1077,13 @@ class ResultsView(QWidget):
             analysis,
             config,
             self,
+            source_map=self._source_map,
         )
         renderer.completed.connect(self._complete_rendering)
         renderer.failed.connect(self._fail_rendering)
         self._renderer = renderer
         renderer.start()
+        self.set_rendering_paused(self._rendering_paused)
 
     def cancel_rendering(self) -> None:
         """Cancel the active incremental render, if any."""
@@ -969,8 +1100,11 @@ class ResultsView(QWidget):
         return self._renderer is not None
 
     def set_rendering_paused(self, paused: bool) -> None:
+        # A hidden page can defer rendering before a renderer even exists.
+        # That deferral must not pause the next renderer when the page opens.
+        self._rendering_paused = paused if self._renderer is not None else False
         if self._renderer is not None:
-            self._renderer.set_paused(paused)
+            self._renderer.set_paused(paused or self._source_active)
 
     def prepend_performance_timings(
         self,
@@ -979,11 +1113,13 @@ class ResultsView(QWidget):
     ) -> None:
         """Place analysis and rendering durations above the output."""
 
+        blocks_before = self._editor.document().blockCount()
         prepend_performance_timings(
             self._editor,
             analysis_seconds,
             rendering_seconds,
         )
+        self._source_map.header_blocks += self._editor.document().blockCount() - blocks_before
 
     @Slot(int, float)
     def _complete_rendering(
@@ -1067,6 +1203,8 @@ def _iter_analysis_render_operations(
     source_name: str,
     analysis: AnalysisResult,
     config: LogreaderConfig,
+    *,
+    on_excerpt: Callable[[int, int], None] | None = None,
 ) -> Iterator[RenderOperation]:
     """Yield ordered formatting operations without touching Qt widgets."""
 
@@ -1110,7 +1248,7 @@ def _iter_analysis_render_operations(
         yield "\n", "muted", False
 
     for presentation in build_category_presentations(analysis):
-        yield from _iter_category_render_operations(presentation, config)
+        yield from _iter_category_render_operations(presentation, config, on_excerpt=on_excerpt)
 
 
 def _iter_positive_summary_entries(
@@ -1155,11 +1293,15 @@ def _iter_summary_entries(
 def _iter_category_render_operations(
     presentation: CategoryPresentation,
     config: LogreaderConfig,
+    *,
+    on_excerpt: Callable[[int, int], None] | None = None,
 ) -> Iterator[RenderOperation]:
     label = config.label_for(presentation.key)
     yield f"\n{presentation.heading(label)}\n\n", "heading", True
 
     for excerpt_index, excerpt in enumerate(presentation.excerpts):
+        if on_excerpt is not None and excerpt.lines:
+            on_excerpt(excerpt.lines[0].number, len(excerpt.lines))
         for line in excerpt.lines:
             yield from _iter_result_line_render_operations(line)
 

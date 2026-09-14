@@ -106,6 +106,7 @@ class DocumentPage(QWidget):
 
     def _show_loaded_log(self, path: Path, loaded: LoadedLog) -> None:
         self.results_view.reset_for_loaded_file(path.name)
+        self.results_view.set_source(loaded.lines, loaded.total_line_count)
         self.busy_changed.emit()
         self._set_status(
             f"Last {len(loaded.lines):,} of {loaded.total_line_count:,} source lines "
@@ -127,6 +128,7 @@ class DocumentPage(QWidget):
         request_id = self.session.begin_loading(path)
         self._finish_analysis_request()
         self.results_view.reset_for_loaded_file(path.name)
+        self.results_view.source_view.reset("Loading source…")
         self.load_queued = True
         message = f"Queued for loading {path.name}…"
         self._set_status(message)
@@ -169,6 +171,8 @@ class DocumentPage(QWidget):
         self.load_queued = False
         self._pending_analysis = None
         self._set_status(f"Unable to load {self.session.path.name}: {message}  •  Press Analyze to retry")
+        self.results_view.reset_for_loaded_file(self.session.path.name)
+        self.results_view.source_view.reset(f"Unable to load source: {message}. Press Analyze to retry.")
         self.busy_changed.emit()
         self.load_finished.emit()
 
