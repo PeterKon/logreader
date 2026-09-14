@@ -3,21 +3,74 @@
 from array import array
 from bisect import bisect_left
 
-from PySide6.QtCore import QElapsedTimer, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFontDatabase, QPainter, QTextCursor, QTextFormat
+from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFontDatabase, QFontMetricsF, QIcon, QPainter, QPalette, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QTextEdit,
-    QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QTextEdit,
+    QStyle, QStyleOptionButton, QStylePainter, QVBoxLayout, QWidget,
 )
 
 from .search_storage import SearchMatches
 from .source_search import SourceMatches, iter_source_matches
-from .theme import THEME_COLORS, configure_action_button
+from .theme import THEME_COLORS, configure_action_button, page_navigation_icon
 
 
 SOURCE_PAGE_LINES = 10_000
 SOURCE_PAGE_CHARACTERS = 2560 * 1024
 SOURCE_BATCH_MS = 4
+
+
+class SegmentedButton(QPushButton):
+    """Centre visible label glyphs and icons together within a native button."""
+
+    def __init__(self, text: str, partner: QPushButton | None = None) -> None:
+        super().__init__(text)
+        self._partner = partner
+
+    def sizeHint(self):  # noqa: N802
+        size = super().sizeHint()
+        if self._partner is not None:
+            size.setWidth(self._partner.sizeHint().width())
+        return size
+
+    def minimumSizeHint(self):  # noqa: N802
+        return self.sizeHint()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        painter = QStylePainter(self)
+        # Preserve native/stylesheet backgrounds, borders and focus feedback.
+        background = QStyleOptionButton(option)
+        background.text = ""
+        background.icon = QIcon()
+        painter.drawControl(QStyle.ControlElement.CE_PushButton, background)
+
+        content = QRectF(self.style().subElementRect(
+            QStyle.SubElement.SE_PushButtonContents, option, self,
+        ))
+        painter.setFont(self.font())
+        metrics = QFontMetricsF(self.font())
+        glyphs = metrics.tightBoundingRect(self.text())
+        text_width = metrics.horizontalAdvance(self.text())
+        has_icon = not self.icon().isNull()
+        icon_width = self.iconSize().width() if has_icon else 0
+        gap = 4 if has_icon else 0
+        left = content.center().x() - (text_width + icon_width + gap) / 2
+        forward = self.layoutDirection() == Qt.LayoutDirection.RightToLeft
+        text_x = left if forward else left + icon_width + gap
+        group = QPalette.ColorGroup.Active if self.isEnabled() else QPalette.ColorGroup.Disabled
+        painter.setPen(option.palette.color(group, QPalette.ColorRole.ButtonText))
+        painter.drawText(QPointF(text_x, content.center().y() - glyphs.center().y()), self.text())
+        if has_icon:
+            icon_x = left + text_width + gap if forward else left
+            pixmap = self.icon().pixmap(
+                self.iconSize(), self.devicePixelRatioF(),
+                QIcon.Mode.Normal if self.isEnabled() else QIcon.Mode.Disabled,
+            )
+            painter.drawPixmap(
+                QPointF(icon_x, content.center().y() - self.iconSize().height() / 2), pixmap,
+            )
 
 
 class LineNumberArea(QWidget):
@@ -107,25 +160,91 @@ class SourceView(QWidget):
         layout.setSpacing(0)
         controls = QHBoxLayout()
         controls.setContentsMargins(8, 4, 8, 4)
-        self.previous_button = QPushButton("Previous page")
-        self.next_button = QPushButton("Next page")
+        self.first_button = SegmentedButton("First")
+        self.previous_button = SegmentedButton("Previous")
+        self.next_button = SegmentedButton("Next", self.previous_button)
+        self.last_button = SegmentedButton("Last")
+        self.page_navigation = QFrame()
+        self.page_navigation.setObjectName("sourcePageNavigation")
+        self.page_navigation.setAccessibleName("Source page navigation")
+        segmented_style = (
+            "QFrame#sourcePageNavigation, QFrame#sourceLineNavigation {"
+            f" background: {THEME_COLORS['ui_button']};"
+            f" border: 1px solid {THEME_COLORS['ui_border_strong']}; border-radius: 4px; }}"
+            "QPushButton, QLineEdit { border: 1px solid transparent; border-radius: 0;"
+            " padding: 1px 3px; margin: 0;"
+            f" background: {THEME_COLORS['ui_button']}; color: {THEME_COLORS['ui_text']}; }}"
+            "QPushButton#sourceFirstPage, QLineEdit#sourceGoToLine {"
+            " border-top-left-radius: 3px; border-bottom-left-radius: 3px; }"
+            "QPushButton#sourceLastPage, QPushButton#sourceGoToLineButton {"
+            " border-top-right-radius: 3px; border-bottom-right-radius: 3px; }"
+            f"QLineEdit {{ padding-left: 6px; placeholder-text-color: {THEME_COLORS['ui_muted']}; }}"
+            f"QPushButton:hover {{ background: {THEME_COLORS['ui_button_hover']}; }}"
+            f"QPushButton:focus, QLineEdit:focus {{ border-color: {THEME_COLORS['ui_accent']}; }}"
+            f"QPushButton:pressed {{ background: {THEME_COLORS['ui_button_pressed']}; }}"
+            f"QPushButton:disabled, QLineEdit:disabled {{ background: {THEME_COLORS['ui_button']}; border-color: transparent;"
+            f" color: {THEME_COLORS['ui_disabled_text']}; }}"
+        )
+        self.page_navigation.setStyleSheet(segmented_style)
+        navigation_layout = QHBoxLayout(self.page_navigation)
+        navigation_layout.setContentsMargins(1, 1, 1, 1)
+        navigation_layout.setSpacing(0)
+        for index, (button, name, forward, boundary) in enumerate((
+            (self.first_button, "First", False, True),
+            (self.previous_button, "Previous", False, False),
+            (self.next_button, "Next", True, False),
+            (self.last_button, "Last", True, True),
+        )):
+            if index:
+                separator = QFrame()
+                separator.setObjectName(f"sourcePageDivider{index}")
+                separator.setFixedWidth(1)
+                separator.setStyleSheet(
+                    f"background: {THEME_COLORS['ui_border_strong']}; border: none;"
+                )
+                navigation_layout.addWidget(separator)
+            button.setObjectName(f"source{name}Page")
+            button.setToolTip(f"{name} source page")
+            button.setAccessibleName(f"{name} source page")
+            button.setIcon(page_navigation_icon(forward=forward, boundary=boundary))
+            button.setIconSize(QSize(16, 16))
+            if forward:
+                button.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+            configure_action_button(button)
+            navigation_layout.addWidget(button)
         self.goto_input = QLineEdit()
         self.goto_input.setObjectName("sourceGoToLine")
         self.goto_input.setAccessibleName("Original source line number")
         self.goto_input.setPlaceholderText("Line number")
         self.goto_input.setMaximumWidth(125)
-        self.goto_button = QPushButton("Go to line")
-        for button in (self.previous_button, self.next_button, self.goto_button):
-            configure_action_button(button)
+        self.goto_button = SegmentedButton("Go to line")
+        self.goto_button.setObjectName("sourceGoToLineButton")
+        configure_action_button(self.goto_button)
+        self.line_navigation = QFrame()
+        self.line_navigation.setObjectName("sourceLineNavigation")
+        self.line_navigation.setAccessibleName("Go to original source line")
+        self.line_navigation.setStyleSheet(segmented_style)
+        line_layout = QHBoxLayout(self.line_navigation)
+        line_layout.setContentsMargins(1, 1, 1, 1)
+        line_layout.setSpacing(0)
+        line_layout.addWidget(self.goto_input)
+        line_separator = QFrame()
+        line_separator.setObjectName("sourceLineDivider")
+        line_separator.setFixedWidth(1)
+        line_separator.setStyleSheet(
+            f"background: {THEME_COLORS['ui_border_strong']}; border: none;"
+        )
+        line_layout.addWidget(line_separator)
+        line_layout.addWidget(self.goto_button)
+        self.first_button.clicked.connect(self.first_page)
         self.previous_button.clicked.connect(self.previous_page)
         self.next_button.clicked.connect(self.next_page)
+        self.last_button.clicked.connect(self.last_page)
         self.goto_button.clicked.connect(self.go_to_input)
         self.goto_input.returnPressed.connect(self.go_to_input)
-        controls.addWidget(self.previous_button)
-        controls.addWidget(self.next_button)
+        controls.addWidget(self.page_navigation)
         controls.addStretch(1)
-        controls.addWidget(self.goto_input)
-        controls.addWidget(self.goto_button)
+        controls.addWidget(self.line_navigation)
         layout.addLayout(controls)
         self.range_label = QLabel()
         self.range_label.setObjectName("sourceRange")
@@ -174,8 +293,10 @@ class SourceView(QWidget):
         self.editor.setExtraSelections([])
         self.editor.setPlaceholderText(message)
         self.range_label.setText(message)
+        self.first_button.setEnabled(False)
         self.previous_button.setEnabled(False)
         self.next_button.setEnabled(False)
+        self.last_button.setEnabled(False)
 
     def set_source(self, lines: tuple[str, ...], total_line_count: int) -> None:
         self.reset()
@@ -220,8 +341,10 @@ class SourceView(QWidget):
         self.editor.first_source_line = self.first_line + start
         self.editor.setPlainText("\n".join(self.lines[start:end]))
         self.editor.update_gutter()
+        self.first_button.setEnabled(start > 0)
         self.previous_button.setEnabled(start > 0)
         self.next_button.setEnabled(end < len(self.lines))
+        self.last_button.setEnabled(end < len(self.lines))
         self._update_range()
         self._schedule_page_highlights()
 
@@ -260,6 +383,13 @@ class SourceView(QWidget):
             return
         self.go_to_line(int(value))
 
+    def first_page(self) -> None:
+        if self.lines:
+            self._load_page(0, align="start")
+            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
+            self.editor.verticalScrollBar().setValue(0)
+            self._update_selections()
+
     def next_page(self) -> None:
         if self.page_end < len(self.lines):
             self._load_page(self.page_end, align="start")
@@ -268,6 +398,13 @@ class SourceView(QWidget):
     def previous_page(self) -> None:
         if self.page_start:
             self._load_page(self.page_start - 1, align="end")
+            self.editor.verticalScrollBar().setValue(self.editor.verticalScrollBar().maximum())
+            self._update_selections()
+
+    def last_page(self) -> None:
+        if self.lines:
+            self._load_page(len(self.lines) - 1, align="end")
+            self.editor.moveCursor(QTextCursor.MoveOperation.End)
             self.editor.verticalScrollBar().setValue(self.editor.verticalScrollBar().maximum())
             self._update_selections()
 

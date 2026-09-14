@@ -48,6 +48,33 @@ def configure_action_button(button: QPushButton) -> None:
     button.clicked.connect(button.clearFocus)
 
 
+def page_navigation_icon(*, forward: bool = False, boundary: bool = False) -> QIcon:
+    """Draw a chevron, optionally against an endpoint bar, at common DPI scales."""
+    icon = QIcon()
+    for mode, color in ((QIcon.Mode.Normal, "ui_text"),
+                        (QIcon.Mode.Disabled, "ui_disabled_text")):
+        for scale in (1, 2, 3):
+            pixmap = QPixmap(16 * scale, 16 * scale)
+            pixmap.setDevicePixelRatio(scale)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            pen = QPen(QColor(THEME_COLORS[color]), 1.5)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            if forward:
+                painter.translate(16, 0)
+                painter.scale(-1, 1)
+            tip, wing = (7, 11) if boundary else (5.5, 9.5)
+            painter.drawLine(QPointF(wing, 4), QPointF(tip, 8))
+            painter.drawLine(QPointF(tip, 8), QPointF(wing, 12))
+            if boundary:
+                painter.drawLine(QPointF(4, 4), QPointF(4, 12))
+            painter.end()
+            icon.addPixmap(pixmap, mode)
+    return icon
+
+
 def vertical_resize_icon(*, contract: bool = False) -> QIcon:
     """Draw opposing vertical arrows, with crisp variants for high-DPI screens."""
 

@@ -40,7 +40,8 @@ the results selection, search, and scroll position.
 Source uses the same loaded snapshot as the analysis. For large files this may
 be only the retained tail; its original line range is shown above the text.
 **Go to line** accepts original line numbers within that range. Source is paged
-to limit display memory; use **Previous page** and **Next page** to browse.
+to limit display memory; use **Previous** and **Next** to browse, or **First** and
+**Last** to jump to either end of the retained source.
 Selection and copying operate within the current page. Very long individual
 lines are kept intact.
 
