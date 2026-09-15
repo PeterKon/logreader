@@ -2,7 +2,7 @@
 
 from array import array
 from bisect import bisect_right
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Iterator
 
 from .core import AnalysisResult, ResultLine
@@ -24,6 +24,7 @@ class CategoryIdentity:
     kind: str
     value: str
     case_sensitive: bool = False
+    occurrence: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +73,7 @@ class ResultsModel:
         self.sections.clear()
         self._section_starts = array("Q")
         self.row_count = self.max_source_line = 0
+        occurrences: dict[CategoryIdentity, int] = {}
         for presentation in build_category_presentations(self.analysis):
             pattern = presentation.result.pattern
             if pattern is None:
@@ -83,6 +85,11 @@ class ResultsModel:
                 )
             else:
                 identity = CategoryIdentity("preset", presentation.key)
+            # Equivalent custom filters may appear more than once. Keep their
+            # relative occurrence distinct without depending on custom_N keys.
+            occurrence = occurrences.get(identity, 0)
+            occurrences[identity] = occurrence + 1
+            identity = replace(identity, occurrence=occurrence)
             section = ResultSection(presentation, identity)
             self.sections.append(section)
             self._section_starts.append(self.row_count)

@@ -1,8 +1,8 @@
 """Shared fixed gutter for read-only source and results text."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QPlainTextEdit, QWidget
+from PySide6.QtGui import QColor, QPainter, QTextCursor, QTextFormat
+from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QWidget
 
 from .theme import THEME_COLORS
 
@@ -18,10 +18,58 @@ class LineNumberArea(QWidget):
 
 class LineNumberEditor(QPlainTextEdit):
     def __init__(self, parent=None) -> None:
+        self._bookmark_blocks: dict[int, bool] = {}
+        self._bookmark_selections = []
+        self._transient_selections = []
         super().__init__(parent)
         self.gutter = LineNumberArea(self)
         self.blockCountChanged.connect(self.update_gutter)
         self.updateRequest.connect(self.update_gutter_area)
+
+    def set_bookmarked_blocks(self, blocks: dict[int, bool]) -> None:
+        """Compose persistent row decoration with search/navigation overlays."""
+        self._bookmark_blocks = dict(blocks)
+        self._bookmark_selections = []
+        for number, preferred in blocks.items():
+            block = self.document().findBlockByNumber(number)
+            if not block.isValid():
+                continue
+            selection = QTextEdit.ExtraSelection()
+            selection.cursor = QTextCursor(block)
+            selection.cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock,
+                                          QTextCursor.MoveMode.KeepAnchor)
+            selection.format.setBackground(QColor(THEME_COLORS[
+                "bookmark" if preferred else "bookmark_related"
+            ]))
+            selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
+            self._bookmark_selections.append(selection)
+            # A nonempty Qt selection stops at the final character, even with
+            # FullWidthSelection. An empty selection there fills the last
+            # visual row too, including after a wrapped line's final character.
+            tail = QTextEdit.ExtraSelection()
+            tail.cursor = QTextCursor(selection.cursor)
+            tail.cursor.clearSelection()
+            tail.format = selection.format
+            self._bookmark_selections.append(tail)
+        self.setExtraSelections(self._transient_selections)
+        self.gutter.update()
+
+    def setExtraSelections(self, selections) -> None:  # noqa: N802
+        self._transient_selections = list(selections)
+        super().setExtraSelections(self._bookmark_selections + self._transient_selections)
+
+    def _clear_decorations(self) -> None:
+        self._bookmark_blocks.clear()
+        self._bookmark_selections.clear()
+        self.setExtraSelections([])
+
+    def clear(self) -> None:
+        self._clear_decorations()
+        super().clear()
+
+    def setPlainText(self, text: str) -> None:  # noqa: N802
+        self._clear_decorations()
+        super().setPlainText(text)
 
     def source_number(self, block: int) -> int | None:
         raise NotImplementedError
@@ -64,9 +112,17 @@ class LineNumberEditor(QPlainTextEdit):
         painter.setFont(self.font())
         block = self.firstVisibleBlock()
         while block.isValid():
-            top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+            rect = self.blockBoundingGeometry(block).translated(self.contentOffset())
+            top = round(rect.top())
             if top > event.rect().bottom():
                 break
+            if block.isVisible() and block.blockNumber() in self._bookmark_blocks:
+                preferred = self._bookmark_blocks[block.blockNumber()]
+                painter.fillRect(0, top, self.gutter.width(), round(rect.height()),
+                                 QColor(THEME_COLORS["bookmark" if preferred else "bookmark_related"]))
+                painter.fillRect(0, top + 2, GUTTER_LEFT_PADDING,
+                                 max(2, self.fontMetrics().height() - 4),
+                                 QColor(THEME_COLORS["bookmark_marker" if preferred else "bookmark_related_marker"]))
             number = self.source_number(block.blockNumber())
             if block.isVisible() and number is not None:
                 painter.drawText(

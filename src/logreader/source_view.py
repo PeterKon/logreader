@@ -103,6 +103,7 @@ class SourceView(QWidget):
         self.total_line_count = 0
         self.page_start = self.page_end = 0
         self.target_line: int | None = None
+        self.bookmarked_lines: set[int] = set()
         self.query = ""
         self.searched_query: str | None = None
         self.matches = SourceMatches()
@@ -256,6 +257,7 @@ class SourceView(QWidget):
 
     def reset(self, message="Source is not loaded yet.") -> None:
         self.cancel_search()
+        self.bookmarked_lines.clear()
         self.lines = ()
         self.total_line_count = 0
         self.page_start = self.page_end = 0
@@ -288,6 +290,18 @@ class SourceView(QWidget):
         if self.lines and not self._materialized:
             self._load_page(0, align="start")
 
+    def set_bookmarks(self, lines: set[int]) -> None:
+        self.bookmarked_lines = set(lines)
+        self._apply_bookmarks()
+        self._update_selections()
+
+    def _apply_bookmarks(self) -> None:
+        self.editor.set_bookmarked_blocks({
+            number - self.first_line - self.page_start: True
+            for number in self.bookmarked_lines
+            if self.first_line + self.page_start <= number < self.first_line + self.page_end
+        })
+
     def _load_page(self, index: int, *, align="center") -> None:
         self._from_viewport = True
         self._cancel_page_highlights()
@@ -314,6 +328,7 @@ class SourceView(QWidget):
         self.marker.set_match_blocks(array("I"), None)
         self.editor.first_source_line = self.first_line + start
         self.editor.setPlainText("\n".join(self.lines[start:end]))
+        self._apply_bookmarks()
         self.editor.update_gutter()
         self.first_button.setEnabled(start > 0)
         self.previous_button.setEnabled(start > 0)
@@ -334,7 +349,7 @@ class SourceView(QWidget):
             message, self.goto_input,
         )
 
-    def go_to_line(self, number: int, *, highlight=True) -> bool:
+    def go_to_line(self, number: int, *, highlight=True, center_page=False) -> bool:
         index = number - self.first_line
         if not 0 <= index < len(self.lines):
             self._show_line_error(f"Line {number:,} is not retained. {self._retained_range()}")
@@ -344,7 +359,10 @@ class SourceView(QWidget):
         if highlight:
             self.target_line = number
             self._from_viewport = True
-        if not self.page_start <= index < self.page_end:
+        margin = max(1, self.editor.viewport().height() // self.editor.fontMetrics().height() // 2)
+        near_page_edge = ((self.page_start > 0 and index - self.page_start < margin) or
+                          (self.page_end < len(self.lines) and self.page_end - index <= margin))
+        if not self.page_start <= index < self.page_end or (center_page and near_page_edge):
             self._load_page(index)
         cursor = QTextCursor(self.editor.document().findBlockByNumber(index - self.page_start))
         self.editor.setTextCursor(cursor)
@@ -515,7 +533,7 @@ class SourceView(QWidget):
 
     def _update_selections(self) -> None:
         selections = []
-        if self.target_line is not None:
+        if self.target_line is not None and self.target_line not in self.bookmarked_lines:
             row = self.target_line - self.first_line - self.page_start
             if 0 <= row < self.page_end - self.page_start:
                 selection = QTextEdit.ExtraSelection()

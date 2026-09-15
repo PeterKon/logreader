@@ -45,6 +45,7 @@ class DocumentPage(QWidget):
         self._load_worker: LoadWorker | None = None
         self._pending_analysis: LogreaderConfig | None = None
         self._disposed = False
+        self._bookmark_reset_notice = False
         self._scheduler = scheduler if scheduler is not None else WorkScheduler(self)
         self.load_queued = False
         self.analysis_queued = False
@@ -73,6 +74,7 @@ class DocumentPage(QWidget):
         self.results_view.rendering_completed.connect(self._complete_rendering)
         self.results_view.rendering_failed.connect(self._fail_analysis)
         self.results_view.maximized_changed.connect(self._set_results_maximized)
+        self.results_view.bookmarks_cleared.connect(self._bookmarks_cleared)
         root_layout.addWidget(self.results_view, 1)
 
     @Slot(bool)
@@ -80,7 +82,13 @@ class DocumentPage(QWidget):
         self.controls_container.setVisible(not maximized)
         self.filter_panel.setVisible(not maximized)
 
+    def _bookmarks_cleared(self) -> None:
+        if not self._disposed:
+            self._bookmark_reset_notice = True
+
     def _set_status(self, message: str) -> None:
+        if self._bookmark_reset_notice:
+            message += "  •  Bookmarks cleared: source replaced"
         self.status_message = message
         self.status_changed.emit(message)
 
@@ -115,6 +123,7 @@ class DocumentPage(QWidget):
             f"loaded as {loaded.encoding}  •  "
             "press Analyze to begin"
         )
+        self._bookmark_reset_notice = False
 
     def load_file(
         self, path: Path, *,
@@ -173,6 +182,7 @@ class DocumentPage(QWidget):
         self.load_queued = False
         self._pending_analysis = None
         self._set_status(f"Unable to load {self.session.path.name}: {message}  •  Press Analyze to retry")
+        self._bookmark_reset_notice = False
         self.results_view.reset_for_loaded_file(self.session.path.name)
         self.results_view.source_view.reset(f"Unable to load source: {message}. Press Analyze to retry.")
         self.busy_changed.emit()

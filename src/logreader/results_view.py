@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
 )
 
 from .config import LogreaderConfig
+from .bookmarks import ResultsBookmarks
 from .core import (
     AnalysisResult,
     ResultLine,
@@ -546,6 +547,7 @@ class ResultsView(QWidget):
     maximized_changed = Signal(bool)
     rendering_completed = Signal(int, float)
     rendering_failed = Signal(int, str)
+    bookmarks_cleared = Signal()
 
     def __init__(
         self,
@@ -758,6 +760,14 @@ class ResultsView(QWidget):
         self._view_stack.addWidget(self._editor)
         self._view_stack.addWidget(self.source_view)
         panel_layout.addLayout(self._view_stack, 1)
+        self.bookmarks = ResultsBookmarks(self)
+        panel_layout.insertWidget(1, self.bookmarks.strip)
+        self._editor.gutter.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._editor.gutter.customContextMenuRequested.connect(
+            lambda point: self._results_context_menu(
+                self._editor.viewport().mapFromGlobal(self._editor.gutter.mapToGlobal(point))
+            )
+        )
 
     @property
     def source_active(self) -> bool:
@@ -767,12 +777,13 @@ class ResultsView(QWidget):
         self, lines: tuple[str, ...], total_line_count: int, *, snapshot_id: str | None = None,
     ) -> None:
         snapshot_id = snapshot_id if snapshot_id is not None else uuid4().hex
-        if self.model is not None and self.model.snapshot_id != snapshot_id:
+        if self._snapshot_id != snapshot_id:
             self.reset_for_loaded_file("")
         self._snapshot_id = snapshot_id
         self.source_view.set_source(lines, total_line_count)
         if self._source_active:
             self.source_view.ensure_page()
+        self.bookmarks.refresh()
 
     def toggle_source(self) -> None:
         self.set_source_active(not self._source_active)
@@ -808,6 +819,7 @@ class ResultsView(QWidget):
             self._return_position = None
         self.set_rendering_paused(self._rendering_paused)
         self.focus_editor()
+        self.bookmarks.refresh()
 
     def source_line_at(self, point) -> int | None:
         location = self.result_location_at(point)
@@ -821,7 +833,11 @@ class ResultsView(QWidget):
         """Resolve text under the pointer to a layout-independent location."""
         if self.is_rendering or self.model is None or not self.model.ready:
             return None
-        row = self._source_map.row(self._editor.cursorForPosition(point).blockNumber())
+        block = self._editor.cursorForPosition(point).block()
+        rect = self._editor.blockBoundingGeometry(block).translated(self._editor.contentOffset())
+        if not rect.top() <= point.y() < rect.bottom():
+            return None
+        row = self._source_map.row(block.blockNumber())
         return self.model.location(row) if row is not None else None
 
     def show_result_location(self, location: ResultLocation | SourceLocation) -> bool:
@@ -841,23 +857,29 @@ class ResultsView(QWidget):
         self.focus_editor()
         return True
 
-    def show_source_line(self, number: int) -> None:
+    def show_source_line(
+        self, number: int, *, highlight: bool = True, center_page: bool = False,
+    ) -> None:
         cursor = self._editor.textCursor()
         self._return_position = (
             cursor.position(), cursor.anchor(),
             self._editor.verticalScrollBar().value(), self._editor.horizontalScrollBar().value(),
         )
         self.set_source_active(True)
-        self.source_view.go_to_line(number)
+        self.source_view.go_to_line(number, highlight=highlight, center_page=center_page)
 
     def _results_context_menu(self, point) -> None:
-        number = self.source_line_at(point)
+        location = self.result_location_at(point)
+        number = location.source.line if location is not None else None
         menu = self._editor.createStandardContextMenu()
         menu.addSeparator()
         action = menu.addAction("Show source line")
         action.setEnabled(number is not None)
         if number is not None:
             action.triggered.connect(lambda: self.show_source_line(number))
+        if location is not None:
+            menu.addSeparator()
+            self.bookmarks.add_menu_actions(menu, location)
         menu.exec(self._editor.viewport().mapToGlobal(point))
         menu.deleteLater()
 
@@ -876,6 +898,7 @@ class ResultsView(QWidget):
 
         self.cancel_rendering()
         self._snapshot_id = uuid4().hex
+        self.bookmarks.clear()
         self._source_map.clear()
         self._return_position = None
         self._results_query = ""
@@ -1173,6 +1196,7 @@ class ResultsView(QWidget):
         self._renderer = renderer
         renderer.start()
         self.set_rendering_paused(self._rendering_paused)
+        self.bookmarks.refresh()
 
     def cancel_rendering(self) -> None:
         """Cancel the active incremental render, if any."""
@@ -1185,6 +1209,7 @@ class ResultsView(QWidget):
         self._editor.set_model(None)
         self._source_map.clear()
         renderer.deleteLater()
+        self.bookmarks.refresh()
 
     @property
     def is_rendering(self) -> bool:
@@ -1209,6 +1234,7 @@ class ResultsView(QWidget):
             analysis_seconds,
             rendering_seconds,
         )
+        self.bookmarks.refresh()
 
     @Slot(int, float)
     def _complete_rendering(
@@ -1222,6 +1248,7 @@ class ResultsView(QWidget):
 
         self._renderer = None
         renderer.deleteLater()
+        self.bookmarks.refresh()
         self.rendering_completed.emit(request_id, rendering_seconds)
 
     @Slot(int, str)
@@ -1234,6 +1261,7 @@ class ResultsView(QWidget):
         self._editor.set_model(None)
         self._source_map.clear()
         renderer.deleteLater()
+        self.bookmarks.refresh()
         self.rendering_failed.emit(request_id, message)
 
 
