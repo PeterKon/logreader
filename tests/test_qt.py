@@ -58,8 +58,6 @@ try:
         LogreaderWindow,
     )
     from logreader.results_view import (
-        ENTRY_SEPARATOR,
-        RULE,
         ResultsView,
         SearchMarkerScrollBar,
     )
@@ -265,7 +263,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(
             self.window.findChild(QCheckBox, "separateEntriesCheck").text(),
-            "Line-separator",
+            "Excerpt spacing",
         )
         self.assertEqual(
             self.window.findChild(QCheckBox, "combinedViewCheck").text(),
@@ -1942,7 +1940,8 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn("\033[", output)
         self.assertIn(COLORS["match"].name(), html)
         self.assertIn(COLORS["matched_text"].name(), html)
-        self.assertIn(COLORS["line_number"].name(), html)
+        self.assertNotIn(COLORS["line_number"].name(), html)
+        self.assertGreater(self.window._document.results_view.editor.gutter.width(), 0)
         self.assertIn("UTF-8", self.window.statusBar().currentMessage())
 
     def test_analysis_runs_in_background_and_restores_controls(self):
@@ -2102,6 +2101,10 @@ class LogreaderQtTests(unittest.TestCase):
             self.assertFalse(results.updatesEnabled())
 
             renderer._timer.stop()
+            # Index construction also yields before document rendering begins.
+            while renderer._index_work is not None:
+                renderer._render_next_batch()
+                renderer._timer.stop()
             renderer._render_next_batch()
             renderer._timer.stop()
             self.assertEqual(results.toPlainText(), "Matches:\n")
@@ -2242,8 +2245,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn(APP_VERSION, output)
         self.assertNotIn(str(log_path), output)
         self.assertNotIn("source lines", output)
-        self.assertNotIn(RULE, output)
-        self.assertIn("Total matches — 1 matches\n\n1      -> ERROR: boom", output)
+        self.assertIn("Total matches — 1 matches\n\nERROR: boom", output)
         self.assertNotIn("FAILED — 0 matches", output)
         self.assertNotIn("FATAL — 0 matches", output)
         self.assertNotIn("No matches.", output)
@@ -2311,11 +2313,13 @@ class LogreaderQtTests(unittest.TestCase):
             ).toPlainText()
 
         self.assertNotIn("ERROR: first", output)
-        self.assertIn("3      -> ERROR: second", output)
+        self.assertIn("ERROR: second", output)
+        view = self.window._document.results_view
+        self.assertEqual(view.model.line(0).number, 3)
         self.assertNotIn("Showing", output)
         self.assertIn("Scanned last 1 of 3 source lines", self.window.statusBar().currentMessage())
 
-    def test_entry_separation_is_optional_and_uses_a_short_arrow(self):
+    def test_entry_separation_is_optional_and_uses_blank_spacing(self):
         self.window.findChild(QSpinBox, "contextSpin").setValue(0)
         self.window.findChild(
             QCheckBox,
@@ -2342,17 +2346,17 @@ class LogreaderQtTests(unittest.TestCase):
             with_separator = results.toPlainText()
 
         adjacent_results = (
-            "1      -> ERROR: first\n"
-            "6      -> ERROR: second"
+            "ERROR: first\n"
+            "ERROR: second"
         )
         separated_results = (
-            "1      -> ERROR: first\n"
-            f"{ENTRY_SEPARATOR}\n"
-            "6      -> ERROR: second"
+            "ERROR: first\n\n"
+            "ERROR: second"
         )
         self.assertIn(adjacent_results, without_separator)
         self.assertNotIn(separated_results, without_separator)
         self.assertIn(separated_results, with_separator)
+        self.assertNotIn("-------->", with_separator)
 
 
 if __name__ == "__main__":

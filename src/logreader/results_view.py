@@ -7,6 +7,7 @@ from bisect import bisect_left, bisect_right
 from heapq import merge
 from time import perf_counter
 from typing import Callable, Iterator
+from uuid import uuid4
 
 from PySide6.QtCore import (
     QElapsedTimer,
@@ -55,6 +56,9 @@ from .core import (
 from .presentation import CategoryPresentation, build_category_presentations
 from .search_storage import BlockSet, SearchMatches
 from .result_source_map import ResultSourceMap
+from .results_editor import ResultsEditor, StructuralBlock
+from .results_model import ResultLocation, ResultsModel, SourceLocation
+from .source_search import iter_source_matches
 from .source_view import SourceView
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button, vertical_resize_icon
 
@@ -62,8 +66,6 @@ from .theme import THEME_COLORS, configure_action_button, configure_clear_button
 RESULT_COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}
 # Lazily built for the fixed results palette; never mutate a cached format.
 _RESULT_FORMATS: dict[tuple[str, bool], QTextCharFormat] = {}
-RULE = "─" * 72
-ENTRY_SEPARATOR = "-------->"
 INCREMENTAL_RENDER_BATCH_MS = 8
 INCREMENTAL_SEARCH_BATCH_MS = 4
 SEARCH_CHUNK_SIZE = 4096
@@ -349,16 +351,22 @@ class IncrementalAnalysisRenderer(QObject):
         config: LogreaderConfig,
         parent: QObject | None = None,
         source_map: ResultSourceMap | None = None,
+        model: ResultsModel | None = None,
     ) -> None:
         super().__init__(parent)
         self.request_id = request_id
         self._view = view
-        self._source_map = source_map
+        self._source_map = source_map if source_map is not None else (
+            view.projection if isinstance(view, ResultsEditor) else None
+        )
+        self._model = model if model is not None else ResultsModel(analysis, uuid4().hex)
+        self._index_work = self._model.prepare()
         self._operations = _iter_analysis_render_operations(
             source_name,
             analysis,
             config,
             on_excerpt=self._record_excerpt,
+            model=self._model,
         )
         self._cursor: QTextCursor | None = None
         self._started = 0.0
@@ -379,6 +387,10 @@ class IncrementalAnalysisRenderer(QObject):
         self._started = perf_counter()
         self._view.setUpdatesEnabled(False)
         self._view.clear()
+        if self._source_map is not None:
+            self._source_map.clear()
+        if isinstance(self._view, ResultsEditor):
+            self._view.set_model(self._model)
         self._cursor = QTextCursor(self._view.document())
         self._timer.start(0)
 
@@ -392,6 +404,11 @@ class IncrementalAnalysisRenderer(QObject):
         # Release it now, even if a caller retains the renderer wrapper until
         # after Qt processes deleteLater().
         self._operations = iter(())
+        self._index_work = None
+        if isinstance(self._view, ResultsEditor) and self._view.model is self._model:
+            self._view.set_model(None)
+            self._view.projection.clear()
+        self._model = None
         self._view.setUpdatesEnabled(True)
 
     def set_paused(self, paused: bool) -> None:
@@ -418,19 +435,32 @@ class IncrementalAnalysisRenderer(QObject):
         self._cursor.beginEditBlock()
         try:
             while True:
+                if self._index_work is not None:
+                    try:
+                        next(self._index_work)
+                    except StopIteration:
+                        self._index_work = None
+                        if isinstance(self._view, ResultsEditor):
+                            self._view.update_gutter()
+                    if batch_elapsed.elapsed() >= INCREMENTAL_RENDER_BATCH_MS:
+                        break
+                    continue
                 try:
                     text, role, bold = next(self._operations)
                 except StopIteration:
                     finished = True
                     break
 
-                _insert(self._cursor, text, role, bold=bold)
+                _insert(
+                    self._cursor, text, role, bold=bold,
+                    structural=isinstance(self._view, ResultsEditor) and
+                    self._view.projection.row(self._cursor.blockNumber()) is None,
+                )
                 if batch_elapsed.elapsed() >= INCREMENTAL_RENDER_BATCH_MS:
                     break
         except Exception as error:
             self._cursor.endEditBlock()
-            self._cursor = None
-            self._view.setUpdatesEnabled(True)
+            self.cancel()
             self.failed.emit(self.request_id, str(error))
             return
         self._cursor.endEditBlock()
@@ -442,11 +472,30 @@ class IncrementalAnalysisRenderer(QObject):
         self._cursor.movePosition(QTextCursor.MoveOperation.Start)
         self._view.setTextCursor(self._cursor)
         self._cursor = None
+        self._model = None
         self._view.setUpdatesEnabled(True)
         self.completed.emit(
             self.request_id,
             perf_counter() - self._started - self._paused_seconds,
         )
+
+
+def _iter_model_search_matches(
+    model: ResultsModel, projection: ResultSourceMap, document: QTextDocument, query: str,
+) -> Iterator[tuple[int, int, int] | None]:
+    """Search logical log rows and project only their matches into Qt."""
+    last_row = None
+    block_number = block_position = 0
+    for match in iter_source_matches((line.text for line in model.iter_lines()), query):
+        if match is None:
+            yield None
+            continue
+        row, start, end = match
+        if row != last_row:
+            block_number = projection.block(row)
+            block_position = document.findBlockByNumber(block_number).position()
+            last_row = row
+        yield block_position + start, block_position + end, block_number
 
 
 def _iter_search_matches(
@@ -512,7 +561,7 @@ class ResultsView(QWidget):
         self._source_active = False
         self._rendering_paused = False
         self._results_query = ""
-        self._source_map = ResultSourceMap()
+        self._snapshot_id = uuid4().hex
         self._return_position = None
         self._search_matches = SearchMatches()
         self._search_match_blocks = array("I")
@@ -670,7 +719,8 @@ class ResultsView(QWidget):
         header_layout.addWidget(self._line_wrap_check)
         panel_layout.addWidget(header)
 
-        self._editor = QPlainTextEdit(self)
+        self._editor = ResultsEditor(self)
+        self._source_map = self._editor.projection
         self._editor.setObjectName("resultsView")
         self._editor.setReadOnly(True)
         # Rendering is programmatic; retaining undo commands only wastes memory.
@@ -713,7 +763,13 @@ class ResultsView(QWidget):
     def source_active(self) -> bool:
         return self._source_active
 
-    def set_source(self, lines: tuple[str, ...], total_line_count: int) -> None:
+    def set_source(
+        self, lines: tuple[str, ...], total_line_count: int, *, snapshot_id: str | None = None,
+    ) -> None:
+        snapshot_id = snapshot_id if snapshot_id is not None else uuid4().hex
+        if self.model is not None and self.model.snapshot_id != snapshot_id:
+            self.reset_for_loaded_file("")
+        self._snapshot_id = snapshot_id
         self.source_view.set_source(lines, total_line_count)
         if self._source_active:
             self.source_view.ensure_page()
@@ -754,9 +810,36 @@ class ResultsView(QWidget):
         self.focus_editor()
 
     def source_line_at(self, point) -> int | None:
-        if self._renderer is not None:
+        location = self.result_location_at(point)
+        return location.source.line if location is not None else None
+
+    @property
+    def model(self) -> ResultsModel | None:
+        return self._editor.model
+
+    def result_location_at(self, point) -> ResultLocation | None:
+        """Resolve text under the pointer to a layout-independent location."""
+        if self.is_rendering or self.model is None or not self.model.ready:
             return None
-        return self._source_map.source_line(self._editor.cursorForPosition(point).blockNumber())
+        row = self._source_map.row(self._editor.cursorForPosition(point).blockNumber())
+        return self.model.location(row) if row is not None else None
+
+    def show_result_location(self, location: ResultLocation | SourceLocation) -> bool:
+        """Reveal an exact source line, preferring its original result category."""
+        if self.is_rendering or self.model is None:
+            return False
+        row = self.model.resolve(location)
+        if row is None:
+            return False
+        block = self._source_map.block(row)
+        self._return_position = None
+        self.set_source_active(False)
+        cursor = QTextCursor(self._editor.document().findBlockByNumber(block))
+        self._editor.setTextCursor(cursor)
+        self._editor.centerCursor()
+        self._use_viewport_search_anchor()
+        self.focus_editor()
+        return True
 
     def show_source_line(self, number: int) -> None:
         cursor = self._editor.textCursor()
@@ -792,6 +875,7 @@ class ResultsView(QWidget):
         """Clear old output while the newly staged source awaits analysis."""
 
         self.cancel_rendering()
+        self._snapshot_id = uuid4().hex
         self._source_map.clear()
         self._return_position = None
         self._results_query = ""
@@ -870,7 +954,7 @@ class ResultsView(QWidget):
 
     @Slot()
     def _refresh_search_matches(self) -> None:
-        """Find and highlight every literal occurrence in rendered results."""
+        """Search result content; generated presentation text is excluded."""
 
         query = self._results_query
         self._clear_search_results()
@@ -878,7 +962,11 @@ class ResultsView(QWidget):
         if not query:
             return
 
-        self._search_work = _iter_search_matches(self._editor.document(), query)
+        self._search_work = (
+            _iter_model_search_matches(self.model, self._source_map, self._editor.document(), query)
+            if self.model is not None and self.model.ready else
+            _iter_search_matches(self._editor.document(), query)
+        )
         self._search_count_label.setText("Searching…")
         self._search_count_label.show()
         self._search_timer.start(0)
@@ -1078,6 +1166,7 @@ class ResultsView(QWidget):
             config,
             self,
             source_map=self._source_map,
+            model=ResultsModel(analysis, self._snapshot_id),
         )
         renderer.completed.connect(self._complete_rendering)
         renderer.failed.connect(self._fail_rendering)
@@ -1093,6 +1182,8 @@ class ResultsView(QWidget):
         if renderer is None:
             return
         renderer.cancel()
+        self._editor.set_model(None)
+        self._source_map.clear()
         renderer.deleteLater()
 
     @property
@@ -1113,13 +1204,11 @@ class ResultsView(QWidget):
     ) -> None:
         """Place analysis and rendering durations above the output."""
 
-        blocks_before = self._editor.document().blockCount()
         prepend_performance_timings(
             self._editor,
             analysis_seconds,
             rendering_seconds,
         )
-        self._source_map.header_blocks += self._editor.document().blockCount() - blocks_before
 
     @Slot(int, float)
     def _complete_rendering(
@@ -1142,6 +1231,8 @@ class ResultsView(QWidget):
             return
 
         self._renderer = None
+        self._editor.set_model(None)
+        self._source_map.clear()
         renderer.deleteLater()
         self.rendering_failed.emit(request_id, message)
 
@@ -1157,14 +1248,27 @@ def render_analysis(
     view.setUpdatesEnabled(False)
     try:
         view.clear()
+        model = ResultsModel(analysis, uuid4().hex)
+        for _ in model.prepare():
+            pass
+        if isinstance(view, ResultsEditor):
+            view.set_model(model)
         cursor = QTextCursor(view.document())
         cursor.beginEditBlock()
         for text, role, bold in _iter_analysis_render_operations(
             source_name,
             analysis,
             config,
+            model=model,
+            on_excerpt=(lambda number, length: view.projection.append(
+                cursor.blockNumber(), length, number,
+            )) if isinstance(view, ResultsEditor) else None,
         ):
-            _insert(cursor, text, role, bold=bold)
+            _insert(
+                cursor, text, role, bold=bold,
+                structural=isinstance(view, ResultsEditor) and
+                view.projection.row(cursor.blockNumber()) is None,
+            )
 
         cursor.endEditBlock()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
@@ -1180,22 +1284,31 @@ def prepend_performance_timings(
 ) -> None:
     """Place diagnostic analysis and rendering durations above the results."""
 
+    blocks_before = view.document().blockCount()
+    first_was_structural = isinstance(view.document().firstBlock().userData(), StructuralBlock)
     view.setUpdatesEnabled(False)
     try:
         cursor = QTextCursor(view.document())
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         cursor.beginEditBlock()
-        _insert(cursor, "Performance timing\n", "heading", bold=True)
-        _insert(cursor, f"Analysis time: {analysis_seconds:.3f} s\n", "muted")
+        _insert(cursor, "Performance timing\n", "heading", bold=True, structural=True)
+        _insert(cursor, f"Analysis time: {analysis_seconds:.3f} s\n", "muted", structural=True)
         _insert(
             cursor,
             f"Result rendering time: {rendering_seconds:.3f} s\n\n",
             "muted",
+            structural=True,
         )
+        # Inserting at the start splits the old first block; Qt leaves its user
+        # data on the inserted block, so restore the displaced row's identity.
+        cursor.block().setUserData(StructuralBlock() if first_was_structural else None)
         cursor.endEditBlock()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         view.setTextCursor(cursor)
     finally:
+        if isinstance(view, ResultsEditor):
+            view.projection.header_blocks += view.document().blockCount() - blocks_before
+            view.update_gutter()
         view.setUpdatesEnabled(True)
 
 
@@ -1205,6 +1318,7 @@ def _iter_analysis_render_operations(
     config: LogreaderConfig,
     *,
     on_excerpt: Callable[[int, int], None] | None = None,
+    model: ResultsModel | None = None,
 ) -> Iterator[RenderOperation]:
     """Yield ordered formatting operations without touching Qt widgets."""
 
@@ -1247,8 +1361,14 @@ def _iter_analysis_render_operations(
         yield from _iter_summary_entries(zero_entries)
         yield "\n", "muted", False
 
-    for presentation in build_category_presentations(analysis):
-        yield from _iter_category_render_operations(presentation, config, on_excerpt=on_excerpt)
+    presentations = (
+        (section.presentation for section in model.sections)
+        if model is not None else build_category_presentations(analysis)
+    )
+    for presentation in presentations:
+        yield from _iter_category_render_operations(
+            presentation, config, on_excerpt=on_excerpt,
+        )
 
 
 def _iter_positive_summary_entries(
@@ -1309,29 +1429,19 @@ def _iter_category_render_operations(
             config.separate_entries
             and excerpt_index < len(presentation.excerpts) - 1
         ):
-            yield f"{ENTRY_SEPARATOR}\n", "body", False
+            yield "\n", "body", False
 
 
 
 def _iter_result_line_render_operations(
     line: ResultLine,
 ) -> Iterator[RenderOperation]:
-    line_number = f"{line.number:<7}-> "
     if not line.is_match:
-        yield line_number, "line_number", True
         yield f"{line.text}\n", "body", False
         return
 
     position = 0
-    spans = iter(line.match_spans)
-    if line.match_spans[0].start == 0:
-        # The prefix and a leading match share the same format.
-        first = next(spans)
-        yield line_number + line.text[:first.end], "match", True
-        position = first.end
-    else:
-        yield line_number, "match", True
-    for span in spans:
+    for span in line.match_spans:
         if span.start > position:
             yield line.text[position : span.start], "matched_text", False
         yield line.text[span.start : span.end], "match", True
@@ -1349,6 +1459,7 @@ def _insert(
     role: str,
     *,
     bold: bool = False,
+    structural: bool = False,
 ) -> None:
     key = (role, bold)
     text_format = _RESULT_FORMATS.get(key)
@@ -1358,7 +1469,15 @@ def _insert(
         if bold:
             text_format.setFontWeight(QFont.Weight.Bold)
         _RESULT_FORMATS[key] = text_format
+    first = cursor.block()
     cursor.insertText(text, text_format)
+    # Mark completed structural blocks, including the starting block of a
+    # partial formatting operation. The final empty block may be filled with
+    # source text next, so leave its identity to that next insertion.
+    block = first
+    while block.isValid() and block.position() < cursor.position():
+        block.setUserData(StructuralBlock() if structural else None)
+        block = block.next()
 
 
 def _results_editor_style_sheet() -> str:
@@ -1368,7 +1487,7 @@ def _results_editor_style_sheet() -> str:
         f" color: {THEME_COLORS['body']};"
         " border: none;"
         f" selection-background-color: {THEME_COLORS['selection']};"
-        " padding: 8px;"
+        " padding: 8px 8px 8px 4px;"
         "}"
         "QPlainTextEdit QScrollBar {"
         " scrollbar-leftclick-absolute-position: 1;"

@@ -1,6 +1,7 @@
 """Bounded Qt-compatible literal scanning over a retained source snapshot."""
 
 from array import array
+from typing import Iterable
 
 from PySide6.QtGui import QTextDocument
 
@@ -29,7 +30,7 @@ class SourceMatches:
         self.ends.append(end)
 
 
-def iter_source_matches(lines: tuple[str, ...], query: str):
+def iter_source_matches(lines: Iterable[str], query: str):
     """Yield matches and checkpoints, including on long unmatched lines.
 
     Use the same Qt literal/case handling as results search. Scratch documents

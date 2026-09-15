@@ -31,6 +31,15 @@ To show analysis and rendering timings above the results, run `logreader -p`
 
 Open a log file, choose filters, then press **Analyze**.
 
+Results show original source line numbers in a fixed, muted gutter. Matching
+lines remain green with the matched text in red. **Excerpt spacing** adds a small
+gap between excerpts. Summaries and category headings align above the gutter.
+
+Copying a results selection returns only the selected log text, preserving
+whitespace and any repeated lines shown in separate categories. Generated line
+numbers, summaries, headings, and dividers are excluded from copying and results
+search.
+
 **Go to source**, beside the results expand/restore button, opens the retained
 source even before analysis. **Go to results** restores the results view. You can
 also right-click a result or context line and choose **Show source line** to jump

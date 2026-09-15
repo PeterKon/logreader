@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from uuid import uuid4
 
 from .config import LogreaderConfig
 from .core import AnalysisResult
@@ -43,6 +44,7 @@ class DocumentSession:
     """Own the source and analysis state for one loaded document."""
 
     path: Path | None = None
+    snapshot_id: str | None = None
     lines: tuple[str, ...] = ()
     total_line_count: int = 0
     encoding: str | None = None
@@ -108,6 +110,7 @@ class DocumentSession:
 
         self.path = Path(source_path)
         self.lines = loaded.lines
+        self.snapshot_id = uuid4().hex
         self.total_line_count = loaded.total_line_count
         self.encoding = loaded.encoding
         self.analysis = None
@@ -148,6 +151,7 @@ class DocumentSession:
         """Invalidate requests and release all source and derived data."""
         self.cancel_request()
         self.path = None
+        self.snapshot_id = None
         self.lines = ()
         self.total_line_count = 0
         self.encoding = None

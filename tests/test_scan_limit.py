@@ -87,8 +87,11 @@ class ScanLimitTests(unittest.TestCase):
                     self.assertEqual([line.number for line in category.excerpts[0].lines], [9, 10])
             output = self.page.results_view.editor.toPlainText()
             self.assertNotIn("line 8", output)
-            self.assertIn("9      -> ERROR: line 9", output)
-            self.assertIn("10     -> ERROR: line 10", output)
+            self.assertIn("ERROR: line 9", output)
+            self.assertIn("ERROR: line 10", output)
+            self.assertEqual(
+                sorted({line.number for line in self.page.results_view.model.iter_lines()}), [9, 10],
+            )
             self.assertNotIn("Showing", output)
 
     def test_increase_waits_for_analyze_then_reloads_and_uses_captured_settings(self):

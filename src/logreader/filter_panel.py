@@ -394,7 +394,7 @@ class FilterPanel(QGroupBox):
         toggle_all_button.clicked.connect(self.toggle_all_patterns)
         top_layout.addWidget(toggle_all_button)
 
-        self._separate_entries = VisibleCheckBox("Line-separator")
+        self._separate_entries = VisibleCheckBox("Excerpt spacing")
         self._separate_entries.setObjectName("separateEntriesCheck")
         self._separate_entries.setProperty("islandIndicator", True)
         self._separate_entries.setChecked(True)

@@ -4,7 +4,7 @@ from array import array
 from bisect import bisect_left
 
 from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFontDatabase, QFontMetricsF, QIcon, QPainter, QPalette, QTextCursor, QTextFormat
+from PySide6.QtGui import QColor, QFontDatabase, QFontMetricsF, QIcon, QPalette, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QTextEdit,
     QStyle, QStyleOptionButton, QStylePainter, QToolTip, QVBoxLayout, QWidget,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from .search_storage import SearchMatches
 from .source_search import SourceMatches, iter_source_matches
 from .theme import THEME_COLORS, configure_action_button, page_navigation_icon
+from .line_number_editor import LineNumberEditor
 
 
 SOURCE_PAGE_LINES = 10_000
@@ -73,53 +74,18 @@ class SegmentedButton(QPushButton):
             )
 
 
-class LineNumberArea(QWidget):
-    def paintEvent(self, event) -> None:  # noqa: N802
-        self.parent().paint_line_numbers(event)
-
-
-class SourceEditor(QPlainTextEdit):
+class SourceEditor(LineNumberEditor):
     """Original line numbers live in a gutter, not in selected/copied text."""
 
     def __init__(self, parent=None) -> None:
-        super().__init__(parent)
         self.first_source_line = 1
-        self.gutter = LineNumberArea(self)
-        self.blockCountChanged.connect(self.update_gutter)
-        self.updateRequest.connect(self.update_gutter)
+        super().__init__(parent)
 
-    def update_gutter(self, *_args) -> None:
-        width = self.fontMetrics().horizontalAdvance(
-            str(self.first_source_line + self.blockCount())
-        ) + 18
-        self.setViewportMargins(width, 0, 0, 0)
-        # Block positions are viewport-relative; include the styled editor's
-        # frame and padding when placing the gutter beside that viewport.
-        viewport = self.viewport().geometry()
-        self.gutter.setGeometry(viewport.left() - width, viewport.top(), width, viewport.height())
-        self.gutter.update()
+    def source_number(self, block: int) -> int:
+        return self.first_source_line + block
 
-    def resizeEvent(self, event) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        self.update_gutter()
-
-    def paint_line_numbers(self, event) -> None:
-        painter = QPainter(self.gutter)
-        painter.fillRect(event.rect(), QColor(THEME_COLORS["background"]))
-        painter.setPen(QColor(THEME_COLORS["muted"]))
-        painter.setFont(self.font())
-        block = self.firstVisibleBlock()
-        while block.isValid():
-            top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
-            if top > event.rect().bottom():
-                break
-            if block.isVisible():
-                painter.drawText(
-                    0, top, self.gutter.width() - 8, self.fontMetrics().height(),
-                    Qt.AlignmentFlag.AlignRight,
-                    str(self.first_source_line + block.blockNumber()),
-                )
-            block = block.next()
+    def largest_source_number(self) -> int:
+        return self.first_source_line + self.blockCount() - 1
 
 
 class SourceView(QWidget):

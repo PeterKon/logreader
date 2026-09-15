@@ -106,7 +106,9 @@ class DocumentPage(QWidget):
 
     def _show_loaded_log(self, path: Path, loaded: LoadedLog) -> None:
         self.results_view.reset_for_loaded_file(path.name)
-        self.results_view.set_source(loaded.lines, loaded.total_line_count)
+        self.results_view.set_source(
+            loaded.lines, loaded.total_line_count, snapshot_id=self.session.snapshot_id,
+        )
         self.busy_changed.emit()
         self._set_status(
             f"Last {len(loaded.lines):,} of {loaded.total_line_count:,} source lines "
