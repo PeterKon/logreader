@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QThreadPool
 from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPlainTextEdit
+from PySide6.QtWidgets import QApplication, QPlainTextEdit, QWidget
 
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
@@ -126,6 +126,15 @@ class SourceViewTests(unittest.TestCase):
         self.view._source_button.click()
         self.assertFalse(self.view.source_active)
         self.assertEqual(self.view.editor.toPlainText(), "")
+
+    def test_source_navigation_uses_source_background_for_bar_and_controls(self):
+        background = "#0d1117"
+        controls_bar = self.source.findChild(QWidget, "sourceNavigationHeader")
+
+        self.assertIsNotNone(controls_bar)
+        self.assertIn(background, controls_bar.styleSheet())
+        self.assertIn(background, self.source.page_navigation.styleSheet())
+        self.assertIn(background, self.source.line_navigation.styleSheet())
 
     def test_source_can_be_opened_while_loading_and_empty_files_are_supported(self):
         workers = []

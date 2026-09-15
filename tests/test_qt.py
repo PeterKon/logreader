@@ -347,7 +347,22 @@ class LogreaderQtTests(unittest.TestCase):
             style_sheet,
         )
         self.assertIn(
-            "QPushButton#maximizeResultsButton {\n"
+            "QWidget#resultsHeader QPushButton#maximizeResultsButton,\n"
+            "QWidget#resultsHeader QPushButton#sourceToggleButton {\n"
+            f"    background-color: {COLORS['background'].name()}",
+            style_sheet,
+        )
+        self.assertIn(
+            "QWidget#resultsHeader {\n"
+            f"    background-color: {COLORS['ui_island'].name()}",
+            style_sheet,
+        )
+        self.assertIn(
+            "QWidget#resultsHeader QLineEdit#resultsSearch,\n"
+            "QWidget#resultsHeader QSpinBox#resultsSearchNavigation,\n"
+            "QWidget#resultsHeader QSpinBox#resultsSearchNavigation::up-button,\n"
+            "QWidget#resultsHeader QSpinBox#resultsSearchNavigation::down-button,\n"
+            "QWidget#resultsHeader QCheckBox#lineWrapCheck::indicator {\n"
             f"    background-color: {COLORS['background'].name()}",
             style_sheet,
         )
@@ -626,7 +641,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(button.toolTip(), "Expand results window")
         self.assertIn("QToolTip { font-weight: 400; }", button.styleSheet())
         self.assertEqual(button.width(), 38)
-        self.assertEqual(button.height(), 26)
+        self.assertEqual(button.height(), 28)
         header_layout = results_header.layout()
         self.assertIs(header_layout.itemAt(0).widget(), button)
         self.assertEqual(header_layout.itemAt(1).widget().text(), "Go to source")

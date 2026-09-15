@@ -547,7 +547,7 @@ class ResultsView(QWidget):
         self._maximize_button.setIconSize(QSize(18, 18))
         self._maximize_button.setObjectName("maximizeResultsButton")
         self._maximize_button.setAccessibleName("Maximize results")
-        self._maximize_button.setFixedSize(38, 26)
+        self._maximize_button.setFixedSize(38, 28)
         self._maximize_button.setStyleSheet(
             "QPushButton#maximizeResultsButton {"
             " padding: 0;"

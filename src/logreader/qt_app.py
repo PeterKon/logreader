@@ -89,10 +89,31 @@ QWidget#fileControlsRow {{
     border-radius: 6px;
 }}
 QWidget#resultsHeader {{
-    background-color: {THEME_COLORS['background']};
+    background-color: {THEME_COLORS['ui_island']};
     border: none;
     border-bottom: 1px solid {THEME_COLORS['border']};
     border-top: 1px solid {THEME_COLORS['border']};
+}}
+QWidget#resultsHeader QPushButton#maximizeResultsButton,
+QWidget#resultsHeader QPushButton#sourceToggleButton {{
+    background-color: {THEME_COLORS['background']};
+}}
+QWidget#resultsHeader QLineEdit#resultsSearch,
+QWidget#resultsHeader QSpinBox#resultsSearchNavigation,
+QWidget#resultsHeader QSpinBox#resultsSearchNavigation::up-button,
+QWidget#resultsHeader QSpinBox#resultsSearchNavigation::down-button,
+QWidget#resultsHeader QCheckBox#lineWrapCheck::indicator {{
+    background-color: {THEME_COLORS['background']};
+}}
+QWidget#resultsHeader QPushButton#maximizeResultsButton:hover,
+QWidget#resultsHeader QPushButton#sourceToggleButton:hover,
+QWidget#resultsHeader QSpinBox#resultsSearchNavigation::up-button:hover,
+QWidget#resultsHeader QSpinBox#resultsSearchNavigation::down-button:hover {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+}}
+QWidget#resultsHeader QPushButton#maximizeResultsButton:pressed,
+QWidget#resultsHeader QPushButton#sourceToggleButton:pressed {{
+    background-color: {THEME_COLORS['ui_button_pressed']};
 }}
 QLabel {{
     background-color: transparent;
@@ -185,9 +206,6 @@ QPushButton#toggleTextButton,
 QPushButton#customPatternAddButton,
 QPushButton#regexPatternAddButton {{
     background-color: {THEME_COLORS['ui_island']};
-}}
-QPushButton#maximizeResultsButton {{
-    background-color: {THEME_COLORS['background']};
 }}
 QPushButton#analyzeButton {{
     background-color: {THEME_COLORS['ui_primary']};

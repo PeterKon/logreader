@@ -158,7 +158,12 @@ class SourceView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        controls = QHBoxLayout()
+        controls_bar = QWidget(self)
+        controls_bar.setObjectName("sourceNavigationHeader")
+        controls_bar.setStyleSheet(
+            f"QWidget#sourceNavigationHeader {{ background: {THEME_COLORS['background']}; }}"
+        )
+        controls = QHBoxLayout(controls_bar)
         controls.setContentsMargins(8, 4, 8, 4)
         self.first_button = SegmentedButton("First")
         self.previous_button = SegmentedButton("Previous")
@@ -169,11 +174,11 @@ class SourceView(QWidget):
         self.page_navigation.setAccessibleName("Source page navigation")
         segmented_style = (
             "QFrame#sourcePageNavigation, QFrame#sourceLineNavigation {"
-            f" background: {THEME_COLORS['ui_button']};"
+            f" background: {THEME_COLORS['background']};"
             f" border: 1px solid {THEME_COLORS['ui_border_strong']}; border-radius: 4px; }}"
             "QPushButton, QLineEdit { border: 1px solid transparent; border-radius: 0;"
             " padding: 1px 3px; margin: 0;"
-            f" background: {THEME_COLORS['ui_button']}; color: {THEME_COLORS['ui_text']}; }}"
+            f" background: {THEME_COLORS['background']}; color: {THEME_COLORS['ui_text']}; }}"
             "QPushButton#sourceFirstPage, QLineEdit#sourceGoToLine {"
             " border-top-left-radius: 3px; border-bottom-left-radius: 3px; }"
             "QPushButton#sourceLastPage, QPushButton#sourceGoToLineButton {"
@@ -184,7 +189,7 @@ class SourceView(QWidget):
             f"QPushButton:hover {{ background: {THEME_COLORS['ui_button_hover']}; }}"
             f"QPushButton:focus, QLineEdit:focus {{ border-color: {THEME_COLORS['ui_accent']}; }}"
             f"QPushButton:pressed {{ background: {THEME_COLORS['ui_button_pressed']}; }}"
-            f"QPushButton:disabled, QLineEdit:disabled {{ background: {THEME_COLORS['ui_button']}; border-color: transparent;"
+            f"QPushButton:disabled, QLineEdit:disabled {{ background: {THEME_COLORS['background']}; border-color: transparent;"
             f" color: {THEME_COLORS['ui_disabled_text']}; }}"
         )
         self.page_navigation.setStyleSheet(segmented_style)
@@ -253,7 +258,7 @@ class SourceView(QWidget):
         controls.addWidget(self.range_label)
         controls.addStretch(1)
         controls.addWidget(self.line_navigation)
-        layout.addLayout(controls)
+        layout.addWidget(controls_bar)
         self.editor = SourceEditor(self)
         self.editor.setObjectName("sourceView")
         self.editor.setReadOnly(True)
