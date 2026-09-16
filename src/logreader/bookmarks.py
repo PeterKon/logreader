@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import QInputDialog, QLineEdit, QMenu, QTabBar
+from PySide6.QtWidgets import QApplication, QInputDialog, QLineEdit, QMenu, QStyle, QTabBar
 
 from .results_model import ResultLocation, SourceLocation
 from .theme import THEME_COLORS
@@ -27,6 +27,7 @@ class BookmarkStrip(QTabBar):
     remove_requested = Signal(object)
 
     def __init__(self, parent=None) -> None:
+        self._pressed_index = -1
         super().__init__(parent)
         self.setObjectName("bookmarkStrip")
         self.setAccessibleName("Bookmarks")
@@ -39,10 +40,15 @@ class BookmarkStrip(QTabBar):
             f"QTabBar#bookmarkStrip {{ background: {THEME_COLORS['background']}; }}"
             "QTabBar#bookmarkStrip::tab {"
             f" color: {THEME_COLORS['bookmark_marker']};"
-            f" background: {THEME_COLORS['background']};"
-            " border: none; padding: 4px 10px; margin: 1px 2px; max-width: 200px; }"
-            "QTabBar#bookmarkStrip::tab:selected, QTabBar#bookmarkStrip::tab:hover {"
-            f" background: {THEME_COLORS['bookmark']}; border-radius: 3px; }}"
+            f" background: {THEME_COLORS['bookmark']};"
+            f" border: 1px solid {THEME_COLORS['bookmark']}; border-radius: 0;"
+            " padding: 3px 10px; margin: 0; max-width: 200px; }"
+            "QTabBar#bookmarkStrip::tab:!last:!only-one {"
+            f" border-right-color: {THEME_COLORS['bookmark_divider']}; }}"
+            "QTabBar#bookmarkStrip::tab:hover {"
+            f" background: {THEME_COLORS['bookmark_hover']}; }}"
+            "QTabBar#bookmarkStrip::tab:pressed {"
+            f" background: {THEME_COLORS['bookmark_pressed']}; }}"
             "QTabBar#bookmarkStrip::tab:disabled {"
             f" color: {THEME_COLORS['muted']}; }}"
         )
@@ -51,6 +57,26 @@ class BookmarkStrip(QTabBar):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._context_menu)
         self.hide()
+
+    def initStyleOption(self, option, index: int) -> None:  # noqa: N802
+        super().initStyleOption(option, index)
+        # Keep the current tab for keyboard navigation, without a sticky highlight.
+        option.state &= ~QStyle.StateFlag.State_Selected
+        if (index == self._pressed_index and self.isTabEnabled(index)
+                and option.state & QStyle.StateFlag.State_MouseOver
+                and QApplication.mouseButtons() & Qt.MouseButton.LeftButton):
+            option.state |= QStyle.StateFlag.State_Sunken
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._pressed_index = self.tabAt(event.position().toPoint())
+        super().mousePressEvent(event)
+        self.update()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._pressed_index = -1
+        super().mouseReleaseEvent(event)
+        self.update()
 
     def _activate(self, index: int) -> None:
         if index >= 0 and self.isTabEnabled(index):

@@ -187,7 +187,7 @@ class ResultsViewTests(unittest.TestCase):
             with self.subTest(editor=type(editor).__name__):
                 self.assertEqual(editor.gutter.geometry().left(), 4)
                 self.assertEqual(editor.gutter.width(),
-                                 editor.fontMetrics().horizontalAdvance("10000001") + 6)
+                                 editor.fontMetrics().horizontalAdvance("10000001") + 9)
                 self.assertEqual(editor.document().documentMargin(), 4)
 
     def test_navigation_resolves_reanalysis_and_overrides_saved_return_position(self):

@@ -9,6 +9,7 @@ from .theme import THEME_COLORS
 
 GUTTER_LEFT_PADDING = 2
 GUTTER_RIGHT_PADDING = 4
+BOOKMARK_MARKER_GAP = 3
 
 
 class LineNumberArea(QWidget):
@@ -81,7 +82,7 @@ class LineNumberEditor(QPlainTextEdit):
         largest = self.largest_source_number()
         width = (
             self.fontMetrics().horizontalAdvance(str(largest))
-            + GUTTER_LEFT_PADDING + GUTTER_RIGHT_PADDING
+            + GUTTER_LEFT_PADDING + BOOKMARK_MARKER_GAP + GUTTER_RIGHT_PADDING
         ) if largest else 0
         if self.viewportMargins().left() != width:
             self.setViewportMargins(width, 0, 0, 0)
@@ -105,6 +106,26 @@ class LineNumberEditor(QPlainTextEdit):
         if hasattr(self, "gutter"):
             self.update_gutter()
 
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        # Qt leaves the document's left margin outside nonempty selections.
+        # Fill only that margin so the gutter and native row highlight meet.
+        margin = max(0, round(self.contentOffset().x() + self.document().documentMargin()))
+        if not margin or not self._bookmark_blocks:
+            return
+        painter = QPainter(self.viewport())
+        painter.setClipRect(event.rect())
+        block = self.firstVisibleBlock()
+        while block.isValid():
+            rect = self.blockBoundingGeometry(block).translated(self.contentOffset())
+            if rect.top() > event.rect().bottom():
+                break
+            if block.isVisible() and block.blockNumber() in self._bookmark_blocks:
+                preferred = self._bookmark_blocks[block.blockNumber()]
+                painter.fillRect(0, round(rect.top()), margin, round(rect.height()),
+                                 QColor(THEME_COLORS["bookmark" if preferred else "bookmark_related"]))
+            block = block.next()
+
     def paint_line_numbers(self, event) -> None:
         painter = QPainter(self.gutter)
         painter.fillRect(event.rect(), QColor(THEME_COLORS["background"]))
@@ -121,7 +142,7 @@ class LineNumberEditor(QPlainTextEdit):
                 painter.fillRect(0, top, self.gutter.width(), round(rect.height()),
                                  QColor(THEME_COLORS["bookmark" if preferred else "bookmark_related"]))
                 painter.fillRect(0, top + 2, GUTTER_LEFT_PADDING,
-                                 max(2, self.fontMetrics().height() - 4),
+                                 max(2, self.fontMetrics().height() - 6),
                                  QColor(THEME_COLORS["bookmark_marker" if preferred else "bookmark_related_marker"]))
             number = self.source_number(block.blockNumber())
             if block.isVisible() and number is not None:
