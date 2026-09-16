@@ -1,7 +1,7 @@
 """Qt presentation adapter for logical results and non-text decorations."""
 
-from PySide6.QtCore import QMimeData, QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QTextBlockUserData
+from PySide6.QtCore import QEvent, QMimeData, QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QTextBlockUserData, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QWidget
 
 from .line_number_editor import GUTTER_LEFT_PADDING, LineNumberEditor
@@ -12,6 +12,41 @@ from .theme import THEME_COLORS
 
 class StructuralBlock(QTextBlockUserData):
     """Summary/heading metadata that follows its native Qt block when it moves."""
+
+
+class ExcerptGapBlock(StructuralBlock):
+    """A blank separator whose height is four pixels less than a text line."""
+
+
+def size_excerpt_gap(block, font) -> None:
+    # QPlainTextEdit ignores block line-height settings; size the empty block's
+    # font instead, leaving all source text and block positions intact.
+    target = max(1, QFontMetricsF(font).height() - 4)
+    gap_font = QFont(font)
+    size = max(1, round(target))
+    gap_font.setPixelSize(size)
+    while size > 1 and QFontMetricsF(gap_font).height() > target:
+        size -= 1
+        gap_font.setPixelSize(size)
+    text_format = QTextCharFormat()
+    text_format.setFont(gap_font)
+    QTextCursor(block).setBlockCharFormat(text_format)
+
+
+class SummaryBlock(StructuralBlock):
+    def __init__(self, *, first=False, last=False) -> None:
+        super().__init__()
+        self.first = first
+        self.last = last
+
+
+def mark_summary(cursor) -> None:
+    """Decorate the completed summary without changing text or row positions."""
+    block = cursor.document().firstBlock()
+    last = cursor.block().previous()
+    while block.isValid() and block.blockNumber() <= last.blockNumber():
+        block.setUserData(SummaryBlock(first=block.blockNumber() == 0, last=block == last))
+        block = block.next()
 
 
 class ResultsStructureArea(QWidget):
@@ -35,13 +70,22 @@ class ResultsStructureArea(QWidget):
             if rect.top() > event.rect().bottom():
                 break
             if block.isVisible() and isinstance(block.userData(), StructuralBlock):
+                summary = block.userData() if isinstance(block.userData(), SummaryBlock) else None
                 painter.fillRect(
                     QRectF(0, rect.top(), self.width(), rect.height()),
-                    QColor(THEME_COLORS["background"]),
+                    QColor(THEME_COLORS["summary_background" if summary else "background"]),
                 )
                 # Reuse the document's shaped text, formatting and wrapped line
                 # heights. This layer owns no duplicate text document or layout.
-                block.layout().draw(painter, QPointF(x, rect.top()))
+                block.layout().draw(painter, QPointF(x + (6 if summary else 0), rect.top()))
+                if summary:
+                    border = QColor(THEME_COLORS["summary_border"])
+                    painter.fillRect(QRectF(0, rect.top(), 1, rect.height()), border)
+                    painter.fillRect(QRectF(self.width() - 1, rect.top(), 1, rect.height()), border)
+                    if summary.first:
+                        painter.fillRect(QRectF(0, rect.top(), self.width(), 1), border)
+                    if summary.last:
+                        painter.fillRect(QRectF(0, rect.bottom() - 1, self.width(), 1), border)
             block = block.next()
 
 
@@ -53,6 +97,15 @@ class ResultsEditor(LineNumberEditor):
         self.structure_area = ResultsStructureArea(self)
         self.updateRequest.connect(self._update_structure_area)
         self.update_gutter()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            block = self.document().firstBlock()
+            while block.isValid():
+                if isinstance(block.userData(), ExcerptGapBlock):
+                    size_excerpt_gap(block, self.font())
+                block = block.next()
 
     def update_gutter(self, *_args) -> None:
         super().update_gutter()

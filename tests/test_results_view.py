@@ -152,6 +152,24 @@ class ResultsViewTests(unittest.TestCase):
         for x in range(editor.gutter.geometry().left(), editor.viewport().geometry().right()):
             self.assertEqual(image.pixelColor(x, y).name(), THEME_COLORS["background"])
 
+    def test_excerpt_gap_is_four_pixels_shorter_without_shrinking_blank_source_lines(self):
+        lines = ("ERROR: first", "", "omitted", "omitted", "before", "ERROR: last")
+        config = LogreaderConfig(context=1, enabled_patterns=("error_colon",))
+        editor = self.render(lines, config)
+        blank_source = self.cursor(1).block()
+        gap = blank_source.next()
+        self.assertEqual(blank_source.text(), "")
+        self.assertEqual(gap.text(), "")
+        self.assertIsNone(blank_source.userData())
+        for zoom in (0, 1, -1):
+            editor.zoomIn(zoom)
+            self.app.processEvents()
+            self.assertEqual(editor.blockBoundingRect(blank_source).height() -
+                             editor.blockBoundingRect(gap).height(), 4)
+        self.render(lines, replace(config, separate_entries=False))
+        self.assertEqual(self.cursor(2).block().blockNumber(),
+                         self.cursor(1).block().blockNumber() + 1)
+
     def test_summary_and_headings_paint_above_gutter_after_timing_insertion(self):
         editor = self.render(("Matches:", "ERROR: sample", "after"),
                              LogreaderConfig(context=1, combined_view=False,

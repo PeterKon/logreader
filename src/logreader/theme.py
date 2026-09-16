@@ -27,6 +27,8 @@ THEME_COLORS = {
     "background": "#0d1117",
     "body": "#d8dee9",
     "border": "#30363d",
+    "summary_background": "#161d27",
+    "summary_border": "#344255",
     "selection": "#264f78",
     "search_current": "#f2cc60",
     "bookmark": "#403719",

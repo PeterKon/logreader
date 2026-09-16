@@ -263,7 +263,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(
             self.window.findChild(QCheckBox, "separateEntriesCheck").text(),
-            "Excerpt spacing",
+            "Line-spacing",
         )
         self.assertEqual(
             self.window.findChild(QCheckBox, "combinedViewCheck").text(),

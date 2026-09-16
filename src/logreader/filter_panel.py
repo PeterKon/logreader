@@ -394,12 +394,12 @@ class FilterPanel(QGroupBox):
         toggle_all_button.clicked.connect(self.toggle_all_patterns)
         top_layout.addWidget(toggle_all_button)
 
-        self._separate_entries = VisibleCheckBox("Excerpt spacing")
+        self._separate_entries = VisibleCheckBox("Line-spacing")
         self._separate_entries.setObjectName("separateEntriesCheck")
         self._separate_entries.setProperty("islandIndicator", True)
         self._separate_entries.setChecked(True)
         self._separate_entries.setToolTip(
-            "Draw a horizontal rule between non-contiguous result excerpts."
+            "Add a small gap between non-contiguous result excerpts."
         )
         self._combined_view = VisibleCheckBox("Combined view")
         self._combined_view.setObjectName("combinedViewCheck")

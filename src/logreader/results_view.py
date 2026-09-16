@@ -57,7 +57,9 @@ from .core import (
 from .presentation import CategoryPresentation, build_category_presentations
 from .search_storage import BlockSet, SearchMatches
 from .result_source_map import ResultSourceMap
-from .results_editor import ResultsEditor, StructuralBlock
+from .results_editor import (
+    ExcerptGapBlock, ResultsEditor, StructuralBlock, SummaryBlock, mark_summary, size_excerpt_gap,
+)
 from .results_model import ResultLocation, ResultsModel, SourceLocation
 from .source_search import iter_source_matches
 from .source_view import SourceView
@@ -74,6 +76,7 @@ SUMMARY_COLUMNS = 3
 SUMMARY_COLUMN_WIDTH = 19
 SUMMARY_COLUMN_GAP = 5
 SUMMARY_LINE_LENGTH = 100
+RESULT_LABEL_OVERRIDES = {"http_4xx": "HTTP 4xx", "http_5xx": "HTTP 5xx"}
 
 RenderOperation = tuple[str, str, bool]
 CheckBoxFactory = Callable[[], QCheckBox]
@@ -367,6 +370,7 @@ class IncrementalAnalysisRenderer(QObject):
             analysis,
             config,
             on_excerpt=self._record_excerpt,
+            on_summary=self._record_summary,
             model=self._model,
         )
         self._cursor: QTextCursor | None = None
@@ -377,6 +381,10 @@ class IncrementalAnalysisRenderer(QObject):
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._render_next_batch)
+
+    def _record_summary(self) -> None:
+        if isinstance(self._view, ResultsEditor) and self._cursor is not None:
+            mark_summary(self._cursor)
 
     def _record_excerpt(self, source_line: int, length: int) -> None:
         if self._source_map is not None and self._cursor is not None:
@@ -1289,6 +1297,7 @@ def render_analysis(
             analysis,
             config,
             model=model,
+            on_summary=(lambda: mark_summary(cursor)) if isinstance(view, ResultsEditor) else None,
             on_excerpt=(lambda number, length: view.projection.append(
                 cursor.blockNumber(), length, number,
             )) if isinstance(view, ResultsEditor) else None,
@@ -1315,6 +1324,8 @@ def prepend_performance_timings(
 
     blocks_before = view.document().blockCount()
     first_was_structural = isinstance(view.document().firstBlock().userData(), StructuralBlock)
+    first_data = view.document().firstBlock().userData()
+    first_summary = (first_data.first, first_data.last) if isinstance(first_data, SummaryBlock) else None
     view.setUpdatesEnabled(False)
     try:
         cursor = QTextCursor(view.document())
@@ -1330,7 +1341,10 @@ def prepend_performance_timings(
         )
         # Inserting at the start splits the old first block; Qt leaves its user
         # data on the inserted block, so restore the displaced row's identity.
-        cursor.block().setUserData(StructuralBlock() if first_was_structural else None)
+        cursor.block().setUserData(
+            SummaryBlock(first=first_summary[0], last=first_summary[1]) if first_summary else
+            StructuralBlock() if first_was_structural else None
+        )
         cursor.endEditBlock()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         view.setTextCursor(cursor)
@@ -1347,6 +1361,7 @@ def _iter_analysis_render_operations(
     config: LogreaderConfig,
     *,
     on_excerpt: Callable[[int, int], None] | None = None,
+    on_summary: Callable[[], None] | None = None,
     model: ResultsModel | None = None,
 ) -> Iterator[RenderOperation]:
     """Yield ordered formatting operations without touching Qt widgets."""
@@ -1372,7 +1387,7 @@ def _iter_analysis_render_operations(
         1 if item[0].startswith("custom_") else 0,
     )
     for key, match_count in ordered_counts:
-        label = config.label_for(key)
+        label = RESULT_LABEL_OVERRIDES.get(key, config.label_for(key))
         if match_count == 0:
             zero_entries.append((label, None))
         else:
@@ -1389,6 +1404,9 @@ def _iter_analysis_render_operations(
         yield "\n0 matches:\n", "muted", False
         yield from _iter_summary_entries(zero_entries)
         yield "\n", "muted", False
+
+    if on_summary is not None:
+        on_summary()
 
     presentations = (
         (section.presentation for section in model.sections)
@@ -1445,7 +1463,7 @@ def _iter_category_render_operations(
     *,
     on_excerpt: Callable[[int, int], None] | None = None,
 ) -> Iterator[RenderOperation]:
-    label = config.label_for(presentation.key)
+    label = RESULT_LABEL_OVERRIDES.get(presentation.key, config.label_for(presentation.key))
     yield f"\n{presentation.heading(label)}\n\n", "heading", True
 
     for excerpt_index, excerpt in enumerate(presentation.excerpts):
@@ -1458,7 +1476,7 @@ def _iter_category_render_operations(
             config.separate_entries
             and excerpt_index < len(presentation.excerpts) - 1
         ):
-            yield "\n", "body", False
+            yield "\n", "excerpt_gap", False
 
 
 
@@ -1490,6 +1508,9 @@ def _insert(
     bold: bool = False,
     structural: bool = False,
 ) -> None:
+    excerpt_gap = role == "excerpt_gap"
+    if excerpt_gap:
+        role = "body"
     key = (role, bold)
     text_format = _RESULT_FORMATS.get(key)
     if text_format is None:
@@ -1507,6 +1528,9 @@ def _insert(
     while block.isValid() and block.position() < cursor.position():
         block.setUserData(StructuralBlock() if structural else None)
         block = block.next()
+    if excerpt_gap:
+        first.setUserData(ExcerptGapBlock())
+        size_excerpt_gap(first, cursor.document().defaultFont())
 
 
 def _results_editor_style_sheet() -> str:
