@@ -2338,13 +2338,16 @@ class LogreaderQtTests(unittest.TestCase):
                     limited = limit < 4
                     self.assertEqual(output.count("WARNING:"), int(limited))
                     if limited:
-                        self.assertTrue(output.startswith("WARNING: In this result, only 2 lines"))
-                        self.assertIn("This file contains 4 total lines", " ".join(output.split()))
-                        self.assertIn("tail/end of the file", output)
+                        self.assertTrue(output.startswith("WARNING: Only 2 of this file’s 4 lines"))
+                        warning_text = " ".join(output.split())
+                        self.assertIn("these results cover the last 2 lines", warning_text)
+                        self.assertIn("end/tail of the file", warning_text)
+                        self.assertIn('increase "Max lines scanned" to at least 4 and press Analyze again.', warning_text)
+                        self.assertIn("\n\nIf you want the entire file to be scanned", output)
                         self.assertIn("more system memory", output)
                         self.assertEqual(editor.document().find("WARNING:").charFormat().foreground().color(),
                                          COLORS["warning"])
-                        self.assertEqual(editor.document().find("In this result").charFormat().foreground().color(),
+                        self.assertEqual(editor.document().find("Only 2").charFormat().foreground().color(),
                                          COLORS["muted"])
                     if timings:
                         self.assertLess(output.index("Performance timing"), output.index("Matches:"))

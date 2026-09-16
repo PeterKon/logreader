@@ -1245,13 +1245,16 @@ class ResultsView(QWidget):
 
     def prepend_scan_limit_warning(self, limit: int, total: int) -> None:
         message = fill(
-            f'WARNING: In this result, only {limit:,} lines were scanned because of the '
-            f'"Max lines scanned" setting. This file contains {total:,} total lines, meaning '
-            'the total contents of this file were not scanned. The file scanner scans the '
-            'tail/end of the file. If you want the entire file to be read, you will need '
-            'to increase the "Max lines scanned" setting. Do note that increasing this '
-            'will cause increased analysis and rendering time, and will also consume '
-            'more system memory.',
+            f"WARNING: Only {limit:,} of this file’s {total:,} lines were scanned because of the "
+            '"Max lines scanned" setting. The scanner reads from the end/tail of the file, '
+            f'so these results cover the last {limit:,} lines. The earlier lines were not '
+            'scanned, and any matches in those lines are not included in these results.',
+            width=100,
+        ) + "\n\n" + fill(
+            'If you want the entire file to be scanned, increase "Max lines scanned" '
+            f'to at least {total:,} and press Analyze again. Do note that increasing this '
+            'setting will cause more lines to be loaded and scanned. This can increase '
+            'analysis and rendering time and will also consume more system memory.',
             width=100,
         )
         _prepend_result_header(self._editor, (
