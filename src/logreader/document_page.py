@@ -38,7 +38,7 @@ class DocumentPage(QWidget):
         self.setObjectName("centralWidget")
         self.session = DocumentSession()
         self.show_performance = show_performance
-        self.status_message = "Ready: Open a log file to begin"
+        self.status_message = "Open a file to begin"
         self.busy_visible = False
         self._analysis_worker: AnalysisWorker | None = None
         self._workers: dict[int, AnalysisWorker | LoadWorker] = {}
@@ -88,7 +88,7 @@ class DocumentPage(QWidget):
 
     def _set_status(self, message: str) -> None:
         if self._bookmark_reset_notice:
-            message += "  •  Bookmarks cleared: source replaced"
+            message += "  •  Bookmarks cleared: file replaced"
         self.status_message = message
         self.status_changed.emit(message)
 
@@ -118,11 +118,7 @@ class DocumentPage(QWidget):
             loaded.lines, loaded.total_line_count, snapshot_id=self.session.snapshot_id,
         )
         self.busy_changed.emit()
-        self._set_status(
-            f"Last {len(loaded.lines):,} of {loaded.total_line_count:,} source lines "
-            f"loaded as {loaded.encoding}  •  "
-            "press Analyze to begin"
-        )
+        self._set_status(f"Loaded as {loaded.encoding}: {path.name}")
         self._bookmark_reset_notice = False
 
     def load_file(
@@ -141,7 +137,7 @@ class DocumentPage(QWidget):
         self.results_view.reset_for_loaded_file(path.name)
         self.results_view.source_view.reset("Loading source…")
         self.load_queued = True
-        message = f"Queued for loading {path.name}…"
+        message = f"Queued to load: {path.name}"
         self._set_status(message)
         worker = LoadWorker(request_id, path, max_lines_scanned)
         worker.signals.started.connect(self._load_started)
@@ -181,10 +177,10 @@ class DocumentPage(QWidget):
         self._load_worker = None
         self.load_queued = False
         self._pending_analysis = None
-        self._set_status(f"Unable to load {self.session.path.name}: {message}  •  Press Analyze to retry")
+        self._set_status(f"Could not load {self.session.path.name}: {message}. Press Analyze to retry.")
         self._bookmark_reset_notice = False
         self.results_view.reset_for_loaded_file(self.session.path.name)
-        self.results_view.source_view.reset(f"Unable to load source: {message}. Press Analyze to retry.")
+        self.results_view.source_view.reset(f"Could not load the file: {message}. Press Analyze to retry.")
         self.busy_changed.emit()
         self.load_finished.emit()
 
@@ -198,7 +194,7 @@ class DocumentPage(QWidget):
             config = self.build_config()
             config.search_patterns()  # Validate before discarding the loaded snapshot.
         except ValueError as error:
-            self._set_status(f"Analysis could not be completed: {error}")
+            self._set_status(f"Analysis failed: {error}")
             self.analysis_failed.emit(str(error))
             return
 
@@ -235,7 +231,7 @@ class DocumentPage(QWidget):
         self._analysis_worker = worker
         self.analysis_queued = True
         self._set_analysis_busy(True)
-        self._set_status(f"Queued for analysis of {self.session.path.name}…")
+        self._set_status(f"Queued to analyze: {self.session.path.name}")
         self._scheduler.analysis.submit(worker)
 
     @Slot(int)
@@ -245,7 +241,7 @@ class DocumentPage(QWidget):
             return
         self.analysis_queued = False
         self._analysis_busy_timer.start()
-        self._set_status(f"Analyzing {request.source_path.name} with {request.pattern_count} active patterns…")
+        self._set_status(f"Analyzing: {request.source_path.name}")
         self.busy_changed.emit()
 
     def set_render_active(self, active: bool) -> None:
@@ -262,7 +258,7 @@ class DocumentPage(QWidget):
             self.results_view.set_rendering_paused(True)
             self._analysis_busy_timer.stop()
             self.busy_visible = False
-            self._set_status("Results ready - select this tab to continue rendering")
+            self._set_status("Select this tab to finish displaying results")
             self.busy_changed.emit()
         else:
             self._start_or_resume_rendering()
@@ -279,7 +275,7 @@ class DocumentPage(QWidget):
                 self.session.analysis, request.config,
             )
         self._analysis_busy_timer.start()
-        self._set_status(f"Rendering results for {request.source_path.name}…")
+        self._set_status(f"Displaying results: {request.source_path.name}")
         self.busy_changed.emit()
 
     def dispose(self) -> None:
@@ -362,15 +358,13 @@ class DocumentPage(QWidget):
                 config.max_lines_scanned, self.session.total_line_count,
             )
 
-        match_count = sum(
-            result.match_count for result in analysis.categories.values()
-        )
+        if analysis.line_count == self.session.total_line_count:
+            scanned = f"All {analysis.line_count:,} lines scanned"
+        else:
+            scanned = f"{analysis.line_count:,} of {self.session.total_line_count:,} lines were scanned"
         self._finish_analysis_request()
         self._set_status(
-            f"Scanned last {analysis.line_count:,} of {self.session.total_line_count:,} source lines"
-            f"  •  {match_count:,} matches in scanned lines  •  "
-            f"{analysis.pattern_count} active patterns  •  "
-            f"{self.session.encoding or 'unknown encoding'}"
+            f"{scanned} - {self.session.encoding or 'unknown encoding'}"
         )
         self.analysis_finished.emit()
 
@@ -382,7 +376,7 @@ class DocumentPage(QWidget):
             return
 
         self._finish_analysis_request()
-        self._set_status(f"Analysis could not be completed: {message}")
+        self._set_status(f"Analysis failed: {message}")
         self.analysis_failed.emit(message)
 
     def _set_analysis_busy(self, busy: bool) -> None:
@@ -407,13 +401,11 @@ class DocumentPage(QWidget):
         source_name = request.source_path.name if request is not None else "log"
         if self.session.phase is AnalysisPhase.RENDERING:
             self._set_status(
-                f"Rendering results for {source_name}…"
+                f"Displaying results: {source_name}"
             )
         else:
-            pattern_count = request.pattern_count if request is not None else 0
             self._set_status(
-                f"Analyzing {source_name} with "
-                f"{pattern_count} active patterns…"
+                f"Analyzing: {source_name}"
             )
 
     def _finish_analysis_request(self) -> None:

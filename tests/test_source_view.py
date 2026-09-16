@@ -156,7 +156,7 @@ class SourceViewTests(unittest.TestCase):
             self.assertEqual(self.source.editor.textCursor().position(), position)
             self.assertEqual(self.source.editor.verticalScrollBar().value(), scroll)
             self.assertIn("ERROR: row 199", self.view.editor.toPlainText())
-            self.assertIn("matches in scanned lines", self.page.status_message)
+            self.assertEqual(self.page.status_message, "All 200 lines scanned - UTF-8")
 
         self.view.set_source_active(False)
         self.assertIn("ERROR: row 199", self.view.editor.toPlainText())
@@ -303,9 +303,9 @@ class SourceViewTests(unittest.TestCase):
         self.assertFalse(self.source.go_to_line(1))
         self.assertEqual(self.source.editor.toPlainText(), before)
         self.assertEqual(self.source.range_label.text(), before_range)
-        self.assertIn("not retained", self.source.goto_input.toolTip())
+        self.assertIn("not loaded", self.source.goto_input.toolTip())
         self.assertTrue(self.source.go_to_line(9350))
-        self.assertNotIn("not retained", self.source.goto_input.toolTip())
+        self.assertNotIn("not loaded", self.source.goto_input.toolTip())
 
     def test_cleared_results_count_does_not_reappear_on_switching(self):
         self.stage(("ERROR: needle",))
@@ -329,7 +329,7 @@ class SourceViewTests(unittest.TestCase):
             workers[0].run()
         self.assertFalse(self.source.is_searching)
         self.assertEqual(self.view._search_input.text(), self.source.query)
-        self.assertIn("Unable to load", self.source.editor.placeholderText())
+        self.assertIn("Could not load", self.source.editor.placeholderText())
         self.assertEqual(self.source.range_label.text(), "")
         self.path.write_text("ERROR: replacement\n", encoding="utf-8")
         self.page.analyze()

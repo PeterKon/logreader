@@ -284,7 +284,7 @@ class SourceView(QWidget):
     def _retained_range(self) -> str:
         if not self.lines:
             return "Empty source file"
-        return f"Retained source: {self.first_line:,}–{self.total_line_count:,}"
+        return f"Available lines: {self.first_line:,}–{self.total_line_count:,}"
 
     def ensure_page(self) -> None:
         if self.lines and not self._materialized:
@@ -352,7 +352,7 @@ class SourceView(QWidget):
     def go_to_line(self, number: int, *, highlight=True, center_page=False) -> bool:
         index = number - self.first_line
         if not 0 <= index < len(self.lines):
-            self._show_line_error(f"Line {number:,} is not retained. {self._retained_range()}")
+            self._show_line_error(f"Line {number:,} is not loaded. {self._retained_range()}")
             return False
         self.goto_input.setToolTip("Enter a line-number to jump to")
         QToolTip.hideText()
@@ -379,7 +379,10 @@ class SourceView(QWidget):
             return
         # Bound parsing of arbitrary pasted input, without QSpinBox's int32 limit.
         if len(value) > 20:
-            self._show_line_error(f"Line number is outside the retained range. {self._retained_range()}")
+            self._show_line_error(
+                f"Enter a line number between {self.first_line:,} and {self.total_line_count:,}."
+                if self.lines else "Empty source file"
+            )
             return
         self.go_to_line(int(value))
 

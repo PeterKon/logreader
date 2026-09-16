@@ -241,15 +241,15 @@ class ResultsBookmarks(QObject):
             else:
                 self.strip.setTabText(index, label)
             if self.view.is_rendering and not self.view.source_active:
-                destination = "Results are updating. Switch to source to visit this bookmark."
+                destination = "Results are updating. Open the original file to use this bookmark."
             elif self.view.source_active or unavailable:
                 destination = "Open this line in the original file."
                 if unavailable:
-                    destination += " This line is absent from the current results."
+                    destination += " It is not in the current results."
             else:
                 destination = "Open this line in results."
                 if model.location(preferred).category != bookmark.location.category:
-                    destination += " Using another occurrence; the original category is absent."
+                    destination = "Open this line in results under another category."
             self.strip.setTabToolTip(index, f"{bookmark.name}\nSource line {source.line:,}\n{destination}")
             self.strip.setTabEnabled(index, not self.view.is_rendering or self.view.source_active)
         self._select(selected)

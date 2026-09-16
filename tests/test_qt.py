@@ -271,7 +271,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(
             self.window.statusBar().currentMessage(),
-            "Last 0 of 0 source lines loaded as UTF-8  •  press Analyze to begin",
+            "Loaded as UTF-8: initial.log",
         )
 
     def test_results_scrollbars_use_visible_theme_colors(self):
@@ -1931,8 +1931,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertTrue(loaded)
         self.assertEqual(staged_output, "")
         self.assertEqual(output_after_return, "")
-        self.assertIn("Last 3 of 3 source lines loaded as UTF-8", staged_status)
-        self.assertIn("press Analyze to begin", staged_status)
+        self.assertEqual("Loaded as UTF-8: server.log", staged_status)
         self.assertNotIn("Performance timing", output)
         self.assertNotIn("Analysis time:", output)
         self.assertNotIn("Result rendering time:", output)
@@ -2010,7 +2009,7 @@ class LogreaderQtTests(unittest.TestCase):
                     self.assertTrue(open_button.isEnabled())
                     self.assertTrue(filter_group.isEnabled())
                     self.assertIn(
-                        "Analyzing background.log",
+                        "Analyzing: background.log",
                         self.window.statusBar().currentMessage(),
                     )
 
@@ -2289,8 +2288,8 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIn("ERROR: failed", output)
         self.assertIn("panic code=42", output)
         self.assertNotIn("FATAL ignored", output)
-        self.assertIn(
-            "4 matches in scanned lines  •  10 active patterns",
+        self.assertEqual(
+            "All 3 lines scanned - UTF-8",
             self.window.statusBar().currentMessage(),
         )
 
@@ -2317,7 +2316,7 @@ class LogreaderQtTests(unittest.TestCase):
         view = self.window._document.results_view
         self.assertEqual(view.model.line(0).number, 3)
         self.assertNotIn("Showing", output)
-        self.assertIn("Scanned last 1 of 3 source lines", self.window.statusBar().currentMessage())
+        self.assertEqual("1 of 3 lines were scanned - UTF-8", self.window.statusBar().currentMessage())
 
     def test_scan_limit_warning_tracks_completed_analysis_and_preserves_results(self):
         from logreader.results_editor import SummaryBlock
