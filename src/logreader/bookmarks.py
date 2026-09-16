@@ -90,8 +90,12 @@ class BookmarkStrip(QTabBar):
             option.state |= QStyle.StateFlag.State_Sunken
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._pressed_index = self.tabAt(event.position().toPoint())
+        # QTabBar emits tabBarClicked for right-clicks as well as left-clicks.
+        # Let context-menu events handle other buttons without activating a tab.
+        if event.button() != Qt.MouseButton.LeftButton:
+            event.accept()
+            return
+        self._pressed_index = self.tabAt(event.position().toPoint())
         super().mousePressEvent(event)
         self.update()
 

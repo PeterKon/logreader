@@ -7,8 +7,8 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QFont, QFontDatabase, QTextCursor, QWheelEvent
-from PySide6.QtTest import QTest
+from PySide6.QtGui import QContextMenuEvent, QFont, QFontDatabase, QTextCursor, QWheelEvent
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QMenu
 
 from qt_helpers import wait_for_search
@@ -155,6 +155,48 @@ class BookmarkTests(unittest.TestCase):
                 self.assertEqual(editor.source_number(editor.textCursor().blockNumber()), location.source.line)
                 self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
                                 editor.fontMetrics().height() * 2)
+
+    def test_right_click_opens_actions_without_navigating(self):
+        self.render(tuple(f"ERROR: {i}" for i in range(300)))
+        self.add(0, "First")
+        location = self.add(150, "Later")
+        strip = self.bookmarks.strip
+        point = strip.tabRect(1).center()
+        activated = QSignalSpy(strip.activated)
+        strip.rename_requested.disconnect(self.bookmarks.rename)
+        strip.remove_requested.disconnect(self.bookmarks.remove)
+        renamed = QSignalSpy(strip.rename_requested)
+        removed = QSignalSpy(strip.remove_requested)
+
+        def inspect_menu(menu, *args):
+            self.assertEqual([action.text() for action in menu.actions()],
+                             ["Rename bookmark…", "Remove bookmark"])
+            menu.actions()[0].trigger()
+            menu.actions()[1].trigger()
+
+        class TestMenu(QMenu):
+            def exec(self, *args):
+                inspect_menu(self, *args)
+
+        for source_active in (False, True):
+            with self.subTest(source_active=source_active):
+                self.view.set_source_active(source_active)
+                editor = self.view.source_view.editor if source_active else self.view.editor
+                editor.moveCursor(QTextCursor.MoveOperation.Start)
+                editor.verticalScrollBar().setValue(0)
+                strip.setCurrentIndex(0)
+                position = editor.textCursor().position()
+                with patch("logreader.bookmarks.QMenu", TestMenu):
+                    QTest.mouseClick(strip, Qt.MouseButton.RightButton, pos=point)
+                    event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point,
+                                              strip.mapToGlobal(point))
+                    QApplication.sendEvent(strip, event)
+                self.assertEqual(activated.count(), 0)
+                self.assertEqual(strip.currentIndex(), 0)
+                self.assertEqual(editor.textCursor().position(), position)
+                self.assertEqual(editor.verticalScrollBar().value(), 0)
+                self.assertEqual(renamed.at(renamed.count() - 1)[0], location.source)
+                self.assertEqual(removed.at(removed.count() - 1)[0], location.source)
 
     def test_source_page_edge_reload_and_markers_follow_original_numbers(self):
         lines = tuple(f"ERROR: {i}" for i in range(15000))

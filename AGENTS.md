@@ -1,6 +1,5 @@
 Documentation:
 Do not add feature descriptions, implementation details, or usage walkthroughs unless explicitly requested.
-Make only necessary corrections.
 Do not create additional documentation files unless requested.
 When documentation is requested, describe the current behavior from the user's perspective: controls, purpose, and workflows.
 Attempt a concise but correct explanation of elements when additions are requested.
@@ -17,3 +16,6 @@ Describe what a control does. Avoid tooltips that merely repeat an obvious label
 Avoid redundant labels, repeated nouns, and unnecessary qualifiers.
 Preserve important scope distinctions when simplifying wording, such as whether an action affects all patterns or only some.
 When the user supplies replacement text, follow it closely. Correct only clear grammatical mistakes unless asked to rewrite.
+
+Testing:
+Add or update tests where they protect meaningful behavior or prevent regressions. Assess existing coverage first and keep each test focused on what matters.
