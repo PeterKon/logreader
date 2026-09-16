@@ -817,7 +817,6 @@ class ResultsView(QWidget):
             self._editor.verticalScrollBar().setValue(vertical)
             self._editor.horizontalScrollBar().setValue(horizontal)
             self._return_position = None
-        self.set_rendering_paused(self._rendering_paused)
         self.focus_editor()
         self.bookmarks.refresh()
 
@@ -1220,7 +1219,9 @@ class ResultsView(QWidget):
         # That deferral must not pause the next renderer when the page opens.
         self._rendering_paused = paused if self._renderer is not None else False
         if self._renderer is not None:
-            self._renderer.set_paused(paused or self._source_active)
+            # Source is another view of the active document; finish its results
+            # so analysis can complete without requiring a view switch.
+            self._renderer.set_paused(paused)
 
     def prepend_performance_timings(
         self,

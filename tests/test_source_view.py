@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QThreadPool
 from PySide6.QtGui import QTextCursor, QTextDocument
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QWidget
 
 from logreader.config import LogreaderConfig
@@ -135,6 +135,44 @@ class SourceViewTests(unittest.TestCase):
         self.assertIn(background, controls_bar.styleSheet())
         self.assertIn(background, self.source.page_navigation.styleSheet())
         self.assertIn(background, self.source.line_navigation.styleSheet())
+
+    def test_analyze_completes_without_leaving_source_view(self):
+        self.stage((f"ERROR: row {i}" for i in range(200)))
+        self.view.set_source_active(True)
+        self.source.go_to_line(100)
+        self.wait_source_search()
+        position = self.source.editor.textCursor().position()
+        scroll = self.source.editor.verticalScrollBar().value()
+        finished = QSignalSpy(self.page.analysis_finished)
+
+        for run in range(2):
+            self.assertTrue(self.window._analyze_button.isEnabled())
+            self.window._analyze_button.click()
+            self.wait(lambda: finished.count() == run + 1)
+            self.assertFalse(self.page.session.is_busy)
+            self.assertFalse(self.page.busy_visible)
+            self.assertFalse(self.view.is_rendering)
+            self.assertTrue(self.view.source_active)
+            self.assertEqual(self.source.editor.textCursor().position(), position)
+            self.assertEqual(self.source.editor.verticalScrollBar().value(), scroll)
+            self.assertIn("ERROR: row 199", self.view.editor.toPlainText())
+            self.assertIn("matches in scanned lines", self.page.status_message)
+
+        self.view.set_source_active(False)
+        self.assertIn("ERROR: row 199", self.view.editor.toPlainText())
+
+    def test_switching_to_source_during_rendering_still_completes(self):
+        finished = QSignalSpy(self.page.analysis_finished)
+        workers = []
+        with patch.object(WorkQueue, "submit", side_effect=workers.append):
+            self.window._analyze_button.click()
+            workers[0].run()
+        self.assertTrue(self.view.is_rendering)
+        self.view.set_source_active(True)
+        self.wait(lambda: finished.count() == 1)
+        self.assertTrue(self.view.source_active)
+        self.assertFalse(self.page.session.is_busy)
+        self.assertIn("ERROR: initial", self.view.editor.toPlainText())
 
     def test_source_can_be_opened_while_loading_and_empty_files_are_supported(self):
         workers = []
