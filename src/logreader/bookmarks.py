@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QApplication, QInputDialog, QLineEdit, QMenu, QStyle, QTabBar
 
 from .results_model import ResultLocation, SourceLocation
@@ -41,23 +42,43 @@ class BookmarkStrip(QTabBar):
             "QTabBar#bookmarkStrip::tab {"
             f" color: {THEME_COLORS['bookmark_marker']};"
             f" background: {THEME_COLORS['bookmark']};"
-            " border: 0; border-radius: 0;"
-            " padding: 4px 11px; margin: 0; max-width: 200px; }"
-            "QTabBar#bookmarkStrip::tab:!last:!only-one {"
-            f" border-right: 1px solid {THEME_COLORS['bookmark_divider']};"
-            " padding-right: 10px; }"
+            f" border: 1px solid {THEME_COLORS['bookmark_border']};"
+            " border-top: 0; border-left: 0; border-radius: 0;"
+            " padding: 4px 10px 3px; margin: 0; max-width: 200px; }"
             "QTabBar#bookmarkStrip::tab:hover {"
             f" background: {THEME_COLORS['bookmark_hover']}; }}"
             "QTabBar#bookmarkStrip::tab:pressed {"
             f" background: {THEME_COLORS['bookmark_pressed']}; }}"
             "QTabBar#bookmarkStrip::tab:disabled {"
             f" color: {THEME_COLORS['muted']}; }}"
+            "QTabBar#bookmarkStrip QToolButton {"
+            f" color: {THEME_COLORS['bookmark_marker']};"
+            f" background: {THEME_COLORS['bookmark']};"
+            f" border: 1px solid {THEME_COLORS['bookmark_border']};"
+            " border-top: 0; border-left: 0; border-radius: 0; }"
+            "QTabBar#bookmarkStrip QToolButton:hover {"
+            f" background: {THEME_COLORS['bookmark_hover']}; }}"
+            "QTabBar#bookmarkStrip QToolButton:pressed {"
+            f" background: {THEME_COLORS['bookmark_pressed']}; }}"
         )
         # currentChanged alone would not navigate when clicking the same tab again.
         self.tabBarClicked.connect(self._activate)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._context_menu)
         self.hide()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setClipRect(event.rect())
+        visible_tabs = [index for index in range(self.count()) if self.isTabVisible(index)]
+        # Stop dividers and the right edge above the bottom border instead of
+        # letting Qt blend the colors into diagonal joins at their feet.
+        for index in visible_tabs:
+            rect = self.tabRect(index)
+            painter.fillRect(rect.right(), rect.top(), 1, rect.height() - 1,
+                             QColor(THEME_COLORS['bookmark_divider']))
+        painter.end()
 
     def initStyleOption(self, option, index: int) -> None:  # noqa: N802
         super().initStyleOption(option, index)

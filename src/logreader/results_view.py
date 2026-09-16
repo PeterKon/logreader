@@ -1518,6 +1518,7 @@ def _results_editor_style_sheet() -> str:
         f" selection-background-color: {THEME_COLORS['selection']};"
         " padding: 8px 8px 8px 4px;"
         "}"
+        "QPlainTextEdit#resultsView { padding-top: 2px; }"
         "QPlainTextEdit QScrollBar {"
         " scrollbar-leftclick-absolute-position: 1;"
         "}"

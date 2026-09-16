@@ -131,7 +131,7 @@ class SourceView(QWidget):
             f"QWidget#sourceNavigationHeader {{ background: {THEME_COLORS['background']}; }}"
         )
         controls = QHBoxLayout(controls_bar)
-        controls.setContentsMargins(8, 4, 8, 4)
+        controls.setContentsMargins(4, 4, 4, 2)
         self.first_button = SegmentedButton("First")
         self.previous_button = SegmentedButton("Previous")
         self.next_button = SegmentedButton("Next", self.previous_button)
@@ -232,7 +232,9 @@ class SourceView(QWidget):
         self.editor.setUndoRedoEnabled(False)
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.editor.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
-        self.editor.setStyleSheet(editor_style + "QPlainTextEdit#sourceView { color: #ffffff; }")
+        self.editor.setStyleSheet(
+            editor_style + "QPlainTextEdit#sourceView { color: #ffffff; padding-top: 0; }"
+        )
         self.marker = scrollbar_factory(Qt.Orientation.Vertical, self.editor)
         self.marker.setToolTip("Search markers and scrolling cover this source page.")
         self.editor.setVerticalScrollBar(self.marker)
