@@ -1598,7 +1598,7 @@ class LogreaderQtTests(unittest.TestCase):
         exclude = row.findChild(QPushButton, "regexPatternExcludeButton")
         self.assertFalse(exclude.isChecked())
         self.assertEqual(exclude.focusPolicy(), Qt.FocusPolicy.NoFocus)
-        self.assertEqual(exclude.toolTip(), "Click to enable excluding matches")
+        self.assertEqual(exclude.toolTip(), "Click for this pattern to exclude matches")
         self.window.show()
         self.app.processEvents()
         remove = row.findChild(QPushButton, "regexPatternRemoveButton")
@@ -1609,7 +1609,7 @@ class LogreaderQtTests(unittest.TestCase):
             self._stage_file(path)
             QTest.mouseClick(exclude, Qt.MouseButton.LeftButton)
             self.assertFalse(exclude.hasFocus())
-            self.assertEqual(exclude.toolTip(), "Click to disable excluding matches")
+            self.assertEqual(exclude.toolTip(), "Click for this pattern to not exclude matches")
             self._click_analyze_and_wait()
             counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual(counts["error_colon"], 2)

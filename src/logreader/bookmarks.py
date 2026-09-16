@@ -243,7 +243,7 @@ class ResultsBookmarks(QObject):
             if self.view.is_rendering and not self.view.source_active:
                 destination = "Results are updating. Switch to source to visit this bookmark."
             elif self.view.source_active or unavailable:
-                destination = "Open this line in source."
+                destination = "Open this line in the original file."
                 if unavailable:
                     destination += " This line is absent from the current results."
             else:

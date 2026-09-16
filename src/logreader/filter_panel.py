@@ -72,6 +72,12 @@ class SearchOptionButton(QPushButton):
         self._update_tooltip(False)
 
     def _update_tooltip(self, checked: bool) -> None:
+        if self._action == "excluding matches":
+            self.setToolTip(
+                "Click for this pattern to not exclude matches"
+                if checked else "Click for this pattern to exclude matches"
+            )
+            return
         self.setToolTip(
             f"Click to disable {self._action}"
             if checked else f"Click to enable {self._action}"
@@ -282,7 +288,7 @@ class ScanLimitSpinBox(TieredSpinBox):
         self.setValue(DEFAULT_MAX_LINES_SCANNED)
         self.setKeyboardTracking(False)
         self.setAccessibleName("Max lines scanned")
-        self.setToolTip("Scan this many lines from the end of the file when Analyze is pressed.")
+        self.setToolTip("Scan this many lines from the end/tail of the file.")
 
     def textFromValue(self, value: int) -> str:  # noqa: N802
         return f"{value:,}".replace(",", " ")
@@ -389,7 +395,7 @@ class FilterPanel(QGroupBox):
         configure_action_button(toggle_all_button)
         toggle_all_button.setObjectName("toggleAllButton")
         toggle_all_button.setToolTip(
-            "Toggle all text error patterns. HTTP 4xx and 5xx are controlled manually."
+            "Toggle all patterns on/off."
         )
         toggle_all_button.clicked.connect(self.toggle_all_patterns)
         top_layout.addWidget(toggle_all_button)
@@ -399,14 +405,14 @@ class FilterPanel(QGroupBox):
         self._separate_entries.setProperty("islandIndicator", True)
         self._separate_entries.setChecked(True)
         self._separate_entries.setToolTip(
-            "Add a small gap between non-contiguous result excerpts."
+            "Add a small gap as separation between mismatching context/errors in results."
         )
         self._combined_view = VisibleCheckBox("Combined view")
         self._combined_view.setObjectName("combinedViewCheck")
         self._combined_view.setProperty("islandIndicator", True)
         self._combined_view.setChecked(True)
         self._combined_view.setToolTip(
-            "Show all enabled patterns in one result category."
+            "Show all matches in one combined category on the results view."
         )
         top_layout.addStretch(1)
         layout.addWidget(top_controls)

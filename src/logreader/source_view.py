@@ -178,7 +178,6 @@ class SourceView(QWidget):
                 )
                 navigation_layout.addWidget(separator)
             button.setObjectName(f"source{name}Page")
-            button.setToolTip(f"{name} source page")
             button.setAccessibleName(f"{name} source page")
             button.setIcon(page_navigation_icon(forward=forward, boundary=boundary))
             button.setIconSize(QSize(16, 16))
@@ -236,7 +235,6 @@ class SourceView(QWidget):
             editor_style + "QPlainTextEdit#sourceView { color: #ffffff; padding-top: 0; }"
         )
         self.marker = scrollbar_factory(Qt.Orientation.Vertical, self.editor)
-        self.marker.setToolTip("Search markers and scrolling cover this source page.")
         self.editor.setVerticalScrollBar(self.marker)
         for scrollbar in (self.marker, self.editor.horizontalScrollBar()):
             scrollbar.sliderPressed.connect(self._use_viewport_anchor)
@@ -267,7 +265,7 @@ class SourceView(QWidget):
         self._materialized = False
         self.query = ""
         self.goto_input.clear()
-        self.goto_input.setToolTip("Enter an original source line number")
+        self.goto_input.setToolTip("Enter a line-number to jump to")
         self.editor.clear()
         self.editor.setExtraSelections([])
         self.editor.setPlaceholderText(message)
@@ -356,7 +354,7 @@ class SourceView(QWidget):
         if not 0 <= index < len(self.lines):
             self._show_line_error(f"Line {number:,} is not retained. {self._retained_range()}")
             return False
-        self.goto_input.setToolTip("Enter an original source line number")
+        self.goto_input.setToolTip("Enter a line-number to jump to")
         QToolTip.hideText()
         if highlight:
             self.target_line = number
@@ -377,7 +375,7 @@ class SourceView(QWidget):
     def go_to_input(self) -> None:
         value = "".join(self.goto_input.text().split())
         if not value.isascii() or not value.isdecimal():
-            self._show_line_error(f"Enter an original line number. {self._retained_range()}")
+            self._show_line_error(f"Enter a valid line number. {self._retained_range()}")
             return
         # Bound parsing of arbitrary pasted input, without QSpinBox's int32 limit.
         if len(value) > 20:

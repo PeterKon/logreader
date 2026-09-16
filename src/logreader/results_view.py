@@ -619,7 +619,7 @@ class ResultsView(QWidget):
         header_layout.addWidget(self._maximize_button)
         self._source_button = QPushButton("Go to source")
         self._source_button.setObjectName("sourceToggleButton")
-        self._source_button.setToolTip("Open the retained source snapshot")
+        self._source_button.setToolTip("Open the original file")
         configure_action_button(self._source_button)
         self._source_button.clicked.connect(self.toggle_source)
         header_layout.addWidget(self._source_button)
@@ -683,9 +683,6 @@ class ResultsView(QWidget):
         self._search_navigation = spinbox_factory()
         self._search_navigation.setObjectName("resultsSearchNavigation")
         self._search_navigation.setAccessibleName("Navigate search results")
-        self._search_navigation.setToolTip(
-            "Up: previous result; down: next result."
-        )
         self._search_navigation.setRange(-1, 1)
         self._search_navigation.setValue(0)
         self._search_navigation.setFixedSize(22, 28)
@@ -724,7 +721,7 @@ class ResultsView(QWidget):
         self._line_wrap_check.setObjectName("lineWrapCheck")
         self._line_wrap_check.setAccessibleName("Line wrapping")
         self._line_wrap_check.setToolTip(
-            "Wrap long result lines to the width of the results window."
+            "Enable/disable line-wrapping"
         )
         self._line_wrap_check.toggled.connect(self.set_line_wrapping)
         header_layout.addWidget(self._line_wrap_check)
@@ -808,13 +805,13 @@ class ResultsView(QWidget):
         if not active:
             self._search_count_label.setVisible(bool(self._searched_query))
         self._source_button.setText("Go to results" if active else "Go to source")
-        self._source_button.setToolTip("Return to results" if active else "Open the retained source snapshot")
+        self._source_button.setToolTip("Open the results window" if active else "Open the original file")
         with QSignalBlocker(self._search_input), QSignalBlocker(self._line_wrap_check):
             self._search_input.setText(self.source_view.query if active else self._results_query)
             editor = self.source_view.editor if active else self._editor
             self._line_wrap_check.setChecked(editor.lineWrapMode() != QPlainTextEdit.LineWrapMode.NoWrap)
         self._search_input.setAccessibleName("Search retained source" if active else "Search results")
-        self._search_input.setToolTip("Search all retained source lines" if active else "Search displayed results")
+        self._search_input.setToolTip("Search for matches in the original file" if active else "Search for matches in the results")
         if active:
             self.source_view.ensure_page()
         elif self._return_position is not None:
