@@ -57,6 +57,35 @@ class ResultsViewTests(unittest.TestCase):
         cursor.setPosition(block.position() + column)
         return cursor
 
+    def test_total_in_both_views_and_combined_results_follow_summary(self):
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                config = LogreaderConfig(context=0, combined_view=combined,
+                                         enabled_patterns=("error_colon",), custom_patterns=("needle",))
+                editor = self.render(("ERROR: needle", "ERROR: second"), config)
+                output = editor.toPlainText()
+                self.assertTrue(output.startswith("Matches (3 total):\n"))
+                self.assertNotIn("Total matches -", output)
+                if combined:
+                    self.assertIn("needle            1\n\nERROR: needle", output)
+                else:
+                    self.assertIn("ERROR: - 2 matches\n\nERROR: needle", output)
+                    self.assertIn("needle - 1 matches\n\nERROR: needle", output)
+                for row, line in enumerate(self.view.model.iter_lines()):
+                    self.assertEqual(self.cursor(row).block().text(), line.text)
+
+    def test_total_uses_thousands_separator_in_both_views(self):
+        from logreader.results_view import _iter_analysis_render_operations
+
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                config = LogreaderConfig(context=0, combined_view=combined,
+                                         enabled_patterns=("error_colon",), custom_patterns=("needle",))
+                analysis = analyze_lines(("ERROR: needle",) * 6250, config.search_patterns(),
+                                         combined=combined)
+                operations = _iter_analysis_render_operations("test.log", analysis, config)
+                self.assertEqual(next(operations)[0], "Matches (12,500 total):\n")
+
     def test_copy_all_excludes_structure_and_preserves_duplicate_rows_and_empty_source_lines(self):
         lines = ("before", "ERROR: needle", "", "omitted", "ERROR: needle -------->", "after")
         for combined in (False, True):
@@ -179,7 +208,7 @@ class ResultsViewTests(unittest.TestCase):
         self.app.processEvents()
         for row in range(self.view.model.row_count):
             self.assertIsNone(self.cursor(row).block().userData())
-        for heading in ("Performance timing", "Matches:", "ERROR:"):
+        for heading in ("Performance timing", "Matches (1 total):", "ERROR:"):
             cursor = editor.document().find(heading)
             block = cursor.block()
             self.assertIsInstance(block.userData(), StructuralBlock)

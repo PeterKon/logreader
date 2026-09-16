@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
 from .config import LogreaderConfig
 from .bookmarks import ResultsBookmarks
 from .core import (
+    COMBINED_CATEGORY_KEY,
     AnalysisResult,
     ResultLine,
 )
@@ -1414,7 +1415,8 @@ def _iter_analysis_render_operations(
         else:
             positive_entries.append((label, match_count))
 
-    yield "Matches:\n", "heading", True
+    total_matches = sum(result.match_count for result in analysis.categories.values())
+    yield f"Matches ({total_matches:,} total):\n", "heading", True
     if positive_entries:
         yield from _iter_positive_summary_entries(positive_entries)
     else:
@@ -1422,7 +1424,7 @@ def _iter_analysis_render_operations(
     yield "\n", "body", False
 
     if zero_entries:
-        yield "\n0 matches:\n", "muted", False
+        yield "\nNo matches:\n", "heading", False
         yield from _iter_summary_entries(zero_entries)
         yield "\n", "muted", False
 
@@ -1484,8 +1486,11 @@ def _iter_category_render_operations(
     *,
     on_excerpt: Callable[[int, int], None] | None = None,
 ) -> Iterator[RenderOperation]:
-    label = RESULT_LABEL_OVERRIDES.get(presentation.key, config.label_for(presentation.key))
-    yield f"\n{presentation.heading(label)}\n\n", "heading", True
+    if presentation.key == COMBINED_CATEGORY_KEY:
+        yield "\n", "body", False
+    else:
+        label = RESULT_LABEL_OVERRIDES.get(presentation.key, config.label_for(presentation.key))
+        yield f"\n{presentation.heading(label)}\n\n", "heading", True
 
     for excerpt_index, excerpt in enumerate(presentation.excerpts):
         if on_excerpt is not None and excerpt.lines:

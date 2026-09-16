@@ -2106,7 +2106,7 @@ class LogreaderQtTests(unittest.TestCase):
                 renderer._timer.stop()
             renderer._render_next_batch()
             renderer._timer.stop()
-            self.assertEqual(results.toPlainText(), "Matches:\n")
+            self.assertEqual(results.toPlainText(), "Matches (1 total):\n")
             self.assertEqual(completed.count(), 0)
 
             search.setText("e")
@@ -2211,8 +2211,8 @@ class LogreaderQtTests(unittest.TestCase):
                 regex_patterns=(r"code=\d+",), combined_view=combined,
             )
             for source, expected in (
-                ("ERROR: needle code=42", "Matches:\nERROR:            1     needle            1     code=\\d+          1\n"),
-                ("ordinary", "Matches:\n0\n\n0 matches:\nERROR:, needle, code=\\d+\n"),
+                ("ERROR: needle code=42", "Matches (3 total):\nERROR:            1     needle            1     code=\\d+          1\n"),
+                ("ordinary", "Matches (0 total):\n0\n\nNo matches:\nERROR:, needle, code=\\d+\n"),
             ):
                 analysis = analyze_lines((source,), config.search_patterns(), combined=combined)
                 analysis = replace(
@@ -2238,13 +2238,15 @@ class LogreaderQtTests(unittest.TestCase):
             ).toPlainText()
 
         self.assertIn(
-            "0 matches:\nERROR, EXCEPTION:, EXCEPTION, FAILED, FAILURE, FATAL, CRITICAL, REFUSED\n",
+            "No matches:\nERROR, EXCEPTION:, EXCEPTION, FAILED, FAILURE, FATAL, CRITICAL, REFUSED\n",
             output,
         )
         self.assertNotIn(APP_VERSION, output)
         self.assertNotIn(str(log_path), output)
         self.assertNotIn("source lines", output)
-        self.assertIn("Total matches - 1\n\nERROR: boom", output)
+        self.assertTrue(output.startswith("Matches (1 total):\n"))
+        self.assertIn("REFUSED\n\nERROR: boom", output)
+        self.assertNotIn("Total matches", output)
         self.assertNotIn("FAILED - 0 matches", output)
         self.assertNotIn("FATAL - 0 matches", output)
         self.assertNotIn("No matches.", output)
@@ -2276,14 +2278,14 @@ class LogreaderQtTests(unittest.TestCase):
             tuple(self.window._document.session.analysis.categories),
             ("combined",),
         )
-        summary = output.split("\nTotal matches -", 1)[0]
+        summary = output.split("\nERROR: failed", 1)[0]
         self.assertTrue(summary.startswith(
-            "Matches:\nERROR:            1     FAILED            1     panic             1\n"
+            "Matches (4 total):\nERROR:            1     FAILED            1     panic             1\n"
             "code=\\d+          1\n\n"
         ), summary)
-        self.assertIn("0 matches:\nERROR, EXCEPTION:, EXCEPTION, FAILURE, CRITICAL, REFUSED\n", summary)
+        self.assertIn("No matches:\nERROR, EXCEPTION:, EXCEPTION, FAILURE, CRITICAL, REFUSED\n", summary)
         self.assertNotIn("Total matches", summary)
-        self.assertEqual(output.count("Total matches"), 1)
+        self.assertNotIn("Total matches", output)
         self.assertNotIn(" · ", summary)
         self.assertIn("ERROR: failed", output)
         self.assertIn("panic code=42", output)
@@ -2350,8 +2352,8 @@ class LogreaderQtTests(unittest.TestCase):
                         self.assertEqual(editor.document().find("Only 2").charFormat().foreground().color(),
                                          COLORS["muted"])
                     if timings:
-                        self.assertLess(output.index("Performance timing"), output.index("Matches:"))
-                    summary = editor.document().find("Matches:").block().userData()
+                        self.assertLess(output.index("Performance timing"), output.index("Matches ("))
+                    summary = editor.document().find("Matches (").block().userData()
                     self.assertIsInstance(summary, SummaryBlock)
                     self.assertTrue(summary.first)
                     first = editor.document().findBlockByNumber(view._source_map.block(0))
