@@ -262,7 +262,7 @@ class DocumentPage(QWidget):
             self.results_view.set_rendering_paused(True)
             self._analysis_busy_timer.stop()
             self.busy_visible = False
-            self._set_status("Results ready — select this tab to continue rendering")
+            self._set_status("Results ready - select this tab to continue rendering")
             self.busy_changed.emit()
         else:
             self._start_or_resume_rendering()

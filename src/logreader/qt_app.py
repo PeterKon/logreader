@@ -731,7 +731,7 @@ class LogreaderWindow(QMainWindow):
                     suffix = Path(*path.parent.parts[-depth:])
                     if all(suffix != Path(*peer.parent.parts[-depth:]) for peer in peers):
                         break
-                label = f"{path.name} — {suffix}"
+                label = f"{path.name} - {suffix}"
             if page.session.load_phase is LoadPhase.LOADING:
                 label += " (Queued)" if page.load_queued else " (Loading…)"
             elif page.session.load_phase is LoadPhase.FAILED:

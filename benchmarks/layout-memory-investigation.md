@@ -1,4 +1,4 @@
-# Undo history and repeated-search memory — 12 September 2026
+# Undo history and repeated-search memory - 12 September 2026
 
 The results editor now disables undo/redo recording immediately after entering
 read-only mode. Programmatic rendering, timing headers, and re-rendering no longer

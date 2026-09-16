@@ -26,5 +26,5 @@ class PresentationTests(unittest.TestCase):
                                (SearchPattern("error", "ERROR"), SearchPattern("fatal", "FATAL")))
         presentations = build_category_presentations(result)
         self.assertEqual([p.key for p in presentations], ["error"])
-        self.assertEqual(presentations[0].heading("ERROR"), "ERROR — 1 matches")
+        self.assertEqual(presentations[0].heading("ERROR"), "ERROR - 1 matches")
         self.assertIn("fatal", result.categories)

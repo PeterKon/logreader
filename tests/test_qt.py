@@ -2245,9 +2245,9 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn(APP_VERSION, output)
         self.assertNotIn(str(log_path), output)
         self.assertNotIn("source lines", output)
-        self.assertIn("Total matches — 1 matches\n\nERROR: boom", output)
-        self.assertNotIn("FAILED — 0 matches", output)
-        self.assertNotIn("FATAL — 0 matches", output)
+        self.assertIn("Total matches - 1\n\nERROR: boom", output)
+        self.assertNotIn("FAILED - 0 matches", output)
+        self.assertNotIn("FATAL - 0 matches", output)
         self.assertNotIn("No matches.", output)
 
     def test_combined_view_replaces_categories_and_includes_enabled_searches(self):
@@ -2277,7 +2277,7 @@ class LogreaderQtTests(unittest.TestCase):
             tuple(self.window._document.session.analysis.categories),
             ("combined",),
         )
-        summary = output.split("\nTotal matches —", 1)[0]
+        summary = output.split("\nTotal matches -", 1)[0]
         self.assertTrue(summary.startswith(
             "Matches:\nERROR:            1     FAILED            1     panic             1\n"
             "code=\\d+          1\n\n"

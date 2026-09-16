@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .core import AnalysisResult, CategoryResult, LogExcerpt
+from .core import COMBINED_CATEGORY_KEY, AnalysisResult, CategoryResult, LogExcerpt
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,7 +16,8 @@ class CategoryPresentation:
     excerpts: tuple[LogExcerpt, ...]
 
     def heading(self, label: str) -> str:
-        return f"{label} — {self.result.match_count} matches"
+        suffix = "" if self.key == COMBINED_CATEGORY_KEY else " matches"
+        return f"{label} - {self.result.match_count}{suffix}"
 
 
 def build_category_presentations(
