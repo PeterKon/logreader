@@ -49,6 +49,7 @@ THEME_COLORS = {
     "line_number": "#79c0ff",
     "hit_count": "#ff7b72",
     "limit_notice": "#79c0ff",
+    "warning": "#c47c7c",
 }
 
 

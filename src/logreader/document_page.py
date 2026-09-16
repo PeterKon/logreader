@@ -356,6 +356,12 @@ class DocumentPage(QWidget):
                 rendering_seconds,
             )
 
+        config = self.session.analysis_config
+        if config is not None and self.session.total_line_count > config.max_lines_scanned:
+            self.results_view.prepend_scan_limit_warning(
+                config.max_lines_scanned, self.session.total_line_count,
+            )
+
         match_count = sum(
             result.match_count for result in analysis.categories.values()
         )

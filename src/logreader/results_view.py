@@ -6,6 +6,7 @@ from array import array
 from bisect import bisect_left, bisect_right
 from heapq import merge
 from time import perf_counter
+from textwrap import fill
 from typing import Callable, Iterator
 from uuid import uuid4
 
@@ -1245,6 +1246,23 @@ class ResultsView(QWidget):
         )
         self.bookmarks.refresh()
 
+    def prepend_scan_limit_warning(self, limit: int, total: int) -> None:
+        message = fill(
+            f'WARNING: In this result, only {limit:,} lines were scanned because of the '
+            f'"Max lines scanned" setting. This file contains {total:,} total lines, meaning '
+            'the total contents of this file were not scanned. The file scanner scans the '
+            'tail/end of the file. If you want the entire file to be read, you will need '
+            'to increase the "Max lines scanned" setting. Do note that increasing this '
+            'will cause increased analysis and rendering time, and will also consume '
+            'more system memory.',
+            width=100,
+        )
+        _prepend_result_header(self._editor, (
+            ("WARNING: ", "warning", True),
+            (message[len("WARNING: "):] + "\n\n", "muted", False),
+        ))
+        self.bookmarks.refresh()
+
     @Slot(int, float)
     def _complete_rendering(
         self,
@@ -1322,6 +1340,15 @@ def prepend_performance_timings(
 ) -> None:
     """Place diagnostic analysis and rendering durations above the results."""
 
+    _prepend_result_header(view, (
+        ("Performance timing\n", "heading", True),
+        (f"Analysis time: {analysis_seconds:.3f} s\n", "muted", False),
+        (f"Result rendering time: {rendering_seconds:.3f} s\n\n", "muted", False),
+    ))
+
+
+def _prepend_result_header(view: QPlainTextEdit, operations: tuple[RenderOperation, ...]) -> None:
+    """Insert notices above the summary while preserving source row mapping."""
     blocks_before = view.document().blockCount()
     first_was_structural = isinstance(view.document().firstBlock().userData(), StructuralBlock)
     first_data = view.document().firstBlock().userData()
@@ -1331,14 +1358,8 @@ def prepend_performance_timings(
         cursor = QTextCursor(view.document())
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         cursor.beginEditBlock()
-        _insert(cursor, "Performance timing\n", "heading", bold=True, structural=True)
-        _insert(cursor, f"Analysis time: {analysis_seconds:.3f} s\n", "muted", structural=True)
-        _insert(
-            cursor,
-            f"Result rendering time: {rendering_seconds:.3f} s\n\n",
-            "muted",
-            structural=True,
-        )
+        for text, role, bold in operations:
+            _insert(cursor, text, role, bold=bold, structural=True)
         # Inserting at the start splits the old first block; Qt leaves its user
         # data on the inserted block, so restore the displaced row's identity.
         cursor.block().setUserData(

@@ -2319,6 +2319,45 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn("Showing", output)
         self.assertIn("Scanned last 1 of 3 source lines", self.window.statusBar().currentMessage())
 
+    def test_scan_limit_warning_tracks_completed_analysis_and_preserves_results(self):
+        from logreader.results_editor import SummaryBlock
+
+        path = Path(self.directory.name) / "limited-warning.log"
+        path.write_text("ERROR: first\nneutral\nERROR: third\nneutral\n", encoding="utf-8")
+        self._stage_file(path)
+        page = self.window._document
+        view = page.results_view
+        limit_control = self.window.findChild(QSpinBox, "limitSpin")
+        for timings in (False, True):
+            page.show_performance = timings
+            for limit in (2, 4, 5, 2):
+                with self.subTest(timings=timings, limit=limit):
+                    limit_control.setValue(limit)
+                    self._click_analyze_and_wait()
+                    editor = view.editor
+                    output = editor.toPlainText()
+                    limited = limit < 4
+                    self.assertEqual(output.count("WARNING:"), int(limited))
+                    if limited:
+                        self.assertTrue(output.startswith("WARNING: In this result, only 2 lines"))
+                        self.assertIn("This file contains 4 total lines", " ".join(output.split()))
+                        self.assertIn("tail/end of the file", output)
+                        self.assertIn("more system memory", output)
+                        self.assertEqual(editor.document().find("WARNING:").charFormat().foreground().color(),
+                                         COLORS["warning"])
+                        self.assertEqual(editor.document().find("In this result").charFormat().foreground().color(),
+                                         COLORS["muted"])
+                    if timings:
+                        self.assertLess(output.index("Performance timing"), output.index("Matches:"))
+                    summary = editor.document().find("Matches:").block().userData()
+                    self.assertIsInstance(summary, SummaryBlock)
+                    self.assertTrue(summary.first)
+                    first = editor.document().findBlockByNumber(view._source_map.block(0))
+                    self.assertEqual(first.text(), view.model.line(0).text)
+                    self.assertIsNone(first.userData())
+                    editor.selectAll()
+                    self.assertNotIn("WARNING:", editor.createMimeDataFromSelection().text())
+
     def test_entry_separation_is_optional_and_uses_blank_spacing(self):
         self.window.findChild(QSpinBox, "contextSpin").setValue(0)
         self.window.findChild(
