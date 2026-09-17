@@ -16,8 +16,8 @@ from .theme import THEME_COLORS, configure_action_button, page_navigation_icon
 from .line_number_editor import LineNumberEditor
 
 
-SOURCE_PAGE_LINES = 10_000
-SOURCE_PAGE_CHARACTERS = 2560 * 1024
+SOURCE_PAGE_LINES = 100_000
+SOURCE_PAGE_CHARACTERS = 16_000_000
 SOURCE_BATCH_MS = 4
 
 

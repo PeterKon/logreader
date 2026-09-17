@@ -323,6 +323,7 @@ class BookmarkTests(unittest.TestCase):
             self.bookmarks.prompt(source)
         self.assertFalse(self.bookmarks.items)
 
+    @patch("logreader.source_view.SOURCE_PAGE_LINES", 10_000)
     def test_source_only_bookmark_tracks_line_numbers_across_pages(self):
         self.view.set_source(tuple(str(i) for i in range(12000)), 13000, snapshot_id="source")
         self.view.set_source_active(True)
@@ -697,6 +698,7 @@ class BookmarkTests(unittest.TestCase):
                 self.assertEqual(renamed.at(renamed.count() - 1)[0], location.source)
                 self.assertEqual(removed.at(removed.count() - 1)[0], location.source)
 
+    @patch("logreader.source_view.SOURCE_PAGE_LINES", 10_000)
     def test_source_page_edge_reload_and_markers_follow_original_numbers(self):
         lines = tuple(f"ERROR: {i}" for i in range(15000))
         self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)))

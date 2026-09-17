@@ -260,7 +260,7 @@ class SourceViewTests(unittest.TestCase):
 
     def test_search_covers_unshown_source_and_navigates_with_unicode_columns(self):
         target = SOURCE_PAGE_LINES + 2500
-        lines = [f"plain row {i}" for i in range(target + 1000)]
+        lines = [f"plain row {i}".ljust(120, "x") for i in range(target + 1000)]
         lines[target] = "😀\tNEEDLE needle"
         self.stage(lines, total=len(lines) + 10000)
         self.view.toggle_source()
