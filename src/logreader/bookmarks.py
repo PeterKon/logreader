@@ -20,6 +20,25 @@ if TYPE_CHECKING:
     from .results_view import ResultsView
 
 
+BOOKMARK_DIALOG_STYLE_SHEET = (
+    f"QDialog {{ background: {THEME_COLORS['ui_surface']}; }}"
+    f"QLabel {{ color: {THEME_COLORS['ui_text']}; }}"
+    "QPlainTextEdit#bookmarkNoteEditor {"
+    f" color: {THEME_COLORS['ui_text']}; background: {THEME_COLORS['background']};"
+    f" border: 1px solid {THEME_COLORS['ui_border_strong']}; border-radius: 4px; padding: 6px;"
+    f" selection-background-color: {THEME_COLORS['selection']}; }}"
+    "QPlainTextEdit#bookmarkNoteEditor:focus {"
+    f" border-color: {THEME_COLORS['ui_accent']}; }}"
+    "QPushButton {"
+    f" color: {THEME_COLORS['ui_text']}; background: {THEME_COLORS['ui_button']};"
+    f" border: 1px solid {THEME_COLORS['ui_border_strong']}; border-radius: 5px;"
+    " min-width: 64px; padding: 4px 10px; }"
+    f"QPushButton:hover {{ background: {THEME_COLORS['ui_button_hover']}; }}"
+    f"QPushButton:focus {{ border-color: {THEME_COLORS['ui_accent']}; }}"
+    f"QPushButton:pressed {{ background: {THEME_COLORS['ui_button_pressed']}; }}"
+)
+
+
 @dataclass(slots=True)
 class Bookmark:
     location: ResultLocation | SourceLocation
@@ -72,23 +91,7 @@ class BookmarkNotesDialog(QDialog):
         self.resize(480, 320)
         self.setMinimumSize(360, 240)
         self.setSizeGripEnabled(True)
-        self.setStyleSheet(
-            f"QDialog#bookmarkNotesDialog {{ background: {THEME_COLORS['ui_surface']}; }}"
-            f"QLabel {{ color: {THEME_COLORS['ui_text']}; }}"
-            "QPlainTextEdit#bookmarkNoteEditor {"
-            f" color: {THEME_COLORS['ui_text']}; background: {THEME_COLORS['background']};"
-            f" border: 1px solid {THEME_COLORS['ui_border_strong']}; border-radius: 4px; padding: 6px;"
-            f" selection-background-color: {THEME_COLORS['selection']}; }}"
-            "QPlainTextEdit#bookmarkNoteEditor:focus {"
-            f" border-color: {THEME_COLORS['ui_accent']}; }}"
-            "QPushButton {"
-            f" color: {THEME_COLORS['ui_text']}; background: {THEME_COLORS['ui_button']};"
-            f" border: 1px solid {THEME_COLORS['ui_border_strong']}; border-radius: 5px;"
-            " min-width: 64px; padding: 4px 10px; }"
-            f"QPushButton:hover {{ background: {THEME_COLORS['ui_button_hover']}; }}"
-            f"QPushButton:focus {{ border-color: {THEME_COLORS['ui_accent']}; }}"
-            f"QPushButton:pressed {{ background: {THEME_COLORS['ui_button_pressed']}; }}"
-        )
+        self.setStyleSheet(BOOKMARK_DIALOG_STYLE_SHEET)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -111,6 +114,52 @@ class BookmarkNotesDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
         self.editor.setFocus()
+
+
+class BookmarkDeletionDialog(QDialog):
+    def __init__(self, bookmark: Bookmark, source: SourceLocation, parent=None, *, note_only=False) -> None:
+        super().__init__(parent)
+        title = "Delete note" if note_only else "Remove bookmark"
+        self.setWindowTitle(title)
+        self.setFixedWidth(420)
+        self.setStyleSheet(BOOKMARK_DIALOG_STYLE_SHEET)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(10)
+
+        self.heading = QLabel(f"{title}?", self)
+        font = self.heading.font()
+        font.setBold(True)
+        self.heading.setFont(font)
+        layout.addWidget(self.heading)
+
+        line = f"Line {source.line:,}"
+        target = line if bookmark.name == line else f"{bookmark.name} ({line})"
+        self.target = QLabel(target, self)
+        self.target.setStyleSheet(f"color: {THEME_COLORS['ui_muted']};")
+        layout.addWidget(self.target)
+
+        message = "This will delete the note." if note_only else (
+            "This will remove the bookmark and delete its note." if bookmark.note
+            else "This will remove the bookmark.")
+        self.message = QLabel(message, self)
+        layout.addWidget(self.message)
+        for label in (self.heading, self.target, self.message):
+            label.setTextFormat(Qt.TextFormat.PlainText)
+            label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            label.setWordWrap(True)
+
+        layout.addSpacing(6)
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No, self)
+        self.buttons.button(QDialogButtonBox.StandardButton.Yes).clicked.connect(self.accept)
+        no = self.buttons.button(QDialogButtonBox.StandardButton.No)
+        no.clicked.connect(self.reject)
+        no.setDefault(True)
+        no.setFocus()
+        layout.addWidget(self.buttons)
+        self.ensurePolished()
+        self.resize(self.width(), layout.totalHeightForWidth(self.width()))
 
 
 class BookmarkStrip(QTabBar):
@@ -292,7 +341,7 @@ class ResultsBookmarks(QObject):
         self.bar.hide()
         self.strip.activated.connect(self.activate)
         self.strip.rename_requested.connect(self.rename)
-        self.strip.remove_requested.connect(self.remove)
+        self.strip.remove_requested.connect(self.request_remove)
         self.strip.menu_requested.connect(self._add_extra_menu_actions)
 
     def _retained(self, source: SourceLocation) -> bool:
@@ -348,15 +397,32 @@ class ResultsBookmarks(QObject):
         dialog = BookmarkNotesDialog(bookmark, source, self.view)
         if dialog.exec() == QDialog.DialogCode.Accepted and self.items.get(source) is bookmark:
             note = dialog.editor.toPlainText()
-            bookmark.note = note if note.strip() else ""
-            self.refresh()
+            if not note.strip() and bookmark.note:
+                self.delete_note(source)
+            else:
+                bookmark.note = note if note.strip() else ""
+                self.refresh()
         dialog.deleteLater()
 
     def delete_note(self, source: SourceLocation) -> None:
         bookmark = self.items.get(source)
-        if bookmark is not None:
+        if (bookmark is not None and bookmark.note
+                and self._confirm_deletion(source, bookmark, note_only=True)
+                and self.items.get(source) is bookmark):
             bookmark.note = ""
             self.refresh()
+
+    def request_remove(self, source: SourceLocation) -> None:
+        bookmark = self.items.get(source)
+        if (bookmark is not None and self._confirm_deletion(source, bookmark)
+                and self.items.get(source) is bookmark):
+            self.remove(source)
+
+    def _confirm_deletion(self, source: SourceLocation, bookmark: Bookmark, *, note_only=False) -> bool:
+        dialog = BookmarkDeletionDialog(bookmark, source, self.view, note_only=note_only)
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        dialog.deleteLater()
+        return accepted
 
     def remove(self, source: SourceLocation) -> None:
         if self.items.pop(source, None) is not None:
@@ -373,7 +439,7 @@ class ResultsBookmarks(QObject):
         source = location.source if isinstance(location, ResultLocation) else location
         if source in self.items:
             menu.addAction("Rename bookmark…", lambda: self.rename(source))
-            menu.addAction("Remove bookmark", lambda: self.remove(source))
+            menu.addAction("Remove bookmark", lambda: self.request_remove(source))
             self._add_extra_menu_actions(menu, source)
         else:
             menu.addAction("Add bookmark…", lambda: self.prompt(location))

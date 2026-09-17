@@ -12,7 +12,7 @@ from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QMenu, QStyle, QStyleOptionSlider, QTabBar, QToolTip
 
 from qt_helpers import wait_for_search
-from logreader.bookmarks import BookmarkNotesDialog
+from logreader.bookmarks import BookmarkDeletionDialog, BookmarkNotesDialog
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
 from logreader.document_page import DocumentPage
@@ -84,7 +84,8 @@ class BookmarkTests(unittest.TestCase):
                         return QDialog.DialogCode.Accepted if accepted else QDialog.DialogCode.Rejected
                 menu = QMenu()
                 self.bookmarks.add_menu_actions(menu, source)
-                with patch("logreader.bookmarks.BookmarkNotesDialog", TestDialog):
+                with patch("logreader.bookmarks.BookmarkNotesDialog", TestDialog), patch(
+                        "logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
                     next(a for a in menu.actions() if a.text() == label).trigger()
                 self.assertEqual(initial, [expected])
                 if accepted:
@@ -212,7 +213,8 @@ class BookmarkTests(unittest.TestCase):
         delete = next(a for a in menu.actions() if a.text() == "Delete note")
         menu.popup(strip.mapToGlobal(strip.rect().bottomLeft()))
         self.app.processEvents()
-        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(delete).center())
+        with patch("logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
+            QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(delete).center())
         self.assertFalse(menu.isVisible())
         self.assertIs(self.bookmarks.items[source], bookmark)
         self.assertEqual(bookmark.note, "")
@@ -222,6 +224,100 @@ class BookmarkTests(unittest.TestCase):
         self.bookmarks.add_menu_actions(reopened, source)
         self.assertEqual([a.text() for a in reopened.actions()],
                          ["Rename bookmark…", "Add note...", "Remove bookmark"])
+
+    def test_deletion_confirmation_requires_yes_and_describes_what_will_be_deleted(self):
+        self.render(("ERROR: first",))
+        for note_only, note, warning in (
+                (True, "Keep my note", "This will delete the note."),
+                (False, "", "This will remove the bookmark."),
+                (False, "Keep my note", "This will remove the bookmark and delete its note.")):
+            for response in ("no", "escape", "close", "enter", "yes"):
+                with self.subTest(note_only=note_only, note=note, response=response):
+                    self.bookmarks.clear()
+                    source = self.add(name="A < B").source
+                    bookmark = self.bookmarks.items[source]
+                    bookmark.note = note
+                    self.bookmarks.refresh()
+                    observed = []
+
+                    class TestDeletionDialog(BookmarkDeletionDialog):
+                        def exec(dialog):
+                            observed.append((dialog.windowTitle(), dialog.message.text(), dialog.target.text(),
+                                             dialog.buttons.button(QDialogButtonBox.StandardButton.No).isDefault(),
+                                             dialog.message.textFormat()))
+
+                            def respond():
+                                if response == "close":
+                                    dialog.close()
+                                elif response in ("enter", "escape"):
+                                    QTest.keyClick(dialog, Qt.Key.Key_Return if response == "enter"
+                                                   else Qt.Key.Key_Escape)
+                                else:
+                                    button = QDialogButtonBox.StandardButton.Yes if response == "yes" else QDialogButtonBox.StandardButton.No
+                                    QTest.mouseClick(dialog.buttons.button(button), Qt.MouseButton.LeftButton)
+
+                            QTimer.singleShot(0, respond)
+                            return super().exec()
+
+                    with patch("logreader.bookmarks.BookmarkDeletionDialog", TestDeletionDialog):
+                        if note_only:
+                            self.bookmarks.delete_note(source)
+                        else:
+                            self.bookmarks.request_remove(source)
+                    self.assertEqual(len(observed), 1)
+                    title, message, details, default, text_format = observed[0]
+                    self.assertEqual(title, "Delete note" if note_only else "Remove bookmark")
+                    self.assertEqual(message, warning)
+                    self.assertEqual(details, "A < B (Line 1,001)")
+                    self.assertTrue(default)
+                    self.assertEqual(text_format, Qt.TextFormat.PlainText)
+                    if response == "yes" and not note_only:
+                        self.assertNotIn(source, self.bookmarks.items)
+                    else:
+                        self.assertIs(self.bookmarks.items[source], bookmark)
+                        self.assertEqual(bookmark.note, "" if response == "yes" else note)
+
+    def test_saving_an_empty_note_also_requires_confirmation(self):
+        self.render(("ERROR: first",))
+        source = self.add().source
+
+        class EmptyNoteDialog(BookmarkNotesDialog):
+            def exec(dialog):
+                dialog.editor.setPlainText(" \n ")
+                return QDialog.DialogCode.Accepted
+
+        for answer in (QDialog.DialogCode.Rejected, QDialog.DialogCode.Accepted):
+            self.bookmarks.items[source].note = "Keep this note"
+            with patch("logreader.bookmarks.BookmarkNotesDialog", EmptyNoteDialog), patch(
+                    "logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=answer) as confirmation:
+                self.bookmarks.edit_notes(source)
+            confirmation.assert_called_once()
+            self.assertEqual(self.bookmarks.items[source].note,
+                             "" if answer == QDialog.DialogCode.Accepted else "Keep this note")
+
+    def test_confirmation_cannot_delete_a_replacement_bookmark_or_its_note(self):
+        self.render(("ERROR: first",))
+        for note_only in (False, True):
+            with self.subTest(note_only=note_only):
+                self.bookmarks.clear()
+                source = self.add().source
+                self.bookmarks.items[source].note = "Original"
+                bookmarks = self.bookmarks
+
+                class TestDeletionDialog(BookmarkDeletionDialog):
+                    def exec(dialog):
+                        bookmarks.remove(source)
+                        bookmarks.add(source, "Replacement")
+                        bookmarks.items[source].note = "Replacement note"
+                        return QDialog.DialogCode.Accepted
+
+                with patch("logreader.bookmarks.BookmarkDeletionDialog", TestDeletionDialog):
+                    if note_only:
+                        bookmarks.delete_note(source)
+                    else:
+                        bookmarks.request_remove(source)
+                self.assertEqual(bookmarks.items[source].name, "Replacement")
+                self.assertEqual(bookmarks.items[source].note, "Replacement note")
 
     def test_note_icons_stay_on_the_right_and_follow_bookmark_type_and_reordering(self):
         lines = ("ERROR: first", "ERROR: second", "source")
@@ -440,7 +536,8 @@ class BookmarkTests(unittest.TestCase):
                 def exec(self, *args):
                     next(a for a in self.actions() if a.text() == action).trigger()
             with patch.object(editor, "createStandardContextMenu", side_effect=TestMenu), patch(
-                    "logreader.bookmarks.QInputDialog.getText", return_value=(name, True)):
+                    "logreader.bookmarks.QInputDialog.getText", return_value=(name, True)), patch(
+                    "logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
                 # Exercise both the text and line-number context menus.
                 if action == "Rename bookmark…":
                     editor.gutter.customContextMenuRequested.emit(QPoint(2, point.y()))
@@ -699,7 +796,8 @@ class BookmarkTests(unittest.TestCase):
         menu.popup(self.bookmarks.strip.mapToGlobal(self.bookmarks.strip.rect().bottomLeft()))
         self.app.processEvents()
         remove = next(a for a in menu.actions() if a.text() == "Remove bookmark")
-        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(remove).center())
+        with patch("logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
+            QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(remove).center())
         self.assertFalse(menu.isVisible())
         self.assertFalse(self.bookmarks.items)
 
@@ -758,7 +856,8 @@ class BookmarkTests(unittest.TestCase):
             menu.actions()[0].trigger()
         self.assertEqual(self.bookmarks.items[location.source].name, "A & B 😀")
         self.assertEqual(self.bookmarks.items[location.source].location, location)
-        menu.actions()[2].trigger()
+        with patch("logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
+            menu.actions()[2].trigger()
         self.assertFalse(self.view.editor.extraSelections())
         self.assertTrue(self.bookmarks.strip.isHidden())
 
@@ -881,7 +980,7 @@ class BookmarkTests(unittest.TestCase):
         point = strip.tabRect(1).center()
         activated = QSignalSpy(strip.activated)
         strip.rename_requested.disconnect(self.bookmarks.rename)
-        strip.remove_requested.disconnect(self.bookmarks.remove)
+        strip.remove_requested.disconnect(self.bookmarks.request_remove)
         renamed = QSignalSpy(strip.rename_requested)
         removed = QSignalSpy(strip.remove_requested)
 
