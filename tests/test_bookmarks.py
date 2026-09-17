@@ -6,12 +6,13 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QContextMenuEvent, QFont, QFontDatabase, QTextCursor, QWheelEvent
 from PySide6.QtTest import QSignalSpy, QTest
-from PySide6.QtWidgets import QApplication, QMenu, QStyle, QStyleOptionSlider, QToolTip
+from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QMenu, QStyle, QStyleOptionSlider, QTabBar, QToolTip
 
 from qt_helpers import wait_for_search
+from logreader.bookmarks import BookmarkNotesDialog
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
 from logreader.document_page import DocumentPage
@@ -64,6 +65,187 @@ class BookmarkTests(unittest.TestCase):
 
     def selected_row(self):
         return self.view._source_map.row(self.view.editor.textCursor().blockNumber())
+
+    def test_notes_menu_adds_edits_cancels_and_clears_one_plain_text_note(self):
+        self.render(("ERROR: first",))
+        source = self.add().source
+        expected = ""
+        for label, text, accepted in (
+                ("Add note...", "First line\n  <b>Plain text</b> & café 😀\n", True),
+                ("Open note", "Replacement note", True),
+                ("Open note", "Discard this", False),
+                ("Open note", " \n  ", True)):
+            with self.subTest(label=label, accepted=accepted):
+                initial = []
+                class TestDialog(BookmarkNotesDialog):
+                    def exec(self):
+                        initial.append(self.editor.toPlainText())
+                        self.editor.setPlainText(text)
+                        return QDialog.DialogCode.Accepted if accepted else QDialog.DialogCode.Rejected
+                menu = QMenu()
+                self.bookmarks.add_menu_actions(menu, source)
+                with patch("logreader.bookmarks.BookmarkNotesDialog", TestDialog):
+                    next(a for a in menu.actions() if a.text() == label).trigger()
+                self.assertEqual(initial, [expected])
+                if accepted:
+                    expected = text if text.strip() else ""
+                self.assertEqual(self.bookmarks.items[source].note, expected)
+                self.assertEqual(len(self.bookmarks.items), 1)
+        menu = QMenu()
+        self.bookmarks.add_menu_actions(menu, source)
+        self.assertIn("Add note...", [a.text() for a in menu.actions()])
+
+    def test_notes_dialog_accepts_newlines_and_has_save_and_cancel(self):
+        self.render(("ERROR: first",))
+        source = self.add().source
+        for save in (True, False):
+            with self.subTest(save=save):
+                dialog = BookmarkNotesDialog(self.bookmarks.items[source], source, self.view)
+                self.addCleanup(dialog.deleteLater)
+                self.addCleanup(dialog.close)
+                dialog.show()
+                self.app.processEvents()
+                QTest.keyClicks(dialog.editor, "First")
+                QTest.keyClick(dialog.editor, Qt.Key.Key_Return)
+                QTest.keyClicks(dialog.editor, "Second")
+                self.assertTrue(dialog.isVisible())
+                self.assertEqual(dialog.editor.toPlainText(), "First\nSecond")
+                button = QDialogButtonBox.StandardButton.Save if save else QDialogButtonBox.StandardButton.Cancel
+                QTest.mouseClick(dialog.buttons.button(button), Qt.MouseButton.LeftButton)
+                self.assertFalse(dialog.isVisible())
+                self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted if save else QDialog.DialogCode.Rejected)
+
+    def test_notes_survive_reorder_rename_conversion_and_reanalysis(self):
+        lines = ("context", "ERROR: first")
+        config = LogreaderConfig(context=0, enabled_patterns=("error_colon",))
+        self.render(lines, config)
+        self.add(0, "Other")
+        source = SourceLocation("snapshot", 1001)
+        self.bookmarks.add(source, "Source")
+        bookmark = self.bookmarks.items[source]
+        class TestDialog(BookmarkNotesDialog):
+            def exec(self):
+                self.editor.setPlainText("Keep this note\nThrough re-analysis")
+                return QDialog.DialogCode.Accepted
+        class TestMenu(QMenu):
+            def exec(self, *args):
+                next(a for a in self.actions() if a.text() == "Add note...").trigger()
+        strip = self.bookmarks.strip
+        with patch("logreader.bookmarks.QMenu", TestMenu), patch("logreader.bookmarks.BookmarkNotesDialog", TestDialog):
+            strip.customContextMenuRequested.emit(strip.tabRect(1).center())
+        self.bookmarks.reorder()
+        with patch("logreader.bookmarks.QInputDialog.getText", return_value=("Renamed", True)):
+            self.bookmarks.rename(source)
+        menu = QMenu()
+        self.bookmarks.add_menu_actions(menu, source)
+        next(a for a in menu.actions() if a.isCheckable()).trigger()
+        self.render(lines, replace(config, context=1), load=False)
+        self.assertFalse(bookmark.source_only)
+        self.render(lines, config, load=False)
+        self.assertTrue(bookmark.converted)
+        self.assertEqual(bookmark.note, "Keep this note\nThrough re-analysis")
+        self.assertEqual(bookmark.name, "Renamed")
+        menu = QMenu()
+        self.bookmarks.add_menu_actions(menu, source)
+        self.assertIn("Open note", [a.text() for a in menu.actions()])
+
+    def test_notes_dialog_cannot_save_to_a_replaced_bookmark(self):
+        self.render(("ERROR: first",))
+        source = self.add().source
+        bookmarks = self.bookmarks
+        class TestDialog(BookmarkNotesDialog):
+            def exec(self):
+                self.editor.setPlainText("Stale note")
+                bookmarks.remove(source)
+                bookmarks.add(source, "Replacement bookmark")
+                return QDialog.DialogCode.Accepted
+        with patch("logreader.bookmarks.BookmarkNotesDialog", TestDialog):
+            bookmarks.edit_notes(source)
+        self.assertEqual(bookmarks.items[source].note, "")
+
+    def test_note_preview_collapses_whitespace_and_truncates_without_shortening_saved_note(self):
+        self.render(("ERROR: first",))
+        source = self.add().source
+        bookmark = self.bookmarks.items[source]
+        for note, expected in (
+                ("First line\n\n  Second\tline ", "First line Second line"),
+                ("x" * 160, "x" * 160),
+                ("x" * 161, "x" * 159 + "…"),
+                ("word " * 50, " ".join(["word"] * 32) + "…")):
+            with self.subTest(note=note):
+                bookmark.note = note
+                self.bookmarks.refresh()
+                self.assertEqual(bookmark.note_preview, expected)
+                self.assertLessEqual(len(bookmark.note_preview), 160)
+                self.assertNotIn("\n", bookmark.note_preview)
+                self.assertTrue(self.bookmarks.strip.tabToolTip(0).endswith("\n\nNote: " + expected))
+                self.assertEqual(bookmark.note, note)
+        original = "Full note, including all lines:\n" + "Long note content. " * 100
+        bookmark.note = original
+        self.bookmarks.refresh()
+        shown = []
+        class TestDialog(BookmarkNotesDialog):
+            def exec(self):
+                shown.append(self.editor.toPlainText())
+                return QDialog.DialogCode.Accepted
+        menu = QMenu()
+        self.bookmarks.add_menu_actions(menu, source)
+        with patch("logreader.bookmarks.BookmarkNotesDialog", TestDialog):
+            next(a for a in menu.actions() if a.text() == "Open note").trigger()
+        self.assertEqual(shown, [original])
+        self.assertEqual(bookmark.note, original)
+
+    def test_delete_note_removes_preview_and_icon_but_keeps_bookmark(self):
+        self.render(("ERROR: first",))
+        source = self.add().source
+        bookmark = self.bookmarks.items[source]
+        bookmark.note = "A note to delete"
+        self.bookmarks.refresh()
+        strip = self.bookmarks.strip
+        self.assertIsNotNone(strip.tabButton(0, QTabBar.ButtonPosition.RightSide))
+        menu = QMenu(strip)
+        self.addCleanup(menu.deleteLater)
+        self.addCleanup(menu.close)
+        self.bookmarks.add_menu_actions(menu, source)
+        self.assertEqual([a.text() for a in menu.actions()],
+                         ["Rename bookmark…", "Open note", "Delete note", "Remove bookmark"])
+        delete = next(a for a in menu.actions() if a.text() == "Delete note")
+        menu.popup(strip.mapToGlobal(strip.rect().bottomLeft()))
+        self.app.processEvents()
+        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(delete).center())
+        self.assertFalse(menu.isVisible())
+        self.assertIs(self.bookmarks.items[source], bookmark)
+        self.assertEqual(bookmark.note, "")
+        self.assertNotIn("Note:", strip.tabToolTip(0))
+        self.assertIsNone(strip.tabButton(0, QTabBar.ButtonPosition.RightSide))
+        reopened = QMenu()
+        self.bookmarks.add_menu_actions(reopened, source)
+        self.assertEqual([a.text() for a in reopened.actions()],
+                         ["Rename bookmark…", "Add note...", "Remove bookmark"])
+
+    def test_note_icons_stay_on_the_right_and_follow_bookmark_type_and_reordering(self):
+        lines = ("ERROR: first", "ERROR: second", "source")
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
+        converted = self.add(1, "Converted").source
+        full = self.add(0, "Result").source
+        source = SourceLocation("snapshot", 1003)
+        self.bookmarks.add(source, "Source")
+        for bookmark in self.bookmarks.items.values():
+            bookmark.note = "First line\nSecond line"
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("first",)), load=False)
+        self.bookmarks.reorder()
+        self.app.processEvents()
+        strip = self.bookmarks.strip
+        for index, location in enumerate((full, converted, source)):
+            icon = strip.tabButton(index, QTabBar.ButtonPosition.RightSide)
+            self.assertIsNotNone(icon)
+            self.assertTrue(icon.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
+            self.assertGreater(icon.geometry().center().x(), strip.tabRect(index).center().x())
+            self.assertLess(icon.geometry().right(), strip.tabRect(index).right())
+            self.assertEqual(icon.color.name(), THEME_COLORS["bookmark_note"])
+            self.assertTrue(strip.tabToolTip(index).endswith("Note: First line Second line"))
+        self.assertEqual(strip.tabText(1), "(c) Converted")
+        self.assertLessEqual(self.bookmarks.bar.height(), 30)
 
     def test_bookmark_scrollbar_pips_take_precedence_over_search_in_both_views(self):
         lines = tuple(f"ERROR: {i}" + (" needle" if i in (100, 300) else "") for i in range(400))
@@ -571,12 +753,12 @@ class BookmarkTests(unittest.TestCase):
         self.assertFalse(self.bookmarks.add(duplicate, "duplicate"))
         menu = QMenu()
         self.bookmarks.add_menu_actions(menu, duplicate)
-        self.assertEqual([a.text() for a in menu.actions()], ["Rename bookmark…", "Remove bookmark"])
+        self.assertEqual([a.text() for a in menu.actions()], ["Rename bookmark…", "Add note...", "Remove bookmark"])
         with patch("logreader.bookmarks.QInputDialog.getText", return_value=("A & B 😀", True)):
             menu.actions()[0].trigger()
         self.assertEqual(self.bookmarks.items[location.source].name, "A & B 😀")
         self.assertEqual(self.bookmarks.items[location.source].location, location)
-        menu.actions()[1].trigger()
+        menu.actions()[2].trigger()
         self.assertFalse(self.view.editor.extraSelections())
         self.assertTrue(self.bookmarks.strip.isHidden())
 
@@ -656,6 +838,41 @@ class BookmarkTests(unittest.TestCase):
                 self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
                                 editor.fontMetrics().height() * 2)
 
+    def test_bookmark_hover_clears_after_dismissing_context_menu_outside_strip(self):
+        self.render(("ERROR: first",))
+        self.add()
+        strip = self.bookmarks.strip
+        point = strip.tabRect(0).center()
+        for source_active in (False, True):
+            with self.subTest(source_active=source_active):
+                self.view.set_source_active(source_active)
+                editor = self.view.source_view.editor if source_active else self.view.editor
+                QTest.mouseMove(editor.viewport(), QPoint(200, 100))
+                QTest.mouseMove(strip, point)
+                self.app.processEvents()
+                self.assertEqual(strip.grab().toImage().pixelColor(3, 3).name(),
+                                 THEME_COLORS["bookmark_hover"])
+
+                def dismiss_menu():
+                    menu = QApplication.activePopupWidget()
+                    outside = editor.viewport().mapToGlobal(QPoint(200, 100))
+                    QTest.mouseMove(editor.viewport(), QPoint(200, 100))
+                    QTest.mouseClick(menu, Qt.MouseButton.LeftButton,
+                                     pos=menu.mapFromGlobal(outside))
+
+                QTimer.singleShot(50, dismiss_menu)
+                strip.customContextMenuRequested.emit(point)
+                self.app.processEvents()
+                self.assertEqual(strip.grab().toImage().pixelColor(3, 3).name(),
+                                 THEME_COLORS["background"])
+                QTest.mouseMove(strip, point)
+                self.app.processEvents()
+                self.assertEqual(strip.grab().toImage().pixelColor(3, 3).name(),
+                                 THEME_COLORS["bookmark_hover"])
+
+                QTest.mouseMove(editor.viewport(), QPoint(200, 100))
+                self.app.processEvents()
+
     def test_right_click_opens_actions_without_navigating(self):
         self.render(tuple(f"ERROR: {i}" for i in range(300)))
         self.add(0, "First")
@@ -670,9 +887,9 @@ class BookmarkTests(unittest.TestCase):
 
         def inspect_menu(menu, *args):
             self.assertEqual([action.text() for action in menu.actions()],
-                             ["Rename bookmark…", "Remove bookmark"])
+                             ["Rename bookmark…", "Add note...", "Remove bookmark"])
             menu.actions()[0].trigger()
-            menu.actions()[1].trigger()
+            menu.actions()[2].trigger()
 
         class TestMenu(QMenu):
             def exec(self, *args):

@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtCore import QEvent, QObject, QPointF, Qt, Signal
+from PySide6.QtGui import QAction, QColor, QCursor, QHoverEvent, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QInputDialog, QLineEdit, QMenu, QPushButton,
-    QStyle, QTabBar, QToolTip, QWidget,
+    QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel,
+    QLineEdit, QMenu, QPlainTextEdit, QPushButton, QStyle, QTabBar, QToolTip,
+    QVBoxLayout, QWidget,
 )
 
 from .results_model import ResultLocation, SourceLocation
@@ -25,10 +26,91 @@ class Bookmark:
     name: str
     converted: bool = False
     convert_when_shown: bool = False
+    note: str = ""
 
     @property
     def source_only(self) -> bool:
         return isinstance(self.location, SourceLocation) or self.converted
+
+    @property
+    def note_preview(self) -> str:
+        preview = " ".join(self.note.split())
+        if len(preview) <= 160:
+            return preview
+        shortened = preview[:159]
+        if not (shortened[-1].isspace() or preview[159].isspace()):
+            boundary = shortened.rfind(" ")
+            if boundary >= 80:
+                shortened = shortened[:boundary]
+        return shortened.rstrip() + "…"
+
+
+class BookmarkNoteIcon(QWidget):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(17, 12)
+        self.setAccessibleName("Has note")
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.color = QColor(THEME_COLORS["bookmark_note"])
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(self.color, 1))
+        painter.drawPolygon(QPolygonF([QPointF(2, 1), QPointF(7, 1), QPointF(10, 4),
+                                      QPointF(10, 11), QPointF(2, 11)]))
+        painter.drawPolyline(QPolygonF([QPointF(7, 1), QPointF(7, 4), QPointF(10, 4)]))
+        painter.drawLine(QPointF(4, 6), QPointF(8, 6))
+        painter.drawLine(QPointF(4, 8), QPointF(8, 8))
+
+
+class BookmarkNotesDialog(QDialog):
+    def __init__(self, bookmark: Bookmark, source: SourceLocation, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("bookmarkNotesDialog")
+        self.setWindowTitle("Bookmark note")
+        self.resize(480, 320)
+        self.setMinimumSize(360, 240)
+        self.setSizeGripEnabled(True)
+        self.setStyleSheet(
+            f"QDialog#bookmarkNotesDialog {{ background: {THEME_COLORS['ui_surface']}; }}"
+            f"QLabel {{ color: {THEME_COLORS['ui_text']}; }}"
+            "QPlainTextEdit#bookmarkNoteEditor {"
+            f" color: {THEME_COLORS['ui_text']}; background: {THEME_COLORS['background']};"
+            f" border: 1px solid {THEME_COLORS['ui_border_strong']}; border-radius: 4px; padding: 6px;"
+            f" selection-background-color: {THEME_COLORS['selection']}; }}"
+            "QPlainTextEdit#bookmarkNoteEditor:focus {"
+            f" border-color: {THEME_COLORS['ui_accent']}; }}"
+            "QPushButton {"
+            f" color: {THEME_COLORS['ui_text']}; background: {THEME_COLORS['ui_button']};"
+            f" border: 1px solid {THEME_COLORS['ui_border_strong']}; border-radius: 5px;"
+            " min-width: 64px; padding: 4px 10px; }"
+            f"QPushButton:hover {{ background: {THEME_COLORS['ui_button_hover']}; }}"
+            f"QPushButton:focus {{ border-color: {THEME_COLORS['ui_accent']}; }}"
+            f"QPushButton:pressed {{ background: {THEME_COLORS['ui_button_pressed']}; }}"
+        )
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+        line = f"Line {source.line:,}"
+        heading = QLabel(line if bookmark.name == line else f"{bookmark.name}\n{line}")
+        heading.setTextFormat(Qt.TextFormat.PlainText)
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+        self.editor = QPlainTextEdit(self)
+        self.editor.setObjectName("bookmarkNoteEditor")
+        self.editor.setAccessibleName("Bookmark note")
+        self.editor.setPlaceholderText("Write a note…")
+        self.editor.setTabChangesFocus(True)
+        self.editor.setPlainText(bookmark.note)
+        layout.addWidget(self.editor, 1)
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel, self,
+        )
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+        self.editor.setFocus()
 
 
 class BookmarkStrip(QTabBar):
@@ -133,6 +215,19 @@ class BookmarkStrip(QTabBar):
         if index >= 0 and self.isTabEnabled(index):
             self.activated.emit(self.tabData(index))
 
+    def set_note_icon(self, index: int, has_note: bool) -> None:
+        icon = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
+        if has_note:
+            if icon is None:
+                icon = BookmarkNoteIcon(self)
+                self.setTabButton(index, QTabBar.ButtonPosition.RightSide, icon)
+            icon.color = QColor(THEME_COLORS["bookmark_note"] if self.isTabEnabled(index)
+                                else THEME_COLORS["muted"])
+            icon.update()
+        elif icon is not None:
+            self.setTabButton(index, QTabBar.ButtonPosition.RightSide, None)
+            icon.deleteLater()
+
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
             self._activate(self.currentIndex())
@@ -151,6 +246,13 @@ class BookmarkStrip(QTabBar):
         self.menu_requested.emit(menu, source)
         menu.exec(self.mapToGlobal(point))
         menu.deleteLater()
+        # Popup menus can swallow hover-leave events while the pointer moves away.
+        position = self.mapFromGlobal(QCursor.pos())
+        event_type = QEvent.Type.HoverMove if self.rect().contains(position) else QEvent.Type.HoverLeave
+        QApplication.sendEvent(self, QHoverEvent(event_type, QPointF(position),
+                                                QPointF(QCursor.pos()), QPointF(point)))
+        self._pressed_index = -1
+        self.update()
 
 
 class ResultsBookmarks(QObject):
@@ -191,7 +293,7 @@ class ResultsBookmarks(QObject):
         self.strip.activated.connect(self.activate)
         self.strip.rename_requested.connect(self.rename)
         self.strip.remove_requested.connect(self.remove)
-        self.strip.menu_requested.connect(self._add_conversion_action)
+        self.strip.menu_requested.connect(self._add_extra_menu_actions)
 
     def _retained(self, source: SourceLocation) -> bool:
         source_view = self.view.source_view
@@ -239,6 +341,23 @@ class ResultsBookmarks(QObject):
             bookmark.name = self._name(name, source)
             self.refresh()
 
+    def edit_notes(self, source: SourceLocation) -> None:
+        bookmark = self.items.get(source)
+        if bookmark is None:
+            return
+        dialog = BookmarkNotesDialog(bookmark, source, self.view)
+        if dialog.exec() == QDialog.DialogCode.Accepted and self.items.get(source) is bookmark:
+            note = dialog.editor.toPlainText()
+            bookmark.note = note if note.strip() else ""
+            self.refresh()
+        dialog.deleteLater()
+
+    def delete_note(self, source: SourceLocation) -> None:
+        bookmark = self.items.get(source)
+        if bookmark is not None:
+            bookmark.note = ""
+            self.refresh()
+
     def remove(self, source: SourceLocation) -> None:
         if self.items.pop(source, None) is not None:
             self.refresh()
@@ -255,9 +374,23 @@ class ResultsBookmarks(QObject):
         if source in self.items:
             menu.addAction("Rename bookmark…", lambda: self.rename(source))
             menu.addAction("Remove bookmark", lambda: self.remove(source))
-            self._add_conversion_action(menu, source)
+            self._add_extra_menu_actions(menu, source)
         else:
             menu.addAction("Add bookmark…", lambda: self.prompt(location))
+
+    def _add_extra_menu_actions(self, menu: QMenu, source: SourceLocation) -> None:
+        bookmark = self.items.get(source)
+        if bookmark is None:
+            return
+        before = menu.actions()[-1]
+        notes = QAction("Open note" if bookmark.note else "Add note...", menu)
+        notes.triggered.connect(lambda: self.edit_notes(source))
+        menu.insertAction(before, notes)
+        if bookmark.note:
+            delete = QAction("Delete note", menu)
+            delete.triggered.connect(lambda: self.delete_note(source))
+            menu.insertAction(before, delete)
+        self._add_conversion_action(menu, source)
 
     def _add_conversion_action(self, menu: QMenu, source: SourceLocation) -> None:
         bookmark = self.items.get(source)
@@ -383,9 +516,12 @@ class ResultsBookmarks(QObject):
             if not bookmark.source_only:
                 title = "" if bookmark.name == f"Line {source.line:,}" else f"{bookmark.name}\n"
                 tooltip = f"{title}Line {source.line:,}\n{destination}"
+            if bookmark.note:
+                tooltip += f"\n\nNote: {bookmark.note_preview}"
             self.strip.setTabToolTip(index, tooltip)
             self.strip.setTabEnabled(index, bookmark.source_only or not self.view.is_rendering
                                      or self.view.source_active)
+            self.strip.set_note_icon(index, bool(bookmark.note))
         self._select(selected)
         self.strip.setVisible(bool(self.items))
         self.bar.setVisible(bool(self.items))
