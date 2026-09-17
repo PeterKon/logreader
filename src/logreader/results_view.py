@@ -768,11 +768,20 @@ class ResultsView(QWidget):
         self._view_stack.addWidget(self.source_view)
         panel_layout.addLayout(self._view_stack, 1)
         self.bookmarks = ResultsBookmarks(self)
-        panel_layout.insertWidget(1, self.bookmarks.strip)
+        panel_layout.insertWidget(1, self.bookmarks.bar)
         self._editor.gutter.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._editor.gutter.customContextMenuRequested.connect(
             lambda point: self._results_context_menu(
                 self._editor.viewport().mapFromGlobal(self._editor.gutter.mapToGlobal(point))
+            )
+        )
+        source_editor = self.source_view.editor
+        source_editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        source_editor.customContextMenuRequested.connect(self._source_context_menu)
+        source_editor.gutter.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        source_editor.gutter.customContextMenuRequested.connect(
+            lambda point: self._source_context_menu(
+                source_editor.viewport().mapFromGlobal(source_editor.gutter.mapToGlobal(point))
             )
         )
 
@@ -887,6 +896,30 @@ class ResultsView(QWidget):
             menu.addSeparator()
             self.bookmarks.add_menu_actions(menu, location)
         menu.exec(self._editor.viewport().mapToGlobal(point))
+        menu.deleteLater()
+
+    def source_location_at(self, point) -> SourceLocation | None:
+        editor = self.source_view.editor
+        if not self.source_view.lines:
+            return None
+        block = editor.cursorForPosition(point).block()
+        rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
+        if not rect.top() <= point.y() < rect.bottom():
+            return None
+        number = editor.source_number(block.blockNumber())
+        if not (self.source_view.first_line + self.source_view.page_start <= number <
+                self.source_view.first_line + self.source_view.page_end):
+            return None
+        return SourceLocation(self._snapshot_id, number)
+
+    def _source_context_menu(self, point) -> None:
+        location = self.source_location_at(point)
+        editor = self.source_view.editor
+        menu = editor.createStandardContextMenu()
+        if location is not None:
+            menu.addSeparator()
+            self.bookmarks.add_menu_actions(menu, location)
+        menu.exec(editor.viewport().mapToGlobal(point))
         menu.deleteLater()
 
     @property

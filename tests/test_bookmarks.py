@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QContextMenuEvent, QFont, QFontDatabase, QTextCursor, QWheelEvent
 from PySide6.QtTest import QSignalSpy, QTest
-from PySide6.QtWidgets import QApplication, QMenu
+from PySide6.QtWidgets import QApplication, QMenu, QToolTip
 
 from qt_helpers import wait_for_search
 from logreader.config import LogreaderConfig
@@ -34,6 +34,7 @@ class BookmarkTests(unittest.TestCase):
         for editor in (self.view.editor, self.view.source_view.editor):
             editor.setFont(QFont("Consolas", 11))
         self.view.show()
+        self.addCleanup(QToolTip.hideText)
         self.addCleanup(self.view.deleteLater)
         self.addCleanup(self.view.close)
         self.bookmarks = self.view.bookmarks
@@ -63,6 +64,389 @@ class BookmarkTests(unittest.TestCase):
 
     def selected_row(self):
         return self.view._source_map.row(self.view.editor.textCursor().blockNumber())
+
+    def test_reorder_sorts_all_bookmark_types_without_changing_selection_or_metadata(self):
+        lines = tuple(f"ERROR: {i}" for i in range(80))
+        config = LogreaderConfig(context=0, enabled_patterns=("error_colon",))
+        self.render(lines, config)
+        full = self.add(50, "Later result").source
+        native = SourceLocation("snapshot", 1001)
+        self.bookmarks.add(native, "Earlier source")
+        converted = self.add(20, "Middle converted").source
+        analysis = analyze_lines(lines[-40:], config.search_patterns(), line_offset=1040)
+        self.view.start_rendering(2, "sample.log", analysis, config)
+        self.wait_render()
+        menu = QMenu()
+        self.bookmarks.add_menu_actions(menu, native)
+        next(a for a in menu.actions() if a.isCheckable()).trigger()
+        strip = self.bookmarks.strip
+        button = self.bookmarks.reorder_button
+        self.assertEqual(button.text(), "Reorder")
+        self.assertEqual(button.toolTip(), "Sort bookmarks by the order they appear in source.")
+        self.assertEqual(list(self.bookmarks.items), [full, native, converted])
+        for source_active in (False, True):
+            self.view.set_source_active(source_active)
+            self.bookmarks.activate(full)
+            editor = self.view.source_view.editor if source_active else self.view.editor
+            position = editor.textCursor().position()
+            scroll = editor.verticalScrollBar().value()
+            before = {source: (bookmark.location, bookmark.name, bookmark.converted,
+                               bookmark.convert_when_shown, strip.tabText(index), strip.tabToolTip(index),
+                               strip.tabTextColor(index))
+                      for index, (source, bookmark) in enumerate(self.bookmarks.items.items())}
+            activated = QSignalSpy(strip.activated)
+            QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+            self.assertEqual(list(self.bookmarks.items), [native, converted, full])
+            self.assertEqual([strip.tabData(i) for i in range(strip.count())], [native, converted, full])
+            self.assertEqual(strip.tabData(strip.currentIndex()), full)
+            self.assertEqual(activated.count(), 0)
+            self.assertEqual(editor.textCursor().position(), position)
+            self.assertEqual(editor.verticalScrollBar().value(), scroll)
+            for index, (source, bookmark) in enumerate(self.bookmarks.items.items()):
+                self.assertEqual((bookmark.location, bookmark.name, bookmark.converted,
+                                  bookmark.convert_when_shown, strip.tabText(index), strip.tabToolTip(index),
+                                  strip.tabTextColor(index)),
+                                 before[source])
+        added = SourceLocation("snapshot", 1002)
+        self.bookmarks.add(added, "Added later")
+        self.assertEqual([strip.tabData(i) for i in range(strip.count())], [native, converted, full, added])
+        self.bookmarks.refresh()
+        self.assertEqual(list(self.bookmarks.items), [native, converted, full, added])
+
+    def test_reorder_button_visibility_and_position_with_overflow(self):
+        self.assertTrue(self.bookmarks.bar.isHidden())
+        self.render(tuple(f"ERROR: {i}" for i in range(40)))
+        self.add(39, "Last bookmark")
+        self.assertTrue(self.bookmarks.bar.isVisible())
+        self.assertFalse(self.bookmarks.reorder_button.isEnabled())
+        for row in reversed(range(30)):
+            self.add(row, f"Bookmark {row}: a long name")
+        self.view.resize(700, 500)
+        self.app.processEvents()
+        strip = self.bookmarks.strip
+        button = self.bookmarks.reorder_button
+        self.assertTrue(button.isEnabled())
+        self.assertTrue(button.isVisible())
+        self.assertEqual(button.geometry().right(), self.bookmarks.bar.rect().right())
+        self.assertLess(strip.geometry().right(), button.geometry().left())
+        self.assertLessEqual(self.bookmarks.bar.height(), 30)
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        self.assertEqual([strip.tabData(i).line for i in range(strip.count())],
+                         list(range(1001, 1031)) + [1040])
+        self.bookmarks.clear()
+        self.assertTrue(self.bookmarks.bar.isHidden())
+
+    def test_source_menu_adds_renames_and_removes_without_analysis(self):
+        self.view.set_source(("before", "", "after"), 1003, snapshot_id="source")
+        self.view.set_source_active(True)
+        self.app.processEvents()
+        editor = self.view.source_view.editor
+        block = editor.document().findBlockByNumber(1)
+        rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
+        point = QPoint(10, round(rect.top()) + 4)
+        source = SourceLocation("source", 1002)
+        self.assertEqual(self.view.source_location_at(point), source)
+        self.assertIsNone(self.view.source_location_at(QPoint(10, editor.viewport().height() - 5)))
+
+        for action, name in (("Add bookmark…", "Blank line"),
+                             ("Rename bookmark…", "Renamed"), ("Remove bookmark", None)):
+            class TestMenu(QMenu):
+                def exec(self, *args):
+                    next(a for a in self.actions() if a.text() == action).trigger()
+            with patch.object(editor, "createStandardContextMenu", side_effect=TestMenu), patch(
+                    "logreader.bookmarks.QInputDialog.getText", return_value=(name, True)):
+                # Exercise both the text and line-number context menus.
+                if action == "Rename bookmark…":
+                    editor.gutter.customContextMenuRequested.emit(QPoint(2, point.y()))
+                else:
+                    editor.customContextMenuRequested.emit(point)
+            if name is not None:
+                self.assertEqual(self.bookmarks.items[source].name, name)
+                self.assertEqual(self.bookmarks.items[source].location, source)
+                self.assertEqual(self.bookmarks.strip.tabText(0), name)
+                self.assertEqual(editor._bookmark_blocks, {1: True})
+        self.assertFalse(self.bookmarks.items)
+        self.assertFalse(editor._bookmark_blocks)
+
+    def test_source_only_bookmark_stays_in_source_after_reanalysis(self):
+        lines = ("ERROR: first", "ERROR: second")
+        self.render(lines)
+        location = self.view.model.location(1)
+        self.assertTrue(self.bookmarks.add(location.source, "Source only"))
+        self.assertFalse(self.bookmarks.add(location, "Duplicate"))
+        for _ in range(2):
+            self.assertFalse(self.view.editor._bookmark_blocks)
+            self.bookmarks.activate(location.source)
+            self.assertFalse(self.view.source_active)
+            self.view.set_source_active(True)
+            self.bookmarks.activate(location.source)
+            self.assertTrue(self.view.source_active)
+            self.assertEqual(self.view.source_view.editor.textCursor().blockNumber(), 1)
+            self.assertEqual(self.bookmarks.strip.tabText(0), "Source only")
+            self.assertNotIn("Converted", self.bookmarks.strip.tabToolTip(0))
+            self.view.set_source_active(False)
+            self.render(lines, load=False)
+        self.assertEqual(self.bookmarks.items[location.source].location, location.source)
+
+    def test_source_only_bookmark_can_be_added_and_opened_during_rendering(self):
+        lines = tuple(f"ERROR: {i}" for i in range(50))
+        config = LogreaderConfig(context=0, enabled_patterns=("error_colon",))
+        self.render(lines, config)
+        analysis = analyze_lines(lines, config.search_patterns(), line_offset=1000)
+        self.view.start_rendering(2, "sample.log", analysis, config)
+        source = SourceLocation("snapshot", 1010)
+        self.assertTrue(self.bookmarks.add(source, "During analysis"))
+        self.assertTrue(self.bookmarks.strip.isTabEnabled(0))
+        self.bookmarks.activate(source)
+        self.assertFalse(self.view.source_active)
+        self.view.set_source_active(True)
+        self.bookmarks.activate(source)
+        self.assertTrue(self.view.source_active)
+        self.assertEqual(self.view.source_view.editor.textCursor().blockNumber(), 9)
+        self.wait_render()
+        self.assertTrue(self.bookmarks.items[source].source_only)
+        self.assertFalse(self.bookmarks.items[source].converted)
+
+    def test_source_only_bookmark_rejects_stale_dialog_and_unretained_lines(self):
+        self.view.set_source(("old",), 1001, snapshot_id="old")
+        source = SourceLocation("old", 1001)
+        self.assertFalse(self.bookmarks.add(SourceLocation("old", 1000), "Not retained"))
+        self.assertFalse(self.bookmarks.add(SourceLocation("old", 1002), "Past end"))
+        def changed_source(*args):
+            self.view.set_source(("new",), 1001, snapshot_id="new")
+            return "Stale", True
+        with patch("logreader.bookmarks.QInputDialog.getText", side_effect=changed_source):
+            self.bookmarks.prompt(source)
+        self.assertFalse(self.bookmarks.items)
+
+    def test_source_only_bookmark_tracks_line_numbers_across_pages(self):
+        self.view.set_source(tuple(str(i) for i in range(12000)), 13000, snapshot_id="source")
+        self.view.set_source_active(True)
+        source = SourceLocation("source", 12001)
+        self.assertTrue(self.bookmarks.add(source, "Later page"))
+        self.bookmarks.activate(source)
+        editor = self.view.source_view.editor
+        self.assertEqual(editor.source_number(editor.textCursor().blockNumber()), source.line)
+        self.assertEqual(self.view.source_location_at(editor.cursorRect().center()), source)
+        self.view.source_view.first_page()
+        self.assertFalse(editor._bookmark_blocks)
+        self.bookmarks.activate(source)
+        self.assertEqual(editor._bookmark_blocks, {editor.textCursor().blockNumber(): True})
+
+    def test_bookmark_types_render_distinct_text_with_shared_background_and_borders(self):
+        from logreader.qt_app import INTERFACE_STYLE_SHEET
+        self.view.setStyleSheet(INTERFACE_STYLE_SHEET)
+        self.render(("ERROR: first", "ERROR: second", "plain source"),
+                    LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
+        self.add(0, "Results bookmark")
+        self.add(1, "Converted bookmark")
+        self.bookmarks.add(SourceLocation("snapshot", 1003), "Source bookmark")
+        self.render(("ERROR: first", "ERROR: second", "plain source"),
+                    LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("first",)),
+                    load=False)
+        strip = self.bookmarks.strip
+        self.app.processEvents()
+        image = strip.grab().toImage()
+        for index, role in enumerate(("bookmark_marker", "bookmark_source_text", "bookmark_source_text")):
+            rect = strip.tabRect(index)
+            colors = {image.pixelColor(x, y).name()
+                      for x in range(rect.left() + 2, rect.right() - 2)
+                      for y in range(rect.top() + 2, rect.bottom() - 2)}
+            self.assertIn(THEME_COLORS[role], colors)
+            self.assertEqual(image.pixelColor(rect.left() + 2, rect.top() + 2).name(), "#0d1117")
+            self.assertEqual(image.pixelColor(rect.right(), rect.center().y()).name(), "#2b2513")
+            self.assertEqual(image.pixelColor(rect.center().x(), rect.bottom()).name(), "#473d21")
+        self.assertEqual(strip.tabText(1), "(c) Converted bookmark")
+        self.assertEqual(strip.tabText(2), "Source bookmark")
+
+    def test_source_bookmark_click_shows_tooltip_without_leaving_results(self):
+        self.render(("ERROR: first", "ERROR: second", "plain source"),
+                    LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
+        self.add(1, "Converted")
+        self.bookmarks.add(SourceLocation("snapshot", 1003), "Source")
+        self.render(("ERROR: first", "ERROR: second", "plain source"),
+                    LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("first",)),
+                    load=False)
+        strip = self.bookmarks.strip
+        editor = self.view.editor
+        position = editor.textCursor().position()
+        scroll = editor.verticalScrollBar().value()
+        for index in range(strip.count()):
+            with self.subTest(index=index):
+                QTest.mouseClick(strip, Qt.MouseButton.LeftButton, pos=strip.tabRect(index).center())
+                QTest.qWait(400)
+                self.assertFalse(self.view.source_active)
+                self.assertEqual(editor.textCursor().position(), position)
+                self.assertEqual(editor.verticalScrollBar().value(), scroll)
+                self.assertTrue(QToolTip.isVisible())
+                self.assertEqual(QToolTip.text(), strip.tabToolTip(index))
+                self.assertTrue(QToolTip.text().startswith("Source-only bookmark\nLine "))
+
+    def test_default_bookmark_tooltips_show_the_line_number_once(self):
+        lines = ("ERROR: first", "ERROR: second", "plain source")
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
+        self.add(0, "")
+        self.add(1, "")
+        self.bookmarks.add(SourceLocation("snapshot", 1003), "")
+        self.assertEqual(self.bookmarks.strip.tabToolTip(0), "Line 1,001\nOpen this line in results.")
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("first",)),
+                    load=False)
+        for index, number in enumerate(("1,001", "1,002", "1,003")):
+            self.assertEqual(self.bookmarks.strip.tabToolTip(index).count(number), 1)
+        self.assertEqual(self.bookmarks.strip.tabToolTip(2), "Source-only bookmark\nLine 1,003")
+        with patch("logreader.bookmarks.QInputDialog.getText", return_value=("Connection", True)):
+            self.bookmarks.rename(SourceLocation("snapshot", 1001))
+        self.assertEqual(self.bookmarks.strip.tabToolTip(0),
+                         "Connection\nLine 1,001\nOpen this line in results.")
+
+    def test_source_conversion_waits_for_completed_results_and_prefers_a_match(self):
+        lines = ("context needle", "ERROR: failure", "after")
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
+        source = SourceLocation("snapshot", 1001)
+        self.bookmarks.add(source, "Keep this name")
+        strip = self.bookmarks.strip
+        checked = []
+
+        class TestMenu(QMenu):
+            def exec(self, *args):
+                action = next(a for a in self.actions() if a.text() == "Convert when shown in results")
+                checked.append(action.isChecked())
+                action.trigger()
+
+        with patch("logreader.bookmarks.QMenu", TestMenu):
+            strip.customContextMenuRequested.emit(strip.tabRect(0).center())
+        self.assertEqual(checked, [False])
+        self.assertTrue(self.bookmarks.items[source].convert_when_shown)
+        self.assertTrue(self.bookmarks.items[source].source_only)
+        self.assertFalse(self.view.editor._bookmark_blocks)
+
+        config = LogreaderConfig(context=1, combined_view=False, enabled_patterns=("error_colon",),
+                                 custom_patterns=("needle",))
+        analysis = analyze_lines(lines, config.search_patterns(), combined=False, line_offset=1000)
+        self.view.start_rendering(2, "sample.log", analysis, config)
+        self.assertTrue(self.bookmarks.items[source].source_only)
+        self.wait_render()
+        bookmark = self.bookmarks.items[source]
+        self.assertFalse(bookmark.source_only)
+        self.assertFalse(bookmark.converted)
+        self.assertEqual(strip.tabText(0), "Keep this name")
+        self.assertEqual(strip.tabTextColor(0).name(), THEME_COLORS["bookmark_marker"])
+        rows = self.view.model.rows_for_source(source)
+        self.assertFalse(self.view.model.line(rows[0]).is_match)
+        self.assertTrue(self.view.model.line(self.view.model.resolve(bookmark.location)).is_match)
+        self.bookmarks.activate(source)
+        self.assertFalse(self.view.source_active)
+        self.assertEqual(self.selected_row(), self.view.model.resolve(bookmark.location))
+
+    def test_conversion_toggle_can_be_disabled_and_only_appears_for_native_source_bookmarks(self):
+        lines = ("context needle", "ERROR: failure", "after")
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
+        source = SourceLocation("snapshot", 1001)
+        full = self.add(0).source
+        self.bookmarks.add(source, "Source")
+        menu = QMenu()
+        self.bookmarks.add_menu_actions(menu, source)
+        toggle = next(a for a in menu.actions() if a.text() == "Convert when shown in results")
+        self.assertTrue(toggle.isCheckable())
+        self.assertFalse(toggle.isChecked())
+        toggle.trigger()
+        reopened = QMenu()
+        self.bookmarks.add_menu_actions(reopened, source)
+        saved_toggle = next(a for a in reopened.actions() if a.isCheckable())
+        self.assertTrue(saved_toggle.isChecked())
+        saved_toggle.trigger()
+        self.assertFalse(self.bookmarks.items[source].convert_when_shown)
+        full_menu = QMenu()
+        self.bookmarks.add_menu_actions(full_menu, full)
+        self.assertFalse(any(a.isCheckable() for a in full_menu.actions()))
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("needle",)),
+                    load=False)
+        self.assertTrue(self.bookmarks.items[source].source_only)
+        self.assertTrue(self.bookmarks.items[full].converted)
+        converted_menu = QMenu()
+        self.bookmarks.add_menu_actions(converted_menu, full)
+        self.assertFalse(any(a.isCheckable() for a in converted_menu.actions()))
+
+    def test_enabling_conversion_for_an_existing_result_converts_immediately(self):
+        self.render(("context", "ERROR: first"))
+        for row in (0, 1):
+            with self.subTest(row=row):
+                source = self.view.model.location(row).source
+                self.bookmarks.add(source, "Source")
+                menu = QMenu()
+                self.bookmarks.add_menu_actions(menu, source)
+                next(a for a in menu.actions() if a.isCheckable()).trigger()
+                self.assertFalse(self.bookmarks.items[source].source_only)
+                self.assertEqual(self.bookmarks.items[source].location, self.view.model.location(row))
+
+    def test_conversion_toggle_keeps_menu_open_but_other_actions_close_it(self):
+        self.view.set_source(("plain source",), 1, snapshot_id="source")
+        source = SourceLocation("source", 1)
+        self.bookmarks.add(source, "Source")
+        menu = QMenu(self.bookmarks.strip)
+        self.addCleanup(menu.deleteLater)
+        self.addCleanup(menu.close)
+        self.bookmarks.add_menu_actions(menu, source)
+        toggle = next(a for a in menu.actions() if a.isCheckable())
+        menu.popup(self.bookmarks.strip.mapToGlobal(self.bookmarks.strip.rect().bottomLeft()))
+        self.app.processEvents()
+        for checked in (True, False):
+            QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(toggle).center())
+            self.assertTrue(menu.isVisible())
+            self.assertEqual(toggle.isChecked(), checked)
+            self.assertEqual(self.bookmarks.items[source].convert_when_shown, checked)
+        menu.setActiveAction(toggle)
+        for key, checked in ((Qt.Key.Key_Space, True), (Qt.Key.Key_Return, False)):
+            QTest.keyClick(menu, key)
+            self.assertTrue(menu.isVisible())
+            self.assertEqual(toggle.isChecked(), checked)
+            self.assertEqual(self.bookmarks.items[source].convert_when_shown, checked)
+
+        rename = next(a for a in menu.actions() if a.text() == "Rename bookmark…")
+        with patch("logreader.bookmarks.QInputDialog.getText", return_value=("Renamed", True)):
+            QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(rename).center())
+        self.assertFalse(menu.isVisible())
+        self.assertEqual(self.bookmarks.items[source].name, "Renamed")
+        menu.popup(self.bookmarks.strip.mapToGlobal(self.bookmarks.strip.rect().bottomLeft()))
+        self.app.processEvents()
+        remove = next(a for a in menu.actions() if a.text() == "Remove bookmark")
+        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(remove).center())
+        self.assertFalse(menu.isVisible())
+        self.assertFalse(self.bookmarks.items)
+
+    def test_context_conversion_chooses_first_occurrence_and_follows_full_bookmark_lifecycle(self):
+        lines = ("context", "ERROR: failure", "after")
+        config = LogreaderConfig(context=0, combined_view=False, enabled_patterns=("error_colon",),
+                                 custom_patterns=("failure",))
+        self.render(lines, config)
+        source = SourceLocation("snapshot", 1001)
+        self.bookmarks.add(source, "Context bookmark")
+        menu = QMenu()
+        self.bookmarks.add_menu_actions(menu, source)
+        next(a for a in menu.actions() if a.isCheckable()).trigger()
+        bookmark = self.bookmarks.items[source]
+        self.assertTrue(bookmark.source_only)
+        with_context = replace(config, context=1)
+        analysis = analyze_lines(lines, with_context.search_patterns(), combined=False, line_offset=1000)
+        self.view.start_rendering(2, "sample.log", analysis, with_context)
+        self.assertTrue(bookmark.source_only)
+        self.wait_render()
+        rows = self.view.model.rows_for_source(source)
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(not self.view.model.line(row).is_match for row in rows))
+        self.assertEqual(bookmark.location, self.view.model.location(rows[0]))
+        self.assertFalse(bookmark.source_only)
+        self.bookmarks.activate(source)
+        self.assertEqual(self.selected_row(), rows[0])
+        location = bookmark.location
+        self.render(lines, config, load=False)
+        self.assertTrue(bookmark.source_only)
+        self.assertTrue(bookmark.converted)
+        self.assertEqual(self.bookmarks.strip.tabText(0), "(c) Context bookmark")
+        self.render(lines, with_context, load=False)
+        self.assertFalse(bookmark.source_only)
+        self.assertEqual(bookmark.location, location)
+        self.assertEqual(self.bookmarks.strip.tabText(0), "Context bookmark")
 
     def test_dialog_cancel_default_name_and_duplicate_menu(self):
         self.render(("ERROR: needle",), LogreaderConfig(
@@ -128,14 +512,23 @@ class BookmarkTests(unittest.TestCase):
         self.render(lines)
         location = self.add(0)
         self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)), load=False)
-        self.assertIn(" · source", self.bookmarks.strip.tabText(0))
+        self.assertEqual(self.bookmarks.strip.tabText(0), "(c) Important")
+        self.assertEqual(self.bookmarks.strip.tabToolTip(0),
+                         "Source-only bookmark\nLine 1,001\n"
+                         "Converted to source bookmark. Match no longer appears on results. "
+                         "Re-analysis needed.")
+        self.assertTrue(self.bookmarks.items[location.source].source_only)
+        self.bookmarks.activate(location.source)
+        self.assertFalse(self.view.source_active)
+        self.view.set_source_active(True)
         self.bookmarks.activate(location.source)
         self.assertTrue(self.view.source_active)
         source = self.view.source_view
         self.assertEqual(source.editor.first_source_line + source.editor.textCursor().blockNumber(), 1001)
         self.view.set_source_active(False)
         self.render(lines, LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("needle",)), load=False)
-        self.assertNotIn(" · source", self.bookmarks.strip.tabText(0))
+        self.assertEqual(self.bookmarks.strip.tabText(0), "Important")
+        self.assertFalse(self.bookmarks.items[location.source].source_only)
         self.bookmarks.activate(location.source)
         self.assertEqual(self.selected_row(), 0)
         self.assertEqual(self.bookmarks.items[location.source].location, location)
@@ -295,7 +688,8 @@ class BookmarkTests(unittest.TestCase):
         analysis = analyze_lines(lines[-10:], config.search_patterns(), line_offset=1040)
         self.view.start_rendering(2, "sample.log", analysis, config)
         self.wait_render()
-        self.assertIn(" · source", self.bookmarks.strip.tabText(0))
+        self.assertEqual(self.bookmarks.strip.tabText(0), "(c) Important")
+        self.view.set_source_active(True)
         self.bookmarks.activate(location.source)
         self.assertEqual(self.view.source_view.editor.textCursor().blockNumber(), 5)
         self.assertEqual(len(self.view.source_view.lines), 50)
@@ -329,10 +723,10 @@ class BookmarkTests(unittest.TestCase):
         self.assertEqual(self.view.source_view.editor.textCursor().blockNumber(), 20)
         self.view.cancel_rendering()
         self.assertEqual(len(self.bookmarks.items), 1)
-        self.assertIn(" · source", self.bookmarks.strip.tabText(0))
+        self.assertEqual(self.bookmarks.strip.tabText(0), "(c) Important")
         self.view.set_source_active(False)
         self.bookmarks.activate(location.source)
-        self.assertTrue(self.view.source_active)
+        self.assertFalse(self.view.source_active)
 
     def test_source_replacement_clears_bookmarks_even_without_result_model(self):
         self.render(("ERROR: one",))

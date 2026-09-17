@@ -66,18 +66,18 @@ QStackedWidget#documentPages,
 QTabBar#documentTabs {{
     background-color: {THEME_COLORS['ui_canvas']};
 }}
-QTabBar::tab {{
+QTabBar#documentTabs::tab {{
     background-color: {THEME_COLORS['ui_button']};
     color: {THEME_COLORS['ui_muted']};
     border: 1px solid {THEME_COLORS['ui_border']};
     padding: 6px 12px;
 }}
-QTabBar::tab:selected {{
+QTabBar#documentTabs::tab:selected {{
     background-color: {THEME_COLORS['ui_island']};
     color: {THEME_COLORS['ui_text']};
     border-bottom: 2px solid {THEME_COLORS['ui_accent']};
 }}
-QTabBar::tab:hover {{
+QTabBar#documentTabs::tab:hover {{
     background-color: {THEME_COLORS['ui_button_hover']};
 }}
 QLineEdit#customPattern, QLineEdit#regexPattern {{

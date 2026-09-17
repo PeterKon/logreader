@@ -5,12 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QApplication, QInputDialog, QLineEdit, QMenu, QStyle, QTabBar
+from PySide6.QtWidgets import (
+    QApplication, QHBoxLayout, QInputDialog, QLineEdit, QMenu, QPushButton,
+    QStyle, QTabBar, QToolTip, QWidget,
+)
 
 from .results_model import ResultLocation, SourceLocation
-from .theme import THEME_COLORS
+from .theme import THEME_COLORS, configure_action_button
 
 if TYPE_CHECKING:
     from .results_view import ResultsView
@@ -18,17 +21,25 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class Bookmark:
-    location: ResultLocation
+    location: ResultLocation | SourceLocation
     name: str
+    converted: bool = False
+    convert_when_shown: bool = False
+
+    @property
+    def source_only(self) -> bool:
+        return isinstance(self.location, SourceLocation) or self.converted
 
 
 class BookmarkStrip(QTabBar):
     activated = Signal(object)
     rename_requested = Signal(object)
     remove_requested = Signal(object)
+    menu_requested = Signal(object, object)
 
     def __init__(self, parent=None) -> None:
         self._pressed_index = -1
+        self._tooltip_source = None
         super().__init__(parent)
         self.setObjectName("bookmarkStrip")
         self.setAccessibleName("Bookmarks")
@@ -40,8 +51,7 @@ class BookmarkStrip(QTabBar):
         self.setStyleSheet(
             f"QTabBar#bookmarkStrip {{ background: {THEME_COLORS['background']}; }}"
             "QTabBar#bookmarkStrip::tab {"
-            f" color: {THEME_COLORS['bookmark_marker']};"
-            f" background: {THEME_COLORS['bookmark']};"
+            f" background: {THEME_COLORS['background']};"
             f" border: 1px solid {THEME_COLORS['bookmark_border']};"
             " border-top: 0; border-left: 0; border-radius: 0;"
             " padding: 4px 10px 3px; margin: 0; max-width: 200px; }"
@@ -53,7 +63,7 @@ class BookmarkStrip(QTabBar):
             f" color: {THEME_COLORS['muted']}; }}"
             "QTabBar#bookmarkStrip QToolButton {"
             f" color: {THEME_COLORS['bookmark_marker']};"
-            f" background: {THEME_COLORS['bookmark']};"
+            f" background: {THEME_COLORS['background']};"
             f" border: 1px solid {THEME_COLORS['bookmark_border']};"
             " border-top: 0; border-left: 0; border-radius: 0; }"
             "QTabBar#bookmarkStrip QToolButton:hover {"
@@ -103,6 +113,21 @@ class BookmarkStrip(QTabBar):
         self._pressed_index = -1
         super().mouseReleaseEvent(event)
         self.update()
+        source = self._tooltip_source
+        self._tooltip_source = None
+        if source is not None and self.tabData(self.tabAt(event.position().toPoint())) == source:
+            self.show_tooltip(source)
+
+    def show_tooltip(self, source: SourceLocation) -> None:
+        # Qt dismisses tooltips on mouse release, so wait until the click ends.
+        if QApplication.mouseButtons() & Qt.MouseButton.LeftButton:
+            self._tooltip_source = source
+            return
+        for index in range(self.count()):
+            if self.tabData(index) == source:
+                rect = self.tabRect(index)
+                QToolTip.showText(self.mapToGlobal(rect.bottomLeft()), self.tabToolTip(index), self, rect)
+                break
 
     def _activate(self, index: int) -> None:
         if index >= 0 and self.isTabEnabled(index):
@@ -123,6 +148,7 @@ class BookmarkStrip(QTabBar):
         menu = QMenu(self)
         menu.addAction("Rename bookmark…", lambda: self.rename_requested.emit(source))
         menu.addAction("Remove bookmark", lambda: self.remove_requested.emit(source))
+        self.menu_requested.emit(menu, source)
         menu.exec(self.mapToGlobal(point))
         menu.deleteLater()
 
@@ -132,10 +158,38 @@ class ResultsBookmarks(QObject):
         super().__init__(view)
         self.view = view
         self.items: dict[SourceLocation, Bookmark] = {}
-        self.strip = BookmarkStrip(view)
+        self.bar = QWidget(view)
+        self.bar.setObjectName("bookmarkBar")
+        self.bar.setStyleSheet(f"QWidget#bookmarkBar {{ background: {THEME_COLORS['background']}; }}")
+        layout = QHBoxLayout(self.bar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.strip = BookmarkStrip(self.bar)
+        layout.addWidget(self.strip, 1)
+        self.reorder_button = QPushButton("Reorder", self.bar)
+        self.reorder_button.setObjectName("reorderBookmarks")
+        self.reorder_button.setToolTip("Sort bookmarks by the order they appear in source.")
+        configure_action_button(self.reorder_button)
+        self.reorder_button.setStyleSheet(
+            "QPushButton#reorderBookmarks {"
+            f" color: {THEME_COLORS['bookmark_marker']}; background: {THEME_COLORS['background']};"
+            " border: 0; border-radius: 0; min-height: 0; padding: 4px 10px 3px;"
+            f" border-left: 1px solid {THEME_COLORS['bookmark_divider']};"
+            f" border-bottom: 1px solid {THEME_COLORS['bookmark_border']}; }}"
+            "QPushButton#reorderBookmarks:hover {"
+            f" background: {THEME_COLORS['bookmark_hover']}; }}"
+            "QPushButton#reorderBookmarks:pressed {"
+            f" background: {THEME_COLORS['bookmark_pressed']}; }}"
+            "QPushButton#reorderBookmarks:disabled {"
+            f" color: {THEME_COLORS['muted']}; }}"
+        )
+        self.reorder_button.clicked.connect(self.reorder)
+        layout.addWidget(self.reorder_button)
+        self.bar.hide()
         self.strip.activated.connect(self.activate)
         self.strip.rename_requested.connect(self.rename)
         self.strip.remove_requested.connect(self.remove)
+        self.strip.menu_requested.connect(self._add_conversion_action)
 
     def _retained(self, source: SourceLocation) -> bool:
         source_view = self.view.source_view
@@ -146,24 +200,27 @@ class ResultsBookmarks(QObject):
     def _name(name: str, source: SourceLocation) -> str:
         return name.strip() or f"Line {source.line:,}"
 
-    def add(self, location: ResultLocation, name: str) -> bool:
+    def add(self, location: ResultLocation | SourceLocation, name: str) -> bool:
+        source = location.source if isinstance(location, ResultLocation) else location
         model = self.view.model
-        if (not self._retained(location.source) or self.view.is_rendering or
-                model is None or model.resolve(location) is None or
-                location.source in self.items):
+        if not self._retained(source) or source in self.items:
             return False
-        self.items[location.source] = Bookmark(location, self._name(name, location.source))
+        if isinstance(location, ResultLocation) and (
+                self.view.is_rendering or model is None or model.resolve(location) is None):
+            return False
+        self.items[source] = Bookmark(location, self._name(name, source))
         self.refresh()
-        self._select(location.source)
+        self._select(source)
         return True
 
-    def prompt(self, location: ResultLocation) -> None:
-        if location.source in self.items:
-            self.rename(location.source)
+    def prompt(self, location: ResultLocation | SourceLocation) -> None:
+        source = location.source if isinstance(location, ResultLocation) else location
+        if source in self.items:
+            self.rename(source)
             return
         name, accepted = QInputDialog.getText(
             self.view, "Add bookmark", "Name:", QLineEdit.EchoMode.Normal,
-            f"Line {location.source.line:,}",
+            f"Line {source.line:,}",
         )
         if accepted:
             # A modal dialog can process a completed load/render in the meantime.
@@ -191,12 +248,61 @@ class ResultsBookmarks(QObject):
         if had_bookmarks:
             self.view.bookmarks_cleared.emit()
 
-    def add_menu_actions(self, menu: QMenu, location: ResultLocation) -> None:
-        if location.source in self.items:
-            menu.addAction("Rename bookmark…", lambda: self.rename(location.source))
-            menu.addAction("Remove bookmark", lambda: self.remove(location.source))
+    def add_menu_actions(self, menu: QMenu, location: ResultLocation | SourceLocation) -> None:
+        source = location.source if isinstance(location, ResultLocation) else location
+        if source in self.items:
+            menu.addAction("Rename bookmark…", lambda: self.rename(source))
+            menu.addAction("Remove bookmark", lambda: self.remove(source))
+            self._add_conversion_action(menu, source)
         else:
             menu.addAction("Add bookmark…", lambda: self.prompt(location))
+
+    def _add_conversion_action(self, menu: QMenu, source: SourceLocation) -> None:
+        bookmark = self.items.get(source)
+        if bookmark is None or not isinstance(bookmark.location, SourceLocation):
+            return
+        menu.setStyleSheet(
+            "QMenu { background: #ffffff; color: #000000; border: 1px solid #a0a0a0; }"
+            "QMenu::item { padding: 4px 4px 4px 14px; }"
+            "QMenu::item:selected { background: #e5f3ff; color: #000000; }"
+            "QMenu::separator { height: 1px; background: #cccccc; margin: 3px 0; }"
+            "QMenu::indicator { width: 12px; height: 12px; left: 6px; }"
+            "QMenu::indicator:unchecked { border: 1px solid #606060; background: #ffffff; }"
+        )
+        menu.addSeparator()
+        action = menu.addAction("Convert when shown in results")
+        action.setCheckable(True)
+        action.setChecked(bookmark.convert_when_shown)
+        action.setProperty("keepMenuOpen", True)
+        action.toggled.connect(lambda enabled: self._set_convert_when_shown(source, bookmark, enabled))
+        menu.installEventFilter(self)
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if isinstance(watched, QMenu):
+            action = None
+            if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                action = watched.actionAt(event.position().toPoint())
+            elif event.type() == QEvent.Type.KeyPress and event.key() in (
+                    Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                action = watched.activeAction()
+            if action is not None and action.isEnabled() and action.property("keepMenuOpen"):
+                action.trigger()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _set_convert_when_shown(self, source: SourceLocation, bookmark: Bookmark, enabled: bool) -> None:
+        if self.items.get(source) is bookmark and isinstance(bookmark.location, SourceLocation):
+            bookmark.convert_when_shown = enabled
+            self.refresh()
+
+    def reorder(self) -> None:
+        self.items = dict(sorted(self.items.items(), key=lambda item: item[0].line))
+        for destination, source in enumerate(self.items):
+            current = next(index for index in range(self.strip.count())
+                           if self.strip.tabData(index) == source)
+            if current != destination:
+                self.strip.moveTab(current, destination)
+        self.refresh()
 
     def _select(self, source: SourceLocation) -> None:
         for index in range(self.strip.count()):
@@ -211,11 +317,15 @@ class ResultsBookmarks(QObject):
         if self.view.source_active:
             self.view.source_view.target_line = None
             self.view.source_view.go_to_line(source.line, highlight=False, center_page=True)
+        elif bookmark.source_only:
+            self.strip.show_tooltip(source)
+            return
         elif self.view.is_rendering:
             return
         elif not self.view.show_result_location(bookmark.location):
-            self.view.source_view.target_line = None
-            self.view.show_source_line(source.line, highlight=False, center_page=True)
+            self.refresh()
+            self.strip.show_tooltip(source)
+            return
         if self.view.source_active:
             self.view.source_view._use_viewport_anchor()
         self._select(source)
@@ -234,29 +344,49 @@ class ResultsBookmarks(QObject):
                 self.strip.removeTab(index)
         for index, (source, bookmark) in enumerate(self.items.items()):
             rows = model.rows_for_source(source) if model is not None else ()
+            if isinstance(bookmark.location, SourceLocation):
+                if bookmark.convert_when_shown and rows:
+                    preferred = next((row for row in rows if model.line(row).is_match), rows[0])
+                    bookmark.location = model.location(preferred)
+                    bookmark.convert_when_shown = False
+                else:
+                    rows = ()
             preferred = model.resolve(bookmark.location) if rows else None
+            if not self.view.is_rendering:
+                bookmark.converted = isinstance(bookmark.location, ResultLocation) and not rows
             for row in rows:
                 blocks[self.view._source_map.block(row)] = row == preferred
-            unavailable = not rows and not self.view.is_rendering
-            label = bookmark.name.replace("&", "&&") + (" · source" if unavailable else "")
+            label = ("(c) " if bookmark.converted else "") + bookmark.name.replace("&", "&&")
             if index == self.strip.count():
                 self.strip.addTab(label)
                 self.strip.setTabData(index, source)
             else:
                 self.strip.setTabText(index, label)
-            if self.view.is_rendering and not self.view.source_active:
+            self.strip.setTabTextColor(index, QColor(THEME_COLORS[
+                "bookmark_source_text" if bookmark.source_only else "bookmark_marker"
+            ]))
+            if bookmark.source_only:
+                tooltip = f"Source-only bookmark\nLine {source.line:,}"
+                if bookmark.converted:
+                    tooltip += ("\nConverted to source bookmark. Match no longer appears on results. "
+                                "Re-analysis needed.")
+            elif self.view.is_rendering and not self.view.source_active:
                 destination = "Results are updating. Open the original file to use this bookmark."
-            elif self.view.source_active or unavailable:
+            elif self.view.source_active:
                 destination = "Open this line in the original file."
-                if unavailable:
-                    destination += " It is not in the current results."
             else:
                 destination = "Open this line in results."
                 if model.location(preferred).category != bookmark.location.category:
                     destination = "Open this line in results under another category."
-            self.strip.setTabToolTip(index, f"{bookmark.name}\nSource line {source.line:,}\n{destination}")
-            self.strip.setTabEnabled(index, not self.view.is_rendering or self.view.source_active)
+            if not bookmark.source_only:
+                title = "" if bookmark.name == f"Line {source.line:,}" else f"{bookmark.name}\n"
+                tooltip = f"{title}Line {source.line:,}\n{destination}"
+            self.strip.setTabToolTip(index, tooltip)
+            self.strip.setTabEnabled(index, bookmark.source_only or not self.view.is_rendering
+                                     or self.view.source_active)
         self._select(selected)
         self.strip.setVisible(bool(self.items))
+        self.bar.setVisible(bool(self.items))
+        self.reorder_button.setEnabled(len(self.items) > 1)
         self.view.editor.set_bookmarked_blocks(blocks)
         self.view.source_view.set_bookmarks({s.line for s in self.items if self._retained(s)})
