@@ -267,6 +267,7 @@ class SourceView(QWidget):
         self.goto_input.clear()
         self.goto_input.setToolTip("Enter a line-number to jump to")
         self.editor.clear()
+        self.marker.set_bookmark_blocks((), None)
         self.editor.setExtraSelections([])
         self.editor.setPlaceholderText(message)
         self.range_label.clear()
@@ -296,11 +297,13 @@ class SourceView(QWidget):
         self._update_selections()
 
     def _apply_bookmarks(self) -> None:
-        self.editor.set_bookmarked_blocks({
+        blocks = {
             number - self.first_line - self.page_start: True
             for number in self.bookmarked_lines
             if self.first_line + self.page_start <= number < self.first_line + self.page_end
-        })
+        }
+        self.editor.set_bookmarked_blocks(blocks)
+        self.marker.set_bookmark_blocks(blocks, self.editor.document())
 
     def _load_page(self, index: int, *, align="center") -> None:
         self._from_viewport = True

@@ -7,7 +7,7 @@ from bisect import bisect_left, bisect_right
 from heapq import merge
 from time import perf_counter
 from textwrap import fill
-from typing import Callable, Iterator
+from typing import Callable, Iterable, Iterator
 from uuid import uuid4
 
 from PySide6.QtCore import (
@@ -209,7 +209,7 @@ class SearchMatchHighlighter(QSyntaxHighlighter):
 
 
 class SearchMarkerScrollBar(QScrollBar):
-    """Paint compact result-search markers behind the scrollbar thumb."""
+    """Paint search and bookmark markers behind the scrollbar thumb."""
 
     def __init__(
         self,
@@ -219,8 +219,12 @@ class SearchMarkerScrollBar(QScrollBar):
         super().__init__(orientation, parent)
         self._match_blocks = array("I")
         self._document: QTextDocument | None = None
+        self._bookmark_blocks = array("I")
+        self._bookmark_document: QTextDocument | None = None
         self._marker_rows: tuple[int, ...] = ()
         self._marker_cache_key: tuple[int, ...] | None = None
+        self._bookmark_marker_rows: tuple[int, ...] = ()
+        self._bookmark_marker_cache_key: tuple[int, ...] | None = None
         self.rangeChanged.connect(self._invalidate_marker_rows)
 
     def set_match_blocks(
@@ -234,17 +238,24 @@ class SearchMarkerScrollBar(QScrollBar):
         self._document = document
         self._invalidate_marker_rows()
 
+    def set_bookmark_blocks(self, blocks: Iterable[int], document: QTextDocument | None) -> None:
+        self._bookmark_blocks = array("I", sorted(blocks))
+        self._bookmark_document = document
+        self._invalidate_marker_rows()
+
     @Slot()
     def _invalidate_marker_rows(self, *_args) -> None:
         self._marker_rows = ()
         self._marker_cache_key = None
+        self._bookmark_marker_rows = ()
+        self._bookmark_marker_cache_key = None
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
         super().paintEvent(event)
         if (
-            not self._match_blocks
-            or self._document is None
+            not (self._match_blocks and self._document is not None
+                 or self._bookmark_blocks and self._bookmark_document is not None)
             or self.orientation() != Qt.Orientation.Vertical
         ):
             return
@@ -278,13 +289,22 @@ class SearchMarkerScrollBar(QScrollBar):
                 continue
             painter.fillRect(marker_left, row, marker_width, 1, marker_color)
 
-    def _marker_rows_for_groove(self, groove) -> tuple[int, ...]:
+        bookmark_color = QColor(THEME_COLORS["bookmark_marker"])
+        for row in self._marker_rows_for_groove(groove, bookmarks=True):
+            if slider.top() <= row <= slider.bottom():
+                continue
+            # Bookmark pips take precedence over search pips on the same row.
+            painter.fillRect(marker_left, row, marker_width, 1, bookmark_color)
+
+    def _marker_rows_for_groove(self, groove, *, bookmarks=False) -> tuple[int, ...]:
+        document = self._bookmark_document if bookmarks else self._document
+        blocks = self._bookmark_blocks if bookmarks else self._match_blocks
         document_block_count = (
-            self._document.blockCount() if self._document is not None else 0
+            document.blockCount() if document is not None else 0
         )
         document_width = (
-            round(self._document.documentLayout().documentSize().width())
-            if self._document is not None
+            round(document.documentLayout().documentSize().width())
+            if document is not None
             else 0
         )
         cache_key = (
@@ -295,18 +315,29 @@ class SearchMarkerScrollBar(QScrollBar):
             document_block_count,
             document_width,
         )
-        if cache_key == self._marker_cache_key:
+        if bookmarks:
+            if cache_key == self._bookmark_marker_cache_key:
+                return self._bookmark_marker_rows
+        elif cache_key == self._marker_cache_key:
             return self._marker_rows
 
-        self._marker_cache_key = cache_key
+        rows = self._project_marker_rows(groove, blocks, document, document_block_count)
+        if bookmarks:
+            self._bookmark_marker_cache_key = cache_key
+            self._bookmark_marker_rows = rows
+        else:
+            self._marker_cache_key = cache_key
+            self._marker_rows = rows
+        return rows
+
+    def _project_marker_rows(self, groove, blocks, document, document_block_count) -> tuple[int, ...]:
         height = groove.height()
         if (
             height <= 0
-            or not self._match_blocks
-            or self._document is None
+            or not blocks
+            or document is None
         ):
-            self._marker_rows = ()
-            return self._marker_rows
+            return ()
 
         row_span = max(0, height - 1)
         scroll_extent = self.maximum() - self.minimum() + self.pageStep()
@@ -317,7 +348,7 @@ class SearchMarkerScrollBar(QScrollBar):
         # scrollbar height, rather than the number of matching document lines.
         def position_for_block(block_number):
             if use_visual_lines:
-                block = self._document.findBlockByNumber(block_number)
+                block = document.findBlockByNumber(block_number)
                 first_line = block.firstLineNumber() if block.isValid() else -1
                 if first_line >= 0:
                     return first_line
@@ -325,8 +356,8 @@ class SearchMarkerScrollBar(QScrollBar):
 
         rows = []
         index = 0
-        while index < len(self._match_blocks):
-            position = position_for_block(self._match_blocks[index])
+        while index < len(blocks):
+            position = position_for_block(blocks[index])
             relative_row = min(row_span, position * row_span // document_span)
             rows.append(groove.top() + relative_row)
             if relative_row == row_span:
@@ -335,11 +366,10 @@ class SearchMarkerScrollBar(QScrollBar):
                 (relative_row + 1) * document_span + row_span - 1
             ) // row_span
             index = bisect_left(
-                self._match_blocks, next_position, lo=index + 1,
+                blocks, next_position, lo=index + 1,
                 key=position_for_block,
             )
-        self._marker_rows = tuple(rows)
-        return self._marker_rows
+        return tuple(rows)
 
 
 class IncrementalAnalysisRenderer(QObject):

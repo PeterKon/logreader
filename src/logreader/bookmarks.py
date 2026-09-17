@@ -391,4 +391,5 @@ class ResultsBookmarks(QObject):
         self.bar.setVisible(bool(self.items))
         self.reorder_button.setEnabled(len(self.items) > 1)
         self.view.editor.set_bookmarked_blocks(blocks)
+        self.view.editor.verticalScrollBar().set_bookmark_blocks(blocks, self.view.editor.document())
         self.view.source_view.set_bookmarks({s.line for s in self.items if self._retained(s)})

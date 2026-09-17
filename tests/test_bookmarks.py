@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QContextMenuEvent, QFont, QFontDatabase, QTextCursor, QWheelEvent
 from PySide6.QtTest import QSignalSpy, QTest
-from PySide6.QtWidgets import QApplication, QMenu, QToolTip
+from PySide6.QtWidgets import QApplication, QMenu, QStyle, QStyleOptionSlider, QToolTip
 
 from qt_helpers import wait_for_search
 from logreader.config import LogreaderConfig
@@ -64,6 +64,110 @@ class BookmarkTests(unittest.TestCase):
 
     def selected_row(self):
         return self.view._source_map.row(self.view.editor.textCursor().blockNumber())
+
+    def test_bookmark_scrollbar_pips_take_precedence_over_search_in_both_views(self):
+        lines = tuple(f"ERROR: {i}" + (" needle" if i in (100, 300) else "") for i in range(400))
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
+        self.add(0)
+        self.add(100)
+        self.add(200)
+        self.bookmarks.add(SourceLocation("snapshot", 1351), "Source only")
+        for source_active in (False, True):
+            with self.subTest(source_active=source_active):
+                self.view.set_source_active(source_active)
+                editor = self.view.source_view.editor if source_active else self.view.editor
+                scrollbar = editor.verticalScrollBar()
+                self.view._search_input.setText("needle")
+                self.view.search_results()
+                for _ in range(1000):
+                    if (not self.view.is_searching and not self.view.source_view.is_searching
+                            and self.view.source_view._page_work is None):
+                        break
+                    QTest.qWait(5)
+                self.assertFalse(self.view.is_searching)
+                self.assertFalse(self.view.source_view.is_searching)
+                scrollbar.setValue(0)
+                self.app.processEvents()
+                self.assertEqual(scrollbar._bookmark_blocks.tolist(), sorted(editor._bookmark_blocks))
+                self.assertEqual(len(scrollbar._bookmark_blocks), 4 if source_active else 3)
+                option = QStyleOptionSlider()
+                scrollbar.initStyleOption(option)
+                groove = scrollbar.style().subControlRect(QStyle.ComplexControl.CC_ScrollBar, option,
+                                                         QStyle.SubControl.SC_ScrollBarGroove, scrollbar)
+                slider = scrollbar.style().subControlRect(QStyle.ComplexControl.CC_ScrollBar, option,
+                                                         QStyle.SubControl.SC_ScrollBarSlider, scrollbar)
+                bookmarks = scrollbar._marker_rows_for_groove(groove, bookmarks=True)
+                search = scrollbar._marker_rows_for_groove(groove)
+                overlap = set(bookmarks) & set(search)
+                self.assertTrue(overlap)
+                self.assertTrue(any(slider.top() <= row <= slider.bottom() for row in bookmarks))
+                image = scrollbar.grab().toImage()
+                for row in overlap:
+                    self.assertFalse(slider.top() <= row <= slider.bottom())
+                    self.assertEqual(image.pixelColor(groove.left() + 2, row).name(), THEME_COLORS["bookmark_marker"])
+                    self.assertEqual(image.pixelColor(groove.right() - 2, row).name(), THEME_COLORS["bookmark_marker"])
+                for row in set(bookmarks) - set(search):
+                    if slider.top() <= row <= slider.bottom():
+                        self.assertNotEqual(image.pixelColor(groove.center().x(), row).name(), THEME_COLORS["bookmark_marker"])
+                    else:
+                        self.assertEqual(image.pixelColor(groove.center().x(), row).name(), THEME_COLORS["bookmark_marker"])
+                self.view._search_input.clear()
+                self.assertFalse(scrollbar._match_blocks)
+                self.assertEqual(scrollbar._marker_rows_for_groove(groove, bookmarks=True), bookmarks)
+                image = scrollbar.grab().toImage()
+                for row in bookmarks:
+                    if not slider.top() <= row <= slider.bottom():
+                        self.assertEqual(image.pixelColor(groove.center().x(), row).name(), THEME_COLORS["bookmark_marker"])
+        self.bookmarks.clear()
+        for editor in (self.view.editor, self.view.source_view.editor):
+            self.assertFalse(editor.verticalScrollBar()._bookmark_blocks)
+
+    def test_bookmark_scrollbar_pips_follow_wrapping_and_resize(self):
+        lines = tuple("ERROR: " + ("long line " * 400 if i == 100 else str(i)) for i in range(201))
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
+        for row in (20, 100, 180):
+            self.add(row)
+        for source_active in (False, True):
+            self.view.set_source_active(source_active)
+            self.view.set_line_wrapping(True)
+            self.bookmarks.activate(SourceLocation("snapshot", 1101))
+            editor = self.view.source_view.editor if source_active else self.view.editor
+            for width in (900, 700):
+                with self.subTest(source_active=source_active, width=width):
+                    self.view.resize(width, 400)
+                    self.app.processEvents()
+                    editor.ensureCursorVisible()
+                    self.app.processEvents()
+                    scrollbar = editor.verticalScrollBar()
+                    option = QStyleOptionSlider()
+                    scrollbar.initStyleOption(option)
+                    groove = scrollbar.style().subControlRect(QStyle.ComplexControl.CC_ScrollBar, option,
+                                                             QStyle.SubControl.SC_ScrollBarGroove, scrollbar)
+                    extent = scrollbar.maximum() + scrollbar.pageStep()
+                    self.assertGreater(extent, editor.blockCount())
+                    expected = tuple(sorted({groove.top() + editor.document().findBlockByNumber(block).firstLineNumber()
+                                             * (groove.height() - 1) // (extent - 1)
+                                             for block in editor._bookmark_blocks}))
+                    self.assertEqual(scrollbar._marker_rows_for_groove(groove, bookmarks=True), expected)
+
+    def test_bookmark_scrollbar_pips_update_on_reanalysis_removal_and_source_replacement(self):
+        lines = tuple(f"ERROR: {i}" for i in range(100))
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
+        location = self.add(50)
+        scrollbar = self.view.editor.verticalScrollBar()
+        before = scrollbar._bookmark_blocks[0]
+        self.view.prepend_performance_timings(.1, .2)
+        self.assertGreater(scrollbar._bookmark_blocks[0], before)
+        self.render(lines, LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("absent",)), load=False)
+        self.assertFalse(scrollbar._bookmark_blocks)
+        self.view.set_source_active(True)
+        self.assertEqual(self.view.source_view.marker._bookmark_blocks.tolist(), [50])
+        self.bookmarks.remove(location.source)
+        self.assertFalse(self.view.source_view.marker._bookmark_blocks)
+        self.bookmarks.add(location.source, "Source only")
+        self.view.set_source(("replacement",), 1, snapshot_id="replacement")
+        self.assertFalse(scrollbar._bookmark_blocks)
+        self.assertFalse(self.view.source_view.marker._bookmark_blocks)
 
     def test_reorder_sorts_all_bookmark_types_without_changing_selection_or_metadata(self):
         lines = tuple(f"ERROR: {i}" for i in range(80))
@@ -230,8 +334,10 @@ class BookmarkTests(unittest.TestCase):
         self.assertEqual(self.view.source_location_at(editor.cursorRect().center()), source)
         self.view.source_view.first_page()
         self.assertFalse(editor._bookmark_blocks)
+        self.assertFalse(self.view.source_view.marker._bookmark_blocks)
         self.bookmarks.activate(source)
         self.assertEqual(editor._bookmark_blocks, {editor.textCursor().blockNumber(): True})
+        self.assertEqual(self.view.source_view.marker._bookmark_blocks.tolist(), [editor.textCursor().blockNumber()])
 
     def test_bookmark_types_render_distinct_text_with_shared_background_and_borders(self):
         from logreader.qt_app import INTERFACE_STYLE_SHEET
