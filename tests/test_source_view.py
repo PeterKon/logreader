@@ -121,7 +121,7 @@ class SourceViewTests(unittest.TestCase):
         self.assertEqual(self.source.editor.toPlainText(), "\n".join(lines[:self.source.page_end]))
         self.assertTrue(self.source.editor.isReadOnly())
         self.assertFalse(self.source.editor.document().isUndoRedoEnabled())
-        self.assertIn("5,001", self.source.range_label.text())
+        self.assertEqual(self.source.range_label.text(), "5,001-9,000 of 9,000")
         self.assertIsNone(self.page.session.analysis)
         self.view._source_button.click()
         self.assertFalse(self.view.source_active)

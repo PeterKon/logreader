@@ -342,7 +342,8 @@ class SourceView(QWidget):
 
     def _update_range(self) -> None:
         self.range_label.setText(
-            f"{self.first_line + self.page_start:,}–{self.first_line + self.page_end - 1:,}"
+            f"{self.first_line + self.page_start:,}-{self.first_line + self.page_end - 1:,}"
+            f" of {self.total_line_count:,}"
         )
 
     def _show_line_error(self, message: str) -> None:
