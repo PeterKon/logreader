@@ -172,16 +172,18 @@ class ResultsBookmarks(QObject):
         configure_action_button(self.reorder_button)
         self.reorder_button.setStyleSheet(
             "QPushButton#reorderBookmarks {"
-            f" color: {THEME_COLORS['bookmark_marker']}; background: {THEME_COLORS['background']};"
-            " border: 0; border-radius: 0; min-height: 0; padding: 4px 10px 3px;"
-            f" border-left: 1px solid {THEME_COLORS['bookmark_divider']};"
-            f" border-bottom: 1px solid {THEME_COLORS['bookmark_border']}; }}"
+            f" color: {THEME_COLORS['bookmark_marker']}; background: {THEME_COLORS['ui_button']};"
+            f" border: 1px solid {THEME_COLORS['ui_border_strong']};"
+            " border-radius: 5px; min-height: 0; padding: 1px 8px; margin: 2px 4px 2px 6px; }"
             "QPushButton#reorderBookmarks:hover {"
-            f" background: {THEME_COLORS['bookmark_hover']}; }}"
+            f" background: {THEME_COLORS['ui_button_hover']}; }}"
+            "QPushButton#reorderBookmarks:focus {"
+            f" border-color: {THEME_COLORS['ui_accent']}; }}"
             "QPushButton#reorderBookmarks:pressed {"
-            f" background: {THEME_COLORS['bookmark_pressed']}; }}"
+            f" background: {THEME_COLORS['ui_button_pressed']}; }}"
             "QPushButton#reorderBookmarks:disabled {"
-            f" color: {THEME_COLORS['muted']}; }}"
+            f" color: {THEME_COLORS['ui_disabled_text']}; background: {THEME_COLORS['ui_disabled']};"
+            f" border-color: {THEME_COLORS['ui_border']}; }}"
         )
         self.reorder_button.clicked.connect(self.reorder)
         layout.addWidget(self.reorder_button)
