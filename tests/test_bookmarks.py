@@ -633,7 +633,7 @@ class BookmarkTests(unittest.TestCase):
         strip = self.bookmarks.strip
         self.app.processEvents()
         image = strip.grab().toImage()
-        for index, role in enumerate(("bookmark_marker", "bookmark_source_text", "bookmark_source_text")):
+        for index, role in enumerate(("bookmark_text", "bookmark_source_text", "bookmark_source_text")):
             rect = strip.tabRect(index)
             colors = {image.pixelColor(x, y).name()
                       for x in range(rect.left() + 2, rect.right() - 2)
@@ -716,7 +716,7 @@ class BookmarkTests(unittest.TestCase):
         self.assertFalse(bookmark.source_only)
         self.assertFalse(bookmark.converted)
         self.assertEqual(strip.tabText(0), "Keep this name")
-        self.assertEqual(strip.tabTextColor(0).name(), THEME_COLORS["bookmark_marker"])
+        self.assertEqual(strip.tabTextColor(0).name(), THEME_COLORS["bookmark_text"])
         rows = self.view.model.rows_for_source(source)
         self.assertFalse(self.view.model.line(rows[0]).is_match)
         self.assertTrue(self.view.model.line(self.view.model.resolve(bookmark.location)).is_match)

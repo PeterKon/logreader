@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, QObject, QPointF, Qt, Signal
-from PySide6.QtGui import QAction, QColor, QCursor, QHoverEvent, QPainter, QPen, QPolygonF
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QAction, QColor, QCursor, QHoverEvent, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMenu, QPlainTextEdit, QPushButton, QStyle, QTabBar, QToolTip,
@@ -75,12 +75,27 @@ class BookmarkNoteIcon(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(self.color, 1))
-        painter.drawPolygon(QPolygonF([QPointF(2, 1), QPointF(7, 1), QPointF(10, 4),
-                                      QPointF(10, 11), QPointF(2, 11)]))
-        painter.drawPolyline(QPolygonF([QPointF(7, 1), QPointF(7, 4), QPointF(10, 4)]))
-        painter.drawLine(QPointF(4, 6), QPointF(8, 6))
-        painter.drawLine(QPointF(4, 8), QPointF(8, 8))
+        note = QPainterPath()
+        note.setFillRule(Qt.FillRule.OddEvenFill)
+        note.moveTo(2.5, 0)
+        note.lineTo(10.5, 0)
+        note.quadTo(12, 0, 12, 1.5)
+        note.lineTo(12, 7)
+        note.lineTo(8, 7)
+        note.lineTo(8, 11)
+        note.lineTo(2.5, 11)
+        note.quadTo(1, 11, 1, 9.5)
+        note.lineTo(1, 1.5)
+        note.quadTo(1, 0, 2.5, 0)
+        note.closeSubpath()
+        note.moveTo(9, 8)
+        note.lineTo(12, 8)
+        note.lineTo(9, 11)
+        note.closeSubpath()
+        for y, width in ((3, 7), (5, 5)):
+            note.addRect(QRectF(3, y, width, 1))
+        painter.fillPath(note, self.color)
+        painter.end()
 
 
 class BookmarkNotesDialog(QDialog):
@@ -564,7 +579,7 @@ class ResultsBookmarks(QObject):
             else:
                 self.strip.setTabText(index, label)
             self.strip.setTabTextColor(index, QColor(THEME_COLORS[
-                "bookmark_source_text" if bookmark.source_only else "bookmark_marker"
+                "bookmark_source_text" if bookmark.source_only else "bookmark_text"
             ]))
             if bookmark.source_only:
                 tooltip = f"Source-only bookmark\nLine {source.line:,}"
