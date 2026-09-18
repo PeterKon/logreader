@@ -338,7 +338,7 @@ class ResultsBookmarks(QObject):
         configure_action_button(self.reorder_button)
         self.reorder_button.setStyleSheet(
             "QPushButton#reorderBookmarks {"
-            f" color: {THEME_COLORS['bookmark_marker']}; background: {THEME_COLORS['ui_button']};"
+            f" color: {THEME_COLORS['bookmark_text']}; background: {THEME_COLORS['ui_button']};"
             f" border: 1px solid {THEME_COLORS['ui_border_strong']};"
             " border-radius: 5px; min-height: 0; padding: 1px 8px; margin: 2px 4px 2px 6px; }"
             "QPushButton#reorderBookmarks:hover {"

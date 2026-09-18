@@ -39,7 +39,7 @@ THEME_COLORS = {
     "bookmark_related": "#272617",
     "bookmark_marker": "#d6b65a",
     "bookmark_text": "#b39b53",
-    "bookmark_source_text": "#847d64",
+    "bookmark_source_text": "#888377",
     "bookmark_note": "#a38f52",
     "bookmark_related_marker": "#827444",
     "muted": "#8b949e",
