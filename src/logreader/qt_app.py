@@ -258,6 +258,14 @@ QSpinBox {{
 QSpinBox {{
     padding-right: 24px;
 }}
+QLineEdit#customPattern:enabled,
+QLineEdit#regexPattern:enabled,
+QSpinBox#contextSpin:enabled,
+QSpinBox#limitSpin:enabled,
+QSpinBox#contextSpin QLineEdit:enabled,
+QSpinBox#limitSpin QLineEdit:enabled {{
+    background-color: {THEME_COLORS['ui_field']};
+}}
 QLineEdit:hover {{
     border-color: {THEME_COLORS['ui_muted']};
 }}
@@ -359,6 +367,11 @@ QCheckBox::indicator:checked {{
 }}
 QCheckBox[islandIndicator="true"]::indicator:unchecked {{
     background-color: {THEME_COLORS['ui_island']};
+}}
+QGroupBox#pairedPatternGroup QCheckBox::indicator:unchecked,
+QGroupBox#textPatternGroup QCheckBox::indicator:unchecked,
+QGroupBox#httpStatusGroup QCheckBox::indicator:unchecked {{
+    background-color: {THEME_COLORS['ui_field']};
 }}
 QCheckBox::indicator:disabled {{
     background-color: {THEME_COLORS['ui_disabled']};
