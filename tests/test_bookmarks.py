@@ -554,7 +554,7 @@ class BookmarkTests(unittest.TestCase):
         self.assertEqual(self.view.source_location_at(point), source)
         self.assertIsNone(self.view.source_location_at(QPoint(10, editor.viewport().height() - 5)))
 
-        for action, name in (("Add bookmark…", "Blank line"),
+        for action, name in (("Add bookmark", "Blank line"),
                              ("Rename bookmark", "Renamed"), ("Remove bookmark", None)):
             class TestMenu(QMenu):
                 def exec(self, *args):

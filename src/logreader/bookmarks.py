@@ -513,7 +513,7 @@ class ResultsBookmarks(QObject):
             menu.addAction("Rename bookmark", lambda: self.rename(source))
             self._add_extra_menu_actions(menu, source)
         else:
-            menu.addAction("Add bookmark…", lambda: self.prompt(location))
+            menu.addAction("Add bookmark", lambda: self.prompt(location))
 
     def _add_extra_menu_actions(self, menu: QMenu, source: SourceLocation) -> None:
         bookmark = self.items.get(source)

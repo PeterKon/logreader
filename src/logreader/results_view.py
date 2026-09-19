@@ -918,7 +918,7 @@ class ResultsView(QWidget):
         number = location.source.line if location is not None else None
         menu = self._editor.createStandardContextMenu()
         menu.addSeparator()
-        action = menu.addAction("Show source line")
+        action = menu.addAction("Show in source")
         action.setEnabled(number is not None)
         if number is not None:
             action.triggered.connect(lambda: self.show_source_line(number))
