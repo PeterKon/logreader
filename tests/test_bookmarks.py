@@ -66,6 +66,30 @@ class BookmarkTests(unittest.TestCase):
     def selected_row(self):
         return self.view._source_map.row(self.view.editor.textCursor().blockNumber())
 
+    def test_menu_groups_bookmark_and_note_actions_for_both_bookmark_types(self):
+        self.render(("ERROR: first", "plain source"),
+                    LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
+        result = self.add()
+        source = SourceLocation("snapshot", 1002)
+        self.bookmarks.add(source, "Source")
+        for location in (result, source):
+            key = location if isinstance(location, SourceLocation) else location.source
+            for note in ("", "Investigation note"):
+                with self.subTest(source_only=isinstance(location, SourceLocation), note=note):
+                    self.bookmarks.items[key].note = note
+                    menu = QMenu(self.bookmarks.strip)
+                    self.addCleanup(menu.deleteLater)
+                    self.bookmarks.add_menu_actions(menu, location)
+                    expected = ["Open note", "Delete note"] if note else ["Add note..."]
+                    expected += [None, "Remove bookmark", "Rename bookmark"]
+                    if isinstance(location, SourceLocation):
+                        expected += [None, "Convert when shown in results"]
+                        self.assertTrue(menu.actions()[-1].isCheckable())
+                    self.assertEqual(
+                        [None if action.isSeparator() else action.text() for action in menu.actions()],
+                        expected,
+                    )
+
     def test_notes_menu_adds_edits_cancels_and_clears_one_plain_text_note(self):
         self.render(("ERROR: first",))
         source = self.add().source
@@ -209,7 +233,7 @@ class BookmarkTests(unittest.TestCase):
         self.addCleanup(menu.close)
         self.bookmarks.add_menu_actions(menu, source)
         self.assertEqual([a.text() for a in menu.actions()],
-                         ["Rename bookmark…", "Open note", "Delete note", "Remove bookmark"])
+                         ["Open note", "Delete note", "", "Remove bookmark", "Rename bookmark"])
         delete = next(a for a in menu.actions() if a.text() == "Delete note")
         menu.popup(strip.mapToGlobal(strip.rect().bottomLeft()))
         self.app.processEvents()
@@ -223,7 +247,7 @@ class BookmarkTests(unittest.TestCase):
         reopened = QMenu()
         self.bookmarks.add_menu_actions(reopened, source)
         self.assertEqual([a.text() for a in reopened.actions()],
-                         ["Rename bookmark…", "Add note...", "Remove bookmark"])
+                         ["Add note...", "", "Remove bookmark", "Rename bookmark"])
 
     def test_deletion_confirmation_requires_yes_and_describes_what_will_be_deleted(self):
         self.render(("ERROR: first",))
@@ -531,7 +555,7 @@ class BookmarkTests(unittest.TestCase):
         self.assertIsNone(self.view.source_location_at(QPoint(10, editor.viewport().height() - 5)))
 
         for action, name in (("Add bookmark…", "Blank line"),
-                             ("Rename bookmark…", "Renamed"), ("Remove bookmark", None)):
+                             ("Rename bookmark", "Renamed"), ("Remove bookmark", None)):
             class TestMenu(QMenu):
                 def exec(self, *args):
                     next(a for a in self.actions() if a.text() == action).trigger()
@@ -539,7 +563,7 @@ class BookmarkTests(unittest.TestCase):
                     "logreader.bookmarks.QInputDialog.getText", return_value=(name, True)), patch(
                     "logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
                 # Exercise both the text and line-number context menus.
-                if action == "Rename bookmark…":
+                if action == "Rename bookmark":
                     editor.gutter.customContextMenuRequested.emit(QPoint(2, point.y()))
                 else:
                     editor.customContextMenuRequested.emit(point)
@@ -788,7 +812,7 @@ class BookmarkTests(unittest.TestCase):
             self.assertEqual(toggle.isChecked(), checked)
             self.assertEqual(self.bookmarks.items[source].convert_when_shown, checked)
 
-        rename = next(a for a in menu.actions() if a.text() == "Rename bookmark…")
+        rename = next(a for a in menu.actions() if a.text() == "Rename bookmark")
         with patch("logreader.bookmarks.QInputDialog.getText", return_value=("Renamed", True)):
             QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(rename).center())
         self.assertFalse(menu.isVisible())
@@ -851,13 +875,13 @@ class BookmarkTests(unittest.TestCase):
         self.assertFalse(self.bookmarks.add(duplicate, "duplicate"))
         menu = QMenu()
         self.bookmarks.add_menu_actions(menu, duplicate)
-        self.assertEqual([a.text() for a in menu.actions()], ["Rename bookmark…", "Add note...", "Remove bookmark"])
+        self.assertEqual([a.text() for a in menu.actions()], ["Add note...", "", "Remove bookmark", "Rename bookmark"])
         with patch("logreader.bookmarks.QInputDialog.getText", return_value=("A & B 😀", True)):
-            menu.actions()[0].trigger()
+            next(a for a in menu.actions() if a.text() == "Rename bookmark").trigger()
         self.assertEqual(self.bookmarks.items[location.source].name, "A & B 😀")
         self.assertEqual(self.bookmarks.items[location.source].location, location)
         with patch("logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
-            menu.actions()[2].trigger()
+            next(a for a in menu.actions() if a.text() == "Remove bookmark").trigger()
         self.assertFalse(self.view.editor.extraSelections())
         self.assertTrue(self.bookmarks.strip.isHidden())
 
@@ -986,9 +1010,9 @@ class BookmarkTests(unittest.TestCase):
 
         def inspect_menu(menu, *args):
             self.assertEqual([action.text() for action in menu.actions()],
-                             ["Rename bookmark…", "Add note...", "Remove bookmark"])
-            menu.actions()[0].trigger()
-            menu.actions()[2].trigger()
+                             ["Add note...", "", "Remove bookmark", "Rename bookmark"])
+            next(a for a in menu.actions() if a.text() == "Rename bookmark").trigger()
+            next(a for a in menu.actions() if a.text() == "Remove bookmark").trigger()
 
         class TestMenu(QMenu):
             def exec(self, *args):

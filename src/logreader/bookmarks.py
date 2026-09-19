@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QAction, QColor, QCursor, QHoverEvent, QPainter, QPainterPath
+from PySide6.QtGui import QAction, QColor, QCursor, QHoverEvent, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMenu, QPlainTextEdit, QProxyStyle, QPushButton, QStyle, QStyleFactory,
@@ -24,8 +24,45 @@ if TYPE_CHECKING:
 BOOKMARK_MENU_HOVER_COLOR = "#b8d8f5"
 
 
+def _conversion_toggle_icon() -> QIcon:
+    icon = QIcon()
+    for checked in (False, True):
+        border = "#404040" if checked else "#707070"
+        background = "#f0f0f0" if checked else "#ffffff"
+        for scale in (1, 2, 3):
+            pixmap = QPixmap(16 * scale, 16 * scale)
+            pixmap.setDevicePixelRatio(scale)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QPen(QColor(border), 1))
+            painter.setBrush(QColor(background))
+            painter.drawRoundedRect(QRectF(0.5, 0.5, 15, 15), 3, 3)
+            if checked:
+                painter.setPen(QPen(QColor("#202b38"), 2, Qt.PenStyle.SolidLine,
+                                    Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                painter.drawLine(QPointF(3.5, 8), QPointF(6.5, 11.5))
+                painter.drawLine(QPointF(6.5, 11.5), QPointF(12, 3.5))
+            painter.end()
+            for mode in (QIcon.Mode.Normal, QIcon.Mode.Active):
+                icon.addPixmap(pixmap, mode, QIcon.State.On if checked else QIcon.State.Off)
+    return icon
+
+
 class BookmarkMenuStyle(QProxyStyle):
+    def sizeFromContents(self, content_type, option, size, widget=None):  # noqa: N802
+        size = super().sizeFromContents(content_type, option, size, widget)
+        if (content_type == QStyle.ContentsType.CT_MenuItem
+                and option.menuItemType == QStyleOptionMenuItem.MenuItemType.Separator):
+            size.setHeight(7)
+        return size
+
     def drawControl(self, element, option, painter, widget=None) -> None:  # noqa: N802
+        if (element == QStyle.ControlElement.CE_MenuItem
+                and option.menuItemType == QStyleOptionMenuItem.MenuItemType.Separator):
+            painter.fillRect(option.rect.left(), option.rect.center().y(),
+                             option.rect.width(), 1, QColor("#cccccc"))
+            return
         if (element == QStyle.ControlElement.CE_MenuItem
                 and option.state & QStyle.StateFlag.State_Selected):
             # Replace the hover fill while retaining native text and spacing.
@@ -324,8 +361,8 @@ class BookmarkStrip(QTabBar):
             return
         source = self.tabData(index)
         menu = QMenu(self)
-        menu.addAction("Rename bookmark…", lambda: self.rename_requested.emit(source))
         menu.addAction("Remove bookmark", lambda: self.remove_requested.emit(source))
+        menu.addAction("Rename bookmark", lambda: self.rename_requested.emit(source))
         self.menu_requested.emit(menu, source)
         menu.exec(self.mapToGlobal(point))
         menu.deleteLater()
@@ -472,8 +509,8 @@ class ResultsBookmarks(QObject):
     def add_menu_actions(self, menu: QMenu, location: ResultLocation | SourceLocation) -> None:
         source = location.source if isinstance(location, ResultLocation) else location
         if source in self.items:
-            menu.addAction("Rename bookmark…", lambda: self.rename(source))
             menu.addAction("Remove bookmark", lambda: self.request_remove(source))
+            menu.addAction("Rename bookmark", lambda: self.rename(source))
             self._add_extra_menu_actions(menu, source)
         else:
             menu.addAction("Add bookmark…", lambda: self.prompt(location))
@@ -482,7 +519,7 @@ class ResultsBookmarks(QObject):
         bookmark = self.items.get(source)
         if bookmark is None:
             return
-        before = menu.actions()[-1]
+        before = menu.actions()[-2]
         notes = QAction("Open note" if bookmark.note else "Add note...", menu)
         notes.triggered.connect(lambda: self.edit_notes(source))
         menu.insertAction(before, notes)
@@ -490,6 +527,7 @@ class ResultsBookmarks(QObject):
             delete = QAction("Delete note", menu)
             delete.triggered.connect(lambda: self.delete_note(source))
             menu.insertAction(before, delete)
+        menu.insertSeparator(before)
         self._add_conversion_action(menu, source)
         if not isinstance(bookmark.location, SourceLocation):
             style = BookmarkMenuStyle(QStyleFactory.create(QApplication.style().objectName()))
@@ -502,16 +540,16 @@ class ResultsBookmarks(QObject):
             return
         menu.setStyleSheet(
             "QMenu { background: #ffffff; color: #000000; border: 1px solid #a0a0a0; }"
-            "QMenu::item { padding: 4px 4px 4px 14px; }"
+            "QMenu::item { padding: 4px 4px 4px 8px; }"
             f"QMenu::item:selected {{ background: {BOOKMARK_MENU_HOVER_COLOR}; color: #000000; }}"
             "QMenu::separator { height: 1px; background: #cccccc; margin: 3px 0; }"
-            "QMenu::indicator { width: 12px; height: 12px; left: 6px; }"
-            "QMenu::indicator:unchecked { border: 1px solid #606060; background: #ffffff; }"
+            "QMenu::icon { width: 16px; height: 16px; left: 6px; }"
         )
         menu.addSeparator()
         action = menu.addAction("Convert when shown in results")
         action.setCheckable(True)
         action.setChecked(bookmark.convert_when_shown)
+        action.setIcon(_conversion_toggle_icon())
         action.setProperty("keepMenuOpen", True)
         action.toggled.connect(lambda enabled: self._set_convert_when_shown(source, bookmark, enabled))
         menu.installEventFilter(self)
