@@ -9,7 +9,8 @@ from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QCursor, QHoverEvent, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QMenu, QPlainTextEdit, QPushButton, QStyle, QTabBar, QToolTip,
+    QLineEdit, QMenu, QPlainTextEdit, QProxyStyle, QPushButton, QStyle, QStyleFactory,
+    QStyleOptionMenuItem, QTabBar, QToolTip,
     QVBoxLayout, QWidget,
 )
 
@@ -18,6 +19,24 @@ from .theme import THEME_COLORS, configure_action_button
 
 if TYPE_CHECKING:
     from .results_view import ResultsView
+
+
+BOOKMARK_MENU_HOVER_COLOR = "#b8d8f5"
+
+
+class BookmarkMenuStyle(QProxyStyle):
+    def drawControl(self, element, option, painter, widget=None) -> None:  # noqa: N802
+        if (element == QStyle.ControlElement.CE_MenuItem
+                and option.state & QStyle.StateFlag.State_Selected):
+            # Replace the hover fill while retaining native text and spacing.
+            option = QStyleOptionMenuItem(option)
+            option.state &= ~QStyle.StateFlag.State_Selected
+            painter.save()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(BOOKMARK_MENU_HOVER_COLOR))
+            painter.drawRoundedRect(option.rect.adjusted(2, 2, -2, -2), 4, 4)
+            painter.restore()
+        super().drawControl(element, option, painter, widget)
 
 
 BOOKMARK_DIALOG_STYLE_SHEET = (
@@ -472,6 +491,10 @@ class ResultsBookmarks(QObject):
             delete.triggered.connect(lambda: self.delete_note(source))
             menu.insertAction(before, delete)
         self._add_conversion_action(menu, source)
+        if not isinstance(bookmark.location, SourceLocation):
+            style = BookmarkMenuStyle(QStyleFactory.create(QApplication.style().objectName()))
+            style.setParent(menu)
+            menu.setStyle(style)
 
     def _add_conversion_action(self, menu: QMenu, source: SourceLocation) -> None:
         bookmark = self.items.get(source)
@@ -480,7 +503,7 @@ class ResultsBookmarks(QObject):
         menu.setStyleSheet(
             "QMenu { background: #ffffff; color: #000000; border: 1px solid #a0a0a0; }"
             "QMenu::item { padding: 4px 4px 4px 14px; }"
-            "QMenu::item:selected { background: #e5f3ff; color: #000000; }"
+            f"QMenu::item:selected {{ background: {BOOKMARK_MENU_HOVER_COLOR}; color: #000000; }}"
             "QMenu::separator { height: 1px; background: #cccccc; margin: 3px 0; }"
             "QMenu::indicator { width: 12px; height: 12px; left: 6px; }"
             "QMenu::indicator:unchecked { border: 1px solid #606060; background: #ffffff; }"
