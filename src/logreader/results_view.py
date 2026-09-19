@@ -918,18 +918,30 @@ class ResultsView(QWidget):
 
     def _results_context_menu(self, point) -> None:
         location = self.result_location_at(point)
-        number = location.source.line if location is not None else None
-        menu = self._editor.createStandardContextMenu()
-        menu.addSeparator()
-        action = menu.addAction("Show in source")
-        action.setEnabled(number is not None)
-        if number is not None:
-            action.triggered.connect(lambda: self.show_source_line(number))
-        if location is not None:
-            menu.addSeparator()
-            self.bookmarks.add_menu_actions(menu, location)
-        menu.exec(self._editor.viewport().mapToGlobal(point))
-        menu.deleteLater()
+        self._exec_line_context_menu(self._editor, point, location, show_source=True)
+
+    def _exec_line_context_menu(self, editor, point, location, *, show_source=False) -> None:
+        source = location.source if isinstance(location, ResultLocation) else location
+        menu = editor.createStandardContextMenu()
+        editor.set_context_target(editor.cursorForPosition(point).block() if source else None)
+        try:
+            if source is not None:
+                menu.addSeparator()
+                menu.addAction(f"Line {source.line:,}").setEnabled(False)
+            if show_source:
+                if source is None:
+                    menu.addSeparator()
+                action = menu.addAction("Show in source")
+                action.setEnabled(source is not None)
+                if source is not None:
+                    action.triggered.connect(lambda: self.show_source_line(source.line)
+                                             if source.snapshot_id == self._snapshot_id else None)
+            if location is not None:
+                self.bookmarks.add_menu_actions(menu, location)
+            menu.exec(editor.viewport().mapToGlobal(point))
+        finally:
+            editor.set_context_target(None)
+            menu.deleteLater()
 
     def source_location_at(self, point) -> SourceLocation | None:
         editor = self.source_view.editor
@@ -947,13 +959,7 @@ class ResultsView(QWidget):
 
     def _source_context_menu(self, point) -> None:
         location = self.source_location_at(point)
-        editor = self.source_view.editor
-        menu = editor.createStandardContextMenu()
-        if location is not None:
-            menu.addSeparator()
-            self.bookmarks.add_menu_actions(menu, location)
-        menu.exec(editor.viewport().mapToGlobal(point))
-        menu.deleteLater()
+        self._exec_line_context_menu(self.source_view.editor, point, location)
 
     @property
     def editor(self) -> QPlainTextEdit:

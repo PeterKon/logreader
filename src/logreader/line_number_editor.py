@@ -1,7 +1,7 @@
 """Shared fixed gutter for read-only source and results text."""
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QTextCursor, QTextFormat
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QTextBlock, QTextCursor, QTextFormat
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QWidget
 
 from .theme import THEME_COLORS
@@ -22,10 +22,34 @@ class LineNumberEditor(QPlainTextEdit):
         self._bookmark_blocks: dict[int, bool] = {}
         self._bookmark_selections = []
         self._transient_selections = []
+        self._context_target: QTextBlock | None = None
         super().__init__(parent)
         self.gutter = LineNumberArea(self)
         self.blockCountChanged.connect(self.update_gutter)
         self.updateRequest.connect(self.update_gutter_area)
+        self.document().contentsChange.connect(self._context_contents_changed)
+
+    def set_context_target(self, block: QTextBlock | None) -> None:
+        self._context_target = block if block is not None and block.isValid() else None
+        self.viewport().update()
+        self.gutter.update()
+
+    def _context_contents_changed(self, _position: int, removed: int, added: int) -> None:
+        if self._context_target is not None and (removed or added):
+            self.set_context_target(None)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self.set_context_target(None)
+        super().hideEvent(event)
+
+    def _paint_context_target(self, painter: QPainter, width: int) -> None:
+        block = self._context_target
+        if block is None or not block.isValid() or not block.isVisible():
+            return
+        rect = self.blockBoundingGeometry(block).translated(self.contentOffset())
+        painter.setPen(QColor(THEME_COLORS["ui_accent"]))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(QRectF(0.5, rect.top() + 0.5, width - 1, max(0, rect.height() - 1)))
 
     def set_bookmarked_blocks(self, blocks: dict[int, bool]) -> None:
         """Compose persistent row decoration with search/navigation overlays."""
@@ -60,6 +84,7 @@ class LineNumberEditor(QPlainTextEdit):
         super().setExtraSelections(self._bookmark_selections + self._transient_selections)
 
     def _clear_decorations(self) -> None:
+        self.set_context_target(None)
         self._bookmark_blocks.clear()
         self._bookmark_selections.clear()
         self.setExtraSelections([])
@@ -111,10 +136,11 @@ class LineNumberEditor(QPlainTextEdit):
         # Qt leaves the document's left margin outside nonempty selections.
         # Fill only that margin so the gutter and native row highlight meet.
         margin = max(0, round(self.contentOffset().x() + self.document().documentMargin()))
-        if not margin or not self._bookmark_blocks:
-            return
         painter = QPainter(self.viewport())
         painter.setClipRect(event.rect())
+        if not margin or not self._bookmark_blocks:
+            self._paint_context_target(painter, self.viewport().width())
+            return
         block = self.firstVisibleBlock()
         while block.isValid():
             rect = self.blockBoundingGeometry(block).translated(self.contentOffset())
@@ -125,6 +151,7 @@ class LineNumberEditor(QPlainTextEdit):
                 painter.fillRect(0, round(rect.top()), margin, round(rect.height()),
                                  QColor(THEME_COLORS["bookmark" if preferred else "bookmark_related"]))
             block = block.next()
+        self._paint_context_target(painter, self.viewport().width())
 
     def paint_line_numbers(self, event) -> None:
         painter = QPainter(self.gutter)
@@ -151,3 +178,4 @@ class LineNumberEditor(QPlainTextEdit):
                     Qt.AlignmentFlag.AlignRight, str(number),
                 )
             block = block.next()
+        self._paint_context_target(painter, self.gutter.width())
