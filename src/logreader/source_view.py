@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QStyle, QStyleOptionButton, QStylePainter, QToolTip, QVBoxLayout, QWidget,
 )
 
-from .input_menus import InputContextMenu
+from .input_menus import InputContextMenu, ScrollbarContextMenu
 from .search_storage import SearchMatches
 from .source_search import SourceMatches, iter_source_matches
 from .theme import THEME_COLORS, configure_action_button, page_navigation_icon
@@ -239,6 +239,7 @@ class SourceView(QWidget):
         self.marker = scrollbar_factory(Qt.Orientation.Vertical, self.editor)
         self.editor.setVerticalScrollBar(self.marker)
         for scrollbar in (self.marker, self.editor.horizontalScrollBar()):
+            ScrollbarContextMenu(scrollbar, page=True)
             scrollbar.sliderPressed.connect(self._use_viewport_anchor)
             scrollbar.actionTriggered.connect(self._use_viewport_anchor)
         self.highlighter = highlighter_factory(self.editor)

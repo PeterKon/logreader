@@ -65,7 +65,7 @@ from .results_editor import (
 from .results_model import ResultLocation, ResultsModel, SourceLocation
 from .source_search import iter_source_matches
 from .source_view import SourceView
-from .input_menus import InputContextMenu
+from .input_menus import InputContextMenu, ScrollbarContextMenu
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button, vertical_resize_icon
 
 
@@ -781,6 +781,7 @@ class ResultsView(QWidget):
             self._search_marker_scrollbar,
             self._editor.horizontalScrollBar(),
         ):
+            ScrollbarContextMenu(scrollbar)
             # User actions re-anchor navigation; ordinary value changes from
             # revealing a match or laying out the document must not do so.
             scrollbar.sliderPressed.connect(self._use_viewport_search_anchor)

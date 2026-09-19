@@ -1,6 +1,46 @@
-from PySide6.QtCore import QEvent, QObject
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence
-from PySide6.QtWidgets import QApplication, QLineEdit, QMenu, QSpinBox
+from PySide6.QtWidgets import QApplication, QAbstractSlider, QLineEdit, QMenu, QScrollBar, QSpinBox
+
+
+class ScrollbarContextMenu(QObject):
+    def __init__(self, scrollbar: QScrollBar, *, page: bool = False) -> None:
+        super().__init__(scrollbar)
+        self.scrollbar = scrollbar
+        self.page = page
+        scrollbar.installEventFilter(self)
+
+    def create_menu(self) -> QMenu:
+        scrollbar = self.scrollbar
+        if scrollbar.orientation() == Qt.Orientation.Horizontal:
+            labels = ("Left edge", "Right edge")
+        elif self.page:
+            labels = ("Top of page", "Bottom of page")
+        else:
+            labels = ("Top", "Bottom")
+        menu = QMenu(scrollbar)
+        for label, command, available in (
+            (labels[0], QAbstractSlider.SliderAction.SliderToMinimum,
+             scrollbar.value() > scrollbar.minimum()),
+            (labels[1], QAbstractSlider.SliderAction.SliderToMaximum,
+             scrollbar.value() < scrollbar.maximum()),
+        ):
+            action = menu.addAction(label)
+            action.setEnabled(scrollbar.isEnabled() and available)
+            action.triggered.connect(lambda _checked=False, command=command:
+                                     scrollbar.triggerAction(command))
+        return menu
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if event.type() != QEvent.Type.ContextMenu:
+            return False
+        menu = self.create_menu()
+        try:
+            menu.exec(event.globalPos())
+        finally:
+            menu.deleteLater()
+        event.accept()
+        return True
 
 
 class InputContextMenu(QObject):

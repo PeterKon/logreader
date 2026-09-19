@@ -39,7 +39,7 @@ from .config import (
 )
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button
 from .file_loader import DEFAULT_MAX_LINES_SCANNED
-from .input_menus import InputContextMenu
+from .input_menus import InputContextMenu, ScrollbarContextMenu
 
 
 FILTER_ALIGNMENT_EXTRA_WIDTH = 115
@@ -577,6 +577,8 @@ class FilterPanel(QGroupBox):
         layout.addLayout(entry_row)
 
         pattern_list = QListWidget()
+        for scrollbar in (pattern_list.verticalScrollBar(), pattern_list.horizontalScrollBar()):
+            ScrollbarContextMenu(scrollbar)
         pattern_list.setObjectName(list_object_name)
         pattern_list.setSpacing(0)
         pattern_list.setUniformItemSizes(True)
