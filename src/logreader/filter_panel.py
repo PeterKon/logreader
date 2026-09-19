@@ -39,6 +39,7 @@ from .config import (
 )
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button
 from .file_loader import DEFAULT_MAX_LINES_SCANNED
+from .input_menus import InputContextMenu
 
 
 FILTER_ALIGNMENT_EXTRA_WIDTH = 115
@@ -217,6 +218,7 @@ class TieredSpinBox(VisibleSpinBox):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._stepping_with_mouse = False
+        InputContextMenu(self.lineEdit(), spin_box=self)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         option = QStyleOptionSpinBox()
@@ -551,6 +553,7 @@ class FilterPanel(QGroupBox):
         entry_row.setSpacing(6)
         input_box = QLineEdit()
         input_box.setObjectName(input_object_name)
+        InputContextMenu(input_box, undo=True, redo=True, cut=True)
         configure_clear_button(input_box)
         input_box.setPlaceholderText("Enter item")
         input_palette = input_box.palette()

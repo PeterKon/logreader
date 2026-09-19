@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QStyle, QStyleOptionButton, QStylePainter, QToolTip, QVBoxLayout, QWidget,
 )
 
+from .input_menus import InputContextMenu
 from .search_storage import SearchMatches
 from .source_search import SourceMatches, iter_source_matches
 from .theme import THEME_COLORS, configure_action_button, page_navigation_icon
@@ -187,6 +188,7 @@ class SourceView(QWidget):
             navigation_layout.addWidget(button)
         self.goto_input = QLineEdit()
         self.goto_input.setObjectName("sourceGoToLine")
+        InputContextMenu(self.goto_input)
         self.goto_input.setAccessibleName("Original source line number")
         self.goto_input.setPlaceholderText("Line number")
         self.goto_input.setMaximumWidth(125)

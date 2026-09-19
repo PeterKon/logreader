@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from .input_menus import InputContextMenu
 from .results_model import ResultLocation, SourceLocation
 from .theme import THEME_COLORS, configure_action_button
 
@@ -437,15 +438,25 @@ class ResultsBookmarks(QObject):
         self._select(source)
         return True
 
+    def _prompt_name(self, title: str, name: str) -> tuple[str, bool]:
+        dialog = QInputDialog(self.view)
+        dialog.setWindowTitle(title)
+        dialog.setLabelText("Name:")
+        dialog.setTextValue(name)
+        editor = dialog.findChild(QLineEdit)
+        InputContextMenu(editor, undo=True)
+        try:
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+            return dialog.textValue(), accepted
+        finally:
+            dialog.deleteLater()
+
     def prompt(self, location: ResultLocation | SourceLocation) -> None:
         source = location.source if isinstance(location, ResultLocation) else location
         if source in self.items:
             self.rename(source)
             return
-        name, accepted = QInputDialog.getText(
-            self.view, "Add bookmark", "Name:", QLineEdit.EchoMode.Normal,
-            f"Line {source.line:,}",
-        )
+        name, accepted = self._prompt_name("Add bookmark", f"Line {source.line:,}")
         if accepted:
             # A modal dialog can process a completed load/render in the meantime.
             self.add(location, name)
@@ -454,9 +465,7 @@ class ResultsBookmarks(QObject):
         bookmark = self.items.get(source)
         if bookmark is None:
             return
-        name, accepted = QInputDialog.getText(
-            self.view, "Rename bookmark", "Name:", QLineEdit.EchoMode.Normal, bookmark.name,
-        )
+        name, accepted = self._prompt_name("Rename bookmark", bookmark.name)
         if accepted and self.items.get(source) is bookmark:
             bookmark.name = self._name(name, source)
             self.refresh()

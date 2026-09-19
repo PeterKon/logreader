@@ -65,6 +65,7 @@ from .results_editor import (
 from .results_model import ResultLocation, ResultsModel, SourceLocation
 from .source_search import iter_source_matches
 from .source_view import SourceView
+from .input_menus import InputContextMenu
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button, vertical_resize_icon
 
 
@@ -687,6 +688,7 @@ class ResultsView(QWidget):
 
         self._search_input = QLineEdit()
         self._search_input.setObjectName("resultsSearch")
+        InputContextMenu(self._search_input, undo=True)
         self._search_input.setAccessibleName("Search results")
         self._search_input.setPlaceholderText("Press enter to search...")
         configure_clear_button(self._search_input)
@@ -713,6 +715,7 @@ class ResultsView(QWidget):
 
         self._search_navigation = spinbox_factory()
         self._search_navigation.setObjectName("resultsSearchNavigation")
+        self._search_navigation.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
         self._search_navigation.setAccessibleName("Navigate search results")
         self._search_navigation.setRange(-1, 1)
         self._search_navigation.setValue(0)
