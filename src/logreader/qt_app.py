@@ -368,6 +368,8 @@ QCheckBox::indicator:checked {{
 QCheckBox[islandIndicator="true"]::indicator:unchecked {{
     background-color: {THEME_COLORS['ui_island']};
 }}
+QCheckBox#separateEntriesCheck::indicator:unchecked,
+QCheckBox#combinedViewCheck::indicator:unchecked,
 QGroupBox#pairedPatternGroup QCheckBox::indicator:unchecked,
 QGroupBox#textPatternGroup QCheckBox::indicator:unchecked,
 QGroupBox#httpStatusGroup QCheckBox::indicator:unchecked {{
@@ -458,7 +460,7 @@ class LogreaderWindow(QMainWindow):
         self.setStyleSheet(INTERFACE_STYLE_SHEET)
         self._set_window_title(APP_VERSION)
         self.resize(975, 1097)
-        self.setMinimumSize(820, 560)
+        self.setMinimumWidth(820)
         self._scheduler = WorkScheduler(self)
         self._build_interface()
         self.setFocus(Qt.FocusReason.OtherFocusReason)
