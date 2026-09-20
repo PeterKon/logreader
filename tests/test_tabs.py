@@ -422,7 +422,7 @@ class TabTests(unittest.TestCase):
             self.window._select_document(first)
             renderer = first.results_view._renderer
             renderer._timer.stop()
-            with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
+            with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
                 renderer._render_next_batch()
             first._show_analysis_busy()
             self.assertIn("Displaying results: first.log", self.window.statusBar().currentMessage())

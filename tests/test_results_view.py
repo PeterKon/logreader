@@ -15,7 +15,8 @@ from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
 from logreader.results_editor import StructuralBlock
 from logreader.results_model import SourceLocation
-from logreader.results_view import IncrementalAnalysisRenderer, ResultsView, prepend_performance_timings
+from logreader.results_view import ResultsView
+from logreader.results_renderer import IncrementalAnalysisRenderer, prepend_performance_timings
 from logreader.source_search import utf16_length
 from logreader.theme import THEME_COLORS
 
@@ -298,7 +299,7 @@ class ResultsViewTests(unittest.TestCase):
         renderer = IncrementalAnalysisRenderer(1, self.view.editor, "sample", analysis, config)
         renderer.start()
         reference = weakref.ref(self.view.editor.model)
-        with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
+        with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
             renderer._render_next_batch()
         self.assertFalse(self.view.editor.model.ready)
         renderer.cancel()

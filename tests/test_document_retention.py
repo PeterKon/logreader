@@ -13,7 +13,7 @@ from logreader.analysis_worker import AnalysisWorker, InteractiveAnalysisToken
 from logreader.cancellation import AnalysisCancelled
 from logreader.config import LogreaderConfig
 from logreader.core import SearchPattern, analyze_lines
-from logreader.results_view import IncrementalAnalysisRenderer
+from logreader.results_renderer import IncrementalAnalysisRenderer
 from logreader.work_queue import WorkScheduler
 
 

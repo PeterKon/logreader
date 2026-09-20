@@ -1911,7 +1911,7 @@ class LogreaderQtTests(unittest.TestCase):
                     side_effect=(10.0, 12.3456),
                 ),
                 patch(
-                    "logreader.results_view.perf_counter",
+                    "logreader.results_renderer.perf_counter",
                     side_effect=(20.0, 24.5678),
                 ),
             ):
@@ -2086,7 +2086,7 @@ class LogreaderQtTests(unittest.TestCase):
         count = self.window.findChild(QLabel, "resultsSearchCount")
         completed = QSignalSpy(results_view.rendering_completed)
 
-        with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
+        with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
             results_view.start_rendering(
                 17,
                 "incremental.log",
@@ -2139,7 +2139,7 @@ class LogreaderQtTests(unittest.TestCase):
         completed = QSignalSpy(results_view.rendering_completed)
         failed = QSignalSpy(results_view.rendering_failed)
 
-        with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
+        with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
             results_view.start_rendering(
                 23,
                 "cancelled.log",

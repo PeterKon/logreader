@@ -6,7 +6,6 @@ Attempt a concise but correct explanation of elements when additions are request
 Update existing explanations directly rather than describing changes as a changelog.
 
 Workflow:
-Do not commit, push, pull, or stash unless explicitly requested. Read-only Git inspection is allowed.
 Do not use em dashes. Use regular hyphens (-) instead.
 Run tests appropriate to the changes. For UI changes, inspect rendered screenshots when appearance or spacing is affected.
 

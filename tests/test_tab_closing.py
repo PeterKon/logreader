@@ -151,7 +151,7 @@ class TabClosingTests(unittest.TestCase):
                 workers[0].run()
                 renderer = first.results_view._renderer
                 self.assertTrue(renderer._timer.isActive())
-                with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 0):
+                with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
                     renderer._render_next_batch()
                 renderer._timer.stop()
                 if active:

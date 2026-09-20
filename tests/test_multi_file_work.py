@@ -261,11 +261,11 @@ class MultiFileWorkTests(unittest.TestCase):
         # inactive interval must not inflate the rendering duration.
         view = first.results_view
         rendered = QSignalSpy(view.rendering_completed)
-        with patch("logreader.results_view.perf_counter", side_effect=(10.0, 11.0, 111.0, 113.0)):
+        with patch("logreader.results_renderer.perf_counter", side_effect=(10.0, 11.0, 111.0, 113.0)):
             view.start_rendering(99, "timing", first.session.analysis, first.session.analysis_config)
             renderer = view._renderer
             renderer.set_paused(True)
             renderer.set_paused(False)
-            with patch("logreader.results_view.INCREMENTAL_RENDER_BATCH_MS", 100000):
+            with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 100000):
                 renderer._render_next_batch()
         self.assertEqual(rendered.at(0), [99, 3.0])
