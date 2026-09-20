@@ -106,7 +106,7 @@ class IncrementalSearchTests(unittest.TestCase):
         while self.view.is_searching:
             self.view._search_next_batch()
         highlighter = self.view._search_highlighter
-        with patch("logreader.results_view.INCREMENTAL_SEARCH_BATCH_MS", 0):
+        with patch("logreader.search_widgets.INCREMENTAL_SEARCH_BATCH_MS", 0):
             highlighter._highlight_next_batch()
         self.assertTrue(highlighter._highlight_timer.isActive())
         self.assertTrue(self.view.editor.document().begin().layout().formats())
@@ -128,7 +128,7 @@ class IncrementalSearchTests(unittest.TestCase):
         while self.view.is_searching:
             self.view._search_next_batch()
         highlighter = self.view._search_highlighter
-        with patch("logreader.results_view.INCREMENTAL_SEARCH_BATCH_MS", 0):
+        with patch("logreader.search_widgets.INCREMENTAL_SEARCH_BATCH_MS", 0):
             for position in (15000, 8000):
                 self.view.editor.verticalScrollBar().setValue(position)
                 visible = self.view.editor.firstVisibleBlock()

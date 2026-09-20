@@ -2184,7 +2184,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(results_view.editor.textCursor().position(), 0)
 
     def test_summary_grid_fills_rows_and_preserves_long_entries(self):
-        from logreader.results_view import _iter_positive_summary_entries, _iter_summary_entries
+        from logreader.result_formatting import _iter_positive_summary_entries, _iter_summary_entries
 
         def text(entries):
             return "".join(value for value, _, _ in _iter_summary_entries(entries))
@@ -2206,7 +2206,7 @@ class LogreaderQtTests(unittest.TestCase):
     def test_summary_places_custom_and_regex_entries_after_presets(self):
         from dataclasses import replace
         from logreader.config import LogreaderConfig
-        from logreader.results_view import _iter_analysis_render_operations
+        from logreader.result_formatting import _iter_analysis_render_operations
 
         for combined in (False, True):
             config = LogreaderConfig(

@@ -75,7 +75,7 @@ class ResultsViewTests(unittest.TestCase):
                     self.assertEqual(self.cursor(row).block().text(), line.text)
 
     def test_total_uses_thousands_separator_in_both_views(self):
-        from logreader.results_view import _iter_analysis_render_operations
+        from logreader.result_formatting import _iter_analysis_render_operations
 
         for combined in (False, True):
             with self.subTest(combined=combined):
