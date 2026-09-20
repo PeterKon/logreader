@@ -11,8 +11,8 @@ from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QStyle, QStyleOptionSpinBox
 
-from logreader.qt_app import LogreaderWindow
-from logreader.theme import THEME_COLORS
+from logreader.ui.qt_app import LogreaderWindow
+from logreader.ui.theme import THEME_COLORS
 from qt_helpers import wait_for_load
 
 
@@ -92,7 +92,7 @@ class ControlFocusTests(unittest.TestCase):
         page = self.open_document("sample.log")
         names = ("openButton", "toggleAllButton", "togglePairedButton", "toggleTextButton",
                  "customPatternAddButton", "regexPatternAddButton", "maximizeResultsButton")
-        with patch("logreader.qt_app.QFileDialog.getOpenFileNames", return_value=([], "")):
+        with patch("logreader.ui.qt_app.QFileDialog.getOpenFileNames", return_value=([], "")):
             for name in names:
                 with self.subTest(button=name):
                     button = self.window.findChild(QPushButton, name)
@@ -116,7 +116,7 @@ class ControlFocusTests(unittest.TestCase):
             dialog.exec()
             return [], ""
 
-        with patch("logreader.qt_app.QFileDialog.getOpenFileNames", side_effect=show_dialog):
+        with patch("logreader.ui.qt_app.QFileDialog.getOpenFileNames", side_effect=show_dialog):
             QTest.mouseClick(button, Qt.MouseButton.LeftButton)
         self.assertFalse(button.hasFocus())
         self.move_pointer(self.window, QPoint(1, self.window.height() - 1))

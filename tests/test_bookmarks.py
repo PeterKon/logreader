@@ -12,15 +12,15 @@ from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QInputDialog, QLineEdit, QMenu, QStyle, QStyleOptionSlider, QTabBar, QToolTip
 
 from qt_helpers import wait_for_search
-from logreader.bookmarks import BookmarkDeletionDialog, BookmarkNotesDialog
+from logreader.ui.bookmarks import BookmarkDeletionDialog, BookmarkNotesDialog
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
-from logreader.document_page import DocumentPage
+from logreader.ui.document_page import DocumentPage
 from logreader.file_loader import LoadedLog
-from logreader.input_menus import InputContextMenu
-from logreader.results_model import SourceLocation
-from logreader.results_view import ResultsView
-from logreader.theme import THEME_COLORS
+from logreader.ui.widgets.input_menus import InputContextMenu
+from logreader.ui.results.results_model import SourceLocation
+from logreader.ui.results.results_view import ResultsView
+from logreader.ui.theme import THEME_COLORS
 
 
 class BookmarkTests(unittest.TestCase):
@@ -109,8 +109,8 @@ class BookmarkTests(unittest.TestCase):
                         return QDialog.DialogCode.Accepted if accepted else QDialog.DialogCode.Rejected
                 menu = QMenu()
                 self.bookmarks.add_menu_actions(menu, source)
-                with patch("logreader.bookmarks.BookmarkNotesDialog", TestDialog), patch(
-                        "logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
+                with patch("logreader.ui.bookmarks.BookmarkNotesDialog", TestDialog), patch(
+                        "logreader.ui.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
                     next(a for a in menu.actions() if a.text() == label).trigger()
                 self.assertEqual(initial, [expected])
                 if accepted:
@@ -157,10 +157,10 @@ class BookmarkTests(unittest.TestCase):
             def exec(self, *args):
                 next(a for a in self.actions() if a.text() == "Add note").trigger()
         strip = self.bookmarks.strip
-        with patch("logreader.bookmarks.QMenu", TestMenu), patch("logreader.bookmarks.BookmarkNotesDialog", TestDialog):
+        with patch("logreader.ui.bookmarks.QMenu", TestMenu), patch("logreader.ui.bookmarks.BookmarkNotesDialog", TestDialog):
             strip.customContextMenuRequested.emit(strip.tabRect(1).center())
         self.bookmarks.reorder()
-        with patch("logreader.bookmarks.ResultsBookmarks._prompt_name", return_value=("Renamed", True)):
+        with patch("logreader.ui.bookmarks.ResultsBookmarks._prompt_name", return_value=("Renamed", True)):
             self.bookmarks.rename(source)
         menu = QMenu()
         self.bookmarks.add_menu_actions(menu, source)
@@ -185,7 +185,7 @@ class BookmarkTests(unittest.TestCase):
                 bookmarks.remove(source)
                 bookmarks.add(source, "Replacement bookmark")
                 return QDialog.DialogCode.Accepted
-        with patch("logreader.bookmarks.BookmarkNotesDialog", TestDialog):
+        with patch("logreader.ui.bookmarks.BookmarkNotesDialog", TestDialog):
             bookmarks.edit_notes(source)
         self.assertEqual(bookmarks.items[source].note, "")
 
@@ -216,7 +216,7 @@ class BookmarkTests(unittest.TestCase):
                 return QDialog.DialogCode.Accepted
         menu = QMenu()
         self.bookmarks.add_menu_actions(menu, source)
-        with patch("logreader.bookmarks.BookmarkNotesDialog", TestDialog):
+        with patch("logreader.ui.bookmarks.BookmarkNotesDialog", TestDialog):
             next(a for a in menu.actions() if a.text() == "Open note").trigger()
         self.assertEqual(shown, [original])
         self.assertEqual(bookmark.note, original)
@@ -238,7 +238,7 @@ class BookmarkTests(unittest.TestCase):
         delete = next(a for a in menu.actions() if a.text() == "Delete note")
         menu.popup(strip.mapToGlobal(strip.rect().bottomLeft()))
         self.app.processEvents()
-        with patch("logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
+        with patch("logreader.ui.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
             QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(delete).center())
         self.assertFalse(menu.isVisible())
         self.assertIs(self.bookmarks.items[source], bookmark)
@@ -284,7 +284,7 @@ class BookmarkTests(unittest.TestCase):
                             QTimer.singleShot(0, respond)
                             return super().exec()
 
-                    with patch("logreader.bookmarks.BookmarkDeletionDialog", TestDeletionDialog):
+                    with patch("logreader.ui.bookmarks.BookmarkDeletionDialog", TestDeletionDialog):
                         if note_only:
                             self.bookmarks.delete_note(source)
                         else:
@@ -313,8 +313,8 @@ class BookmarkTests(unittest.TestCase):
 
         for answer in (QDialog.DialogCode.Rejected, QDialog.DialogCode.Accepted):
             self.bookmarks.items[source].note = "Keep this note"
-            with patch("logreader.bookmarks.BookmarkNotesDialog", EmptyNoteDialog), patch(
-                    "logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=answer) as confirmation:
+            with patch("logreader.ui.bookmarks.BookmarkNotesDialog", EmptyNoteDialog), patch(
+                    "logreader.ui.bookmarks.BookmarkDeletionDialog.exec", return_value=answer) as confirmation:
                 self.bookmarks.edit_notes(source)
             confirmation.assert_called_once()
             self.assertEqual(self.bookmarks.items[source].note,
@@ -336,7 +336,7 @@ class BookmarkTests(unittest.TestCase):
                         bookmarks.items[source].note = "Replacement note"
                         return QDialog.DialogCode.Accepted
 
-                with patch("logreader.bookmarks.BookmarkDeletionDialog", TestDeletionDialog):
+                with patch("logreader.ui.bookmarks.BookmarkDeletionDialog", TestDeletionDialog):
                     if note_only:
                         bookmarks.delete_note(source)
                     else:
@@ -561,8 +561,8 @@ class BookmarkTests(unittest.TestCase):
                 def exec(self, *args):
                     next(a for a in self.actions() if a.text() == action).trigger()
             with patch.object(editor, "createStandardContextMenu", side_effect=TestMenu), patch(
-                    "logreader.bookmarks.ResultsBookmarks._prompt_name", return_value=(name, True)), patch(
-                    "logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
+                    "logreader.ui.bookmarks.ResultsBookmarks._prompt_name", return_value=(name, True)), patch(
+                    "logreader.ui.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
                 # Exercise both the text and line-number context menus.
                 if action == "Rename bookmark":
                     editor.gutter.customContextMenuRequested.emit(QPoint(2, point.y()))
@@ -623,11 +623,11 @@ class BookmarkTests(unittest.TestCase):
         def changed_source(*args):
             self.view.set_source(("new",), 1001, snapshot_id="new")
             return "Stale", True
-        with patch("logreader.bookmarks.ResultsBookmarks._prompt_name", side_effect=changed_source):
+        with patch("logreader.ui.bookmarks.ResultsBookmarks._prompt_name", side_effect=changed_source):
             self.bookmarks.prompt(source)
         self.assertFalse(self.bookmarks.items)
 
-    @patch("logreader.source_view.SOURCE_PAGE_LINES", 10_000)
+    @patch("logreader.ui.source_view.SOURCE_PAGE_LINES", 10_000)
     def test_source_only_bookmark_tracks_line_numbers_across_pages(self):
         self.view.set_source(tuple(str(i) for i in range(12000)), 13000, snapshot_id="source")
         self.view.set_source_active(True)
@@ -645,7 +645,7 @@ class BookmarkTests(unittest.TestCase):
         self.assertEqual(self.view.source_view.marker._bookmark_blocks.tolist(), [editor.textCursor().blockNumber()])
 
     def test_bookmark_types_render_distinct_text_with_shared_background_and_borders(self):
-        from logreader.qt_app import INTERFACE_STYLE_SHEET
+        from logreader.ui.qt_app import INTERFACE_STYLE_SHEET
         self.view.setStyleSheet(INTERFACE_STYLE_SHEET)
         self.render(("ERROR: first", "ERROR: second", "plain source"),
                     LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
@@ -705,7 +705,7 @@ class BookmarkTests(unittest.TestCase):
         for index, number in enumerate(("1,001", "1,002", "1,003")):
             self.assertEqual(self.bookmarks.strip.tabToolTip(index).count(number), 1)
         self.assertEqual(self.bookmarks.strip.tabToolTip(2), "Source-only bookmark\nLine 1,003")
-        with patch("logreader.bookmarks.ResultsBookmarks._prompt_name", return_value=("Connection", True)):
+        with patch("logreader.ui.bookmarks.ResultsBookmarks._prompt_name", return_value=("Connection", True)):
             self.bookmarks.rename(SourceLocation("snapshot", 1001))
         self.assertEqual(self.bookmarks.strip.tabToolTip(0),
                          "Connection\nLine 1,001\nOpen this line in results.")
@@ -724,7 +724,7 @@ class BookmarkTests(unittest.TestCase):
                 checked.append(action.isChecked())
                 action.trigger()
 
-        with patch("logreader.bookmarks.QMenu", TestMenu):
+        with patch("logreader.ui.bookmarks.QMenu", TestMenu):
             strip.customContextMenuRequested.emit(strip.tabRect(0).center())
         self.assertEqual(checked, [False])
         self.assertTrue(self.bookmarks.items[source].convert_when_shown)
@@ -814,14 +814,14 @@ class BookmarkTests(unittest.TestCase):
             self.assertEqual(self.bookmarks.items[source].convert_when_shown, checked)
 
         rename = next(a for a in menu.actions() if a.text() == "Rename bookmark")
-        with patch("logreader.bookmarks.ResultsBookmarks._prompt_name", return_value=("Renamed", True)):
+        with patch("logreader.ui.bookmarks.ResultsBookmarks._prompt_name", return_value=("Renamed", True)):
             QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(rename).center())
         self.assertFalse(menu.isVisible())
         self.assertEqual(self.bookmarks.items[source].name, "Renamed")
         menu.popup(self.bookmarks.strip.mapToGlobal(self.bookmarks.strip.rect().bottomLeft()))
         self.app.processEvents()
         remove = next(a for a in menu.actions() if a.text() == "Delete bookmark")
-        with patch("logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
+        with patch("logreader.ui.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
             QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(remove).center())
         self.assertFalse(menu.isVisible())
         self.assertFalse(self.bookmarks.items)
@@ -920,11 +920,11 @@ class BookmarkTests(unittest.TestCase):
             context=0, combined_view=False, enabled_patterns=("error_colon",),
             custom_patterns=("needle",)))
         location = self.view.model.location(0)
-        with patch("logreader.bookmarks.ResultsBookmarks._prompt_name", return_value=("No", False)):
+        with patch("logreader.ui.bookmarks.ResultsBookmarks._prompt_name", return_value=("No", False)):
             self.bookmarks.prompt(location)
         self.assertFalse(self.bookmarks.items)
         self.assertTrue(self.bookmarks.strip.isHidden())
-        with patch("logreader.bookmarks.ResultsBookmarks._prompt_name", return_value=(" ", True)):
+        with patch("logreader.ui.bookmarks.ResultsBookmarks._prompt_name", return_value=(" ", True)):
             self.bookmarks.prompt(location)
         self.assertEqual(self.bookmarks.items[location.source].name, "Line 1,001")
         duplicate = self.view.model.location(1)
@@ -932,11 +932,11 @@ class BookmarkTests(unittest.TestCase):
         menu = QMenu()
         self.bookmarks.add_menu_actions(menu, duplicate)
         self.assertEqual([a.text() for a in menu.actions()], ["Add note", "", "Rename bookmark", "Delete bookmark"])
-        with patch("logreader.bookmarks.ResultsBookmarks._prompt_name", return_value=("A & B 😀", True)):
+        with patch("logreader.ui.bookmarks.ResultsBookmarks._prompt_name", return_value=("A & B 😀", True)):
             next(a for a in menu.actions() if a.text() == "Rename bookmark").trigger()
         self.assertEqual(self.bookmarks.items[location.source].name, "A & B 😀")
         self.assertEqual(self.bookmarks.items[location.source].location, location)
-        with patch("logreader.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
+        with patch("logreader.ui.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
             next(a for a in menu.actions() if a.text() == "Delete bookmark").trigger()
         self.assertFalse(self.view.editor.extraSelections())
         self.assertTrue(self.bookmarks.strip.isHidden())
@@ -1082,7 +1082,7 @@ class BookmarkTests(unittest.TestCase):
                 editor.verticalScrollBar().setValue(0)
                 strip.setCurrentIndex(0)
                 position = editor.textCursor().position()
-                with patch("logreader.bookmarks.QMenu", TestMenu):
+                with patch("logreader.ui.bookmarks.QMenu", TestMenu):
                     QTest.mouseClick(strip, Qt.MouseButton.RightButton, pos=point)
                     event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point,
                                               strip.mapToGlobal(point))
@@ -1094,7 +1094,7 @@ class BookmarkTests(unittest.TestCase):
                 self.assertEqual(renamed.at(renamed.count() - 1)[0], location.source)
                 self.assertEqual(removed.at(removed.count() - 1)[0], location.source)
 
-    @patch("logreader.source_view.SOURCE_PAGE_LINES", 10_000)
+    @patch("logreader.ui.source_view.SOURCE_PAGE_LINES", 10_000)
     def test_source_page_edge_reload_and_markers_follow_original_numbers(self):
         lines = tuple(f"ERROR: {i}" for i in range(15000))
         self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
@@ -1250,7 +1250,7 @@ class BookmarkTests(unittest.TestCase):
         def changed_source(*args):
             self.view.set_source(("ERROR: new",), 1001, snapshot_id="new")
             return "stale", True
-        with patch("logreader.bookmarks.ResultsBookmarks._prompt_name", side_effect=changed_source):
+        with patch("logreader.ui.bookmarks.ResultsBookmarks._prompt_name", side_effect=changed_source):
             self.bookmarks.prompt(location)
         self.assertFalse(self.bookmarks.items)
 

@@ -15,7 +15,7 @@ try:
 
     from logreader.config import APP_VERSION, LogreaderConfig
     from logreader.document_session import AnalysisPhase
-    from logreader.qt_app import LogreaderWindow
+    from logreader.ui.qt_app import LogreaderWindow
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -104,7 +104,7 @@ class TabTests(unittest.TestCase):
         self.assertEqual(self.window.windowTitle(), APP_VERSION)
         self.window.analyze_current()  # Safe in the empty state.
         path = self.make_log("empty.log", "")
-        with patch("logreader.qt_app.QFileDialog.getOpenFileNames", return_value=([str(path)], "")):
+        with patch("logreader.ui.qt_app.QFileDialog.getOpenFileNames", return_value=([str(path)], "")):
             self.window._open_button.click()
         page = self.window._document
         wait_for_load(page)
@@ -138,14 +138,14 @@ class TabTests(unittest.TestCase):
             self.assertIn("ERROR: example", output)
 
     def test_performance_cli_flag_preserves_qt_options(self):
-        from logreader.qt_app import main
+        from logreader.ui.qt_app import main
 
         for flags, enabled in (([], False), (["-p"], True), (["--performance"], True)):
             with (
                 self.subTest(flags=flags),
-                patch("logreader.qt_app.QApplication") as app,
-                patch("logreader.qt_app.LogreaderWindow") as window,
-                patch("logreader.qt_app.QThreadPool"),
+                patch("logreader.ui.qt_app.QApplication") as app,
+                patch("logreader.ui.qt_app.LogreaderWindow") as window,
+                patch("logreader.ui.qt_app.QThreadPool"),
             ):
                 app.return_value.exec.return_value = 0
                 self.assertEqual(main(["logreader", *flags, "-platform", "offscreen"]), 0)
@@ -162,7 +162,7 @@ class TabTests(unittest.TestCase):
         ]
         if os.name == "nt":
             variants.append(Path(str(first.session.path).upper()))
-        with patch("logreader.load_worker.load_log", side_effect=AssertionError("Duplicate reread")):
+        with patch("logreader.workers.load_worker.load_log", side_effect=AssertionError("Duplicate reread")):
             for path in variants:
                 self.assertTrue(self.window.load_file(path))
                 self.assertIs(self.window._document, first)
@@ -285,7 +285,7 @@ class TabTests(unittest.TestCase):
 
     def test_failed_open_keeps_error_in_its_tab_and_preserves_other_documents(self):
         first = self.open_log("first.log")
-        with patch("logreader.qt_app.QMessageBox.critical") as error:
+        with patch("logreader.ui.qt_app.QMessageBox.critical") as error:
             self.assertTrue(self.window.load_file(self.root / "missing.log"))
             failed = self.window._document
             wait_for_load(failed)
@@ -422,7 +422,7 @@ class TabTests(unittest.TestCase):
             self.window._select_document(first)
             renderer = first.results_view._renderer
             renderer._timer.stop()
-            with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
+            with patch("logreader.ui.results.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
                 renderer._render_next_batch()
             first._show_analysis_busy()
             self.assertIn("Displaying results: first.log", self.window.statusBar().currentMessage())
@@ -458,9 +458,9 @@ class TabTests(unittest.TestCase):
                 self.assertEqual(workers[0].request_id, workers[1].request_id)
                 status = self.window.statusBar().currentMessage()
                 message = f"{phase} failed for first"
-                with patch("logreader.qt_app.QMessageBox.warning") as warning:
+                with patch("logreader.ui.qt_app.QMessageBox.warning") as warning:
                     if phase == "analysis":
-                        with patch("logreader.analysis_worker.analyze_lines", side_effect=RuntimeError(message)):
+                        with patch("logreader.workers.analysis_worker.analyze_lines", side_effect=RuntimeError(message)):
                             workers[0].run()
                     else:
                         workers[0].run()
@@ -490,7 +490,7 @@ class TabTests(unittest.TestCase):
         self.open_log("second/server.log")
         self.window._select_document(first)
         first.results_view.set_maximized(True)
-        with patch("logreader.qt_app.QFileDialog.getOpenFileNames", return_value=([], "")) as dialog:
+        with patch("logreader.ui.qt_app.QFileDialog.getOpenFileNames", return_value=([], "")) as dialog:
             self.window._open_button.click()
         self.assertEqual(dialog.call_args.args[2], str(first.session.path.parent))
         self.assertIs(self.window._document, first)

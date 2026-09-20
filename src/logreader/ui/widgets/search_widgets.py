@@ -11,8 +11,8 @@ from PySide6.QtCore import QElapsedTimer, QTimer, Qt, Slot
 from PySide6.QtGui import QColor, QPainter, QSyntaxHighlighter, QTextCharFormat, QTextDocument
 from PySide6.QtWidgets import QPlainTextEdit, QScrollBar, QStyle, QStyleOptionSlider, QWidget
 
-from .search_storage import BlockSet, SearchMatches
-from .theme import THEME_COLORS
+from ...search_storage import BlockSet, SearchMatches
+from ..theme import THEME_COLORS
 
 
 INCREMENTAL_SEARCH_BATCH_MS = 4

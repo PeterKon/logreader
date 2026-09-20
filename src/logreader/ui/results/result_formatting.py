@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Callable, Iterator
 
-from .config import LogreaderConfig
-from .core import COMBINED_CATEGORY_KEY, AnalysisResult, ResultLine
+from ...config import LogreaderConfig
+from ...core import COMBINED_CATEGORY_KEY, AnalysisResult, ResultLine
 from .presentation import CategoryPresentation, build_category_presentations
 from .results_model import ResultsModel
 

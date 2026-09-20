@@ -19,8 +19,8 @@ from PySide6.QtWidgets import QApplication
 
 from logreader.config import LogreaderConfig
 from logreader.document_session import AnalysisPhase, LoadPhase
-from logreader.qt_app import LogreaderWindow
-from logreader.work_queue import WorkQueue
+from logreader.ui.qt_app import LogreaderWindow
+from logreader.workers.work_queue import WorkQueue
 
 
 def memory_mib():

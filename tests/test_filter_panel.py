@@ -21,7 +21,7 @@ try:
         PATTERN_KEYS,
         TEXT_PATTERN_KEYS,
     )
-    from logreader.filter_panel import FilterPanel
+    from logreader.ui.filter_panel import FilterPanel
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:

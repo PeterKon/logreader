@@ -4,10 +4,10 @@ from PySide6.QtCore import QEvent, QMimeData, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QTextBlockUserData, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QWidget
 
-from .line_number_editor import GUTTER_LEFT_PADDING, LineNumberEditor
+from ..widgets.line_number_editor import GUTTER_LEFT_PADDING, LineNumberEditor
 from .result_source_map import ResultSourceMap
 from .results_model import ResultsModel
-from .theme import THEME_COLORS
+from ..theme import THEME_COLORS
 
 
 class StructuralBlock(QTextBlockUserData):

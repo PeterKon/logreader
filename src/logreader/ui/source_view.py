@@ -10,11 +10,11 @@ from PySide6.QtWidgets import (
     QStyle, QStyleOptionButton, QStylePainter, QToolTip, QVBoxLayout, QWidget,
 )
 
-from .input_menus import InputContextMenu, ScrollbarContextMenu
-from .search_storage import SearchMatches
+from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
+from ..search_storage import SearchMatches
 from .source_search import SourceMatches, iter_source_matches
 from .theme import THEME_COLORS, configure_action_button, page_navigation_icon
-from .line_number_editor import LineNumberEditor
+from .widgets.line_number_editor import LineNumberEditor
 
 
 SOURCE_PAGE_LINES = 100_000

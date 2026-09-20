@@ -47,17 +47,17 @@ try:
     from logreader.core import analyze_lines
     from logreader.file_loader import load_log
     from logreader.document_session import AnalysisPhase
-    from logreader.filter_panel import (
+    from logreader.ui.filter_panel import (
         FilterPanel,
         UnclippedPushButton,
         VisibleCheckBox,
         VisibleSpinBox,
     )
-    from logreader.qt_app import (
+    from logreader.ui.qt_app import (
         COLORS,
         LogreaderWindow,
     )
-    from logreader.results_view import (
+    from logreader.ui.results.results_view import (
         ResultsView,
         SearchMarkerScrollBar,
     )
@@ -1907,11 +1907,11 @@ class LogreaderQtTests(unittest.TestCase):
 
             with (
                 patch(
-                    "logreader.analysis_worker.perf_counter",
+                    "logreader.workers.analysis_worker.perf_counter",
                     side_effect=(10.0, 12.3456),
                 ),
                 patch(
-                    "logreader.results_renderer.perf_counter",
+                    "logreader.ui.results.results_renderer.perf_counter",
                     side_effect=(20.0, 24.5678),
                 ),
             ):
@@ -1979,7 +1979,7 @@ class LogreaderQtTests(unittest.TestCase):
 
             try:
                 with patch(
-                    "logreader.analysis_worker.analyze_lines",
+                    "logreader.workers.analysis_worker.analyze_lines",
                     side_effect=blocking_analysis,
                 ) as mocked_analysis:
                     analyze_button.click()
@@ -2086,7 +2086,7 @@ class LogreaderQtTests(unittest.TestCase):
         count = self.window.findChild(QLabel, "resultsSearchCount")
         completed = QSignalSpy(results_view.rendering_completed)
 
-        with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
+        with patch("logreader.ui.results.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
             results_view.start_rendering(
                 17,
                 "incremental.log",
@@ -2139,7 +2139,7 @@ class LogreaderQtTests(unittest.TestCase):
         completed = QSignalSpy(results_view.rendering_completed)
         failed = QSignalSpy(results_view.rendering_failed)
 
-        with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
+        with patch("logreader.ui.results.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
             results_view.start_rendering(
                 23,
                 "cancelled.log",
@@ -2184,7 +2184,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(results_view.editor.textCursor().position(), 0)
 
     def test_summary_grid_fills_rows_and_preserves_long_entries(self):
-        from logreader.result_formatting import _iter_positive_summary_entries, _iter_summary_entries
+        from logreader.ui.results.result_formatting import _iter_positive_summary_entries, _iter_summary_entries
 
         def text(entries):
             return "".join(value for value, _, _ in _iter_summary_entries(entries))
@@ -2206,7 +2206,7 @@ class LogreaderQtTests(unittest.TestCase):
     def test_summary_places_custom_and_regex_entries_after_presets(self):
         from dataclasses import replace
         from logreader.config import LogreaderConfig
-        from logreader.result_formatting import _iter_analysis_render_operations
+        from logreader.ui.results.result_formatting import _iter_analysis_render_operations
 
         for combined in (False, True):
             config = LogreaderConfig(
@@ -2324,7 +2324,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual("1 of 3 lines were scanned - UTF-8", self.window.statusBar().currentMessage())
 
     def test_scan_limit_warning_tracks_completed_analysis_and_preserves_results(self):
-        from logreader.results_editor import SummaryBlock
+        from logreader.ui.results.results_editor import SummaryBlock
 
         path = Path(self.directory.name) / "limited-warning.log"
         path.write_text("ERROR: first\nneutral\nERROR: third\nneutral\n", encoding="utf-8")

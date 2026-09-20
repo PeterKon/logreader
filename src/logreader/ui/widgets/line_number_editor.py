@@ -4,7 +4,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QTextBlock, QTextCursor, QTextFormat
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QWidget
 
-from .theme import THEME_COLORS
+from ..theme import THEME_COLORS
 
 
 GUTTER_LEFT_PADDING = 2

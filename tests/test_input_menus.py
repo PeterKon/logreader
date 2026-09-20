@@ -9,9 +9,9 @@ from PySide6.QtGui import QContextMenuEvent, QTextCursor
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QAbstractSlider, QMenu, QStyle, QStyleOptionSlider, QStyleOptionSpinBox
 
-from logreader.filter_panel import FilterPanel
-from logreader.input_menus import InputContextMenu, ScrollbarContextMenu
-from logreader.results_view import ResultsView
+from logreader.ui.filter_panel import FilterPanel
+from logreader.ui.widgets.input_menus import InputContextMenu, ScrollbarContextMenu
+from logreader.ui.results.results_view import ResultsView
 
 
 class InputMenuTests(unittest.TestCase):
@@ -251,7 +251,7 @@ class InputMenuTests(unittest.TestCase):
         self.view.set_source(lines, 1200)
         self.view.set_source_active(True)
         source = self.view.source_view
-        with patch("logreader.source_view.SOURCE_PAGE_LINES", 60):
+        with patch("logreader.ui.source_view.SOURCE_PAGE_LINES", 60):
             source._load_page(60, align="start")
         self.app.processEvents()
         self.assertEqual((source.page_start, source.page_end), (60, 120))

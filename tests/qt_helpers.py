@@ -7,8 +7,8 @@ from PySide6.QtCore import QThreadPool
 from PySide6.QtTest import QTest
 
 from logreader.document_session import LoadPhase
-from logreader.load_worker import LoadWorker
-from logreader.work_queue import WorkQueue
+from logreader.workers.load_worker import LoadWorker
+from logreader.workers.work_queue import WorkQueue
 
 
 def wait_for_load(page):
@@ -37,7 +37,7 @@ def capture_analysis(workers):
 
 
 def wait_for_search(widget):
-    from logreader.results_view import ResultsView
+    from logreader.ui.results.results_view import ResultsView
     views = [widget] if isinstance(widget, ResultsView) else widget.findChildren(ResultsView)
     for _ in range(1000):
         if all(not view.is_searching and not view._search_highlighter._highlight_timer.isActive()

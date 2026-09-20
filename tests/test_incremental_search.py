@@ -11,8 +11,8 @@ from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QApplication
 
 from qt_helpers import wait_for_load, wait_for_search
-from logreader.qt_app import LogreaderWindow
-from logreader.results_view import ResultsView
+from logreader.ui.qt_app import LogreaderWindow
+from logreader.ui.results.results_view import ResultsView
 
 
 class IncrementalSearchTests(unittest.TestCase):
@@ -36,7 +36,7 @@ class IncrementalSearchTests(unittest.TestCase):
         for query in ("aaa", "😀", "non breaking", "CAFÉ", "a" * 45,
                       "TARGET", "missing", "TARGET\nlast"):
             with self.subTest(query=query), patch(
-                "logreader.results_view.SEARCH_CHUNK_SIZE", 17
+                "logreader.ui.results.results_view.SEARCH_CHUNK_SIZE", 17
             ):
                 self.search(text, query)
                 expected = []
@@ -106,7 +106,7 @@ class IncrementalSearchTests(unittest.TestCase):
         while self.view.is_searching:
             self.view._search_next_batch()
         highlighter = self.view._search_highlighter
-        with patch("logreader.search_widgets.INCREMENTAL_SEARCH_BATCH_MS", 0):
+        with patch("logreader.ui.widgets.search_widgets.INCREMENTAL_SEARCH_BATCH_MS", 0):
             highlighter._highlight_next_batch()
         self.assertTrue(highlighter._highlight_timer.isActive())
         self.assertTrue(self.view.editor.document().begin().layout().formats())
@@ -128,7 +128,7 @@ class IncrementalSearchTests(unittest.TestCase):
         while self.view.is_searching:
             self.view._search_next_batch()
         highlighter = self.view._search_highlighter
-        with patch("logreader.search_widgets.INCREMENTAL_SEARCH_BATCH_MS", 0):
+        with patch("logreader.ui.widgets.search_widgets.INCREMENTAL_SEARCH_BATCH_MS", 0):
             for position in (15000, 8000):
                 self.view.editor.verticalScrollBar().setValue(position)
                 visible = self.view.editor.firstVisibleBlock()

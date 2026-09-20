@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .config import (
+from ..config import (
     DEFAULT_CONTEXT,
     DEFAULT_ENABLED_PATTERNS,
     HTTP_STATUS_PATTERN_KEYS,
@@ -38,8 +38,8 @@ from .config import (
     LogreaderConfig,
 )
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button
-from .file_loader import DEFAULT_MAX_LINES_SCANNED
-from .input_menus import InputContextMenu, ScrollbarContextMenu
+from ..file_loader import DEFAULT_MAX_LINES_SCANNED
+from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
 
 
 FILTER_ALIGNMENT_EXTRA_WIDTH = 115

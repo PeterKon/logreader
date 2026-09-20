@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionSpinBox
 
-from logreader.filter_panel import ContextSpinBox, ScanLimitSpinBox
+from logreader.ui.filter_panel import ContextSpinBox, ScanLimitSpinBox
 
 
 class TieredSpinBoxTests(unittest.TestCase):

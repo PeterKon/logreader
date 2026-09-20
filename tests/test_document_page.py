@@ -11,7 +11,7 @@ try:
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox
 
-    from logreader.document_page import DocumentPage
+    from logreader.ui.document_page import DocumentPage
     from logreader.document_session import AnalysisPhase
     from logreader.file_loader import LoadedLog
 except ModuleNotFoundError:
@@ -123,7 +123,7 @@ class DocumentPageTests(unittest.TestCase):
             self.second.analyze()
         first_failed = QSignalSpy(self.first.analysis_failed)
         second_failed = QSignalSpy(self.second.analysis_failed)
-        with patch("logreader.analysis_worker.analyze_lines", side_effect=ValueError("bad pattern")):
+        with patch("logreader.workers.analysis_worker.analyze_lines", side_effect=ValueError("bad pattern")):
             workers[1].run()
         self.assertEqual(first_failed.count(), 0)
         self.assertEqual(second_failed.at(0), ["bad pattern"])

@@ -9,12 +9,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QCoreApplication, QEvent, QThreadPool
 from PySide6.QtWidgets import QApplication, QPlainTextEdit
 
-from logreader.analysis_worker import AnalysisWorker, InteractiveAnalysisToken
+from logreader.workers.analysis_worker import AnalysisWorker, InteractiveAnalysisToken
 from logreader.cancellation import AnalysisCancelled
 from logreader.config import LogreaderConfig
 from logreader.core import SearchPattern, analyze_lines
-from logreader.results_renderer import IncrementalAnalysisRenderer
-from logreader.work_queue import WorkScheduler
+from logreader.ui.results.results_renderer import IncrementalAnalysisRenderer
+from logreader.workers.work_queue import WorkScheduler
 
 
 class SourceText(str):
@@ -85,14 +85,14 @@ class DocumentRetentionTests(unittest.TestCase):
 
     def test_interactive_token_yields_at_deadline_and_rechecks_cancellation(self):
         token = InteractiveAnalysisToken()
-        with patch("logreader.analysis_worker.monotonic", return_value=1.0), patch(
-            "logreader.analysis_worker.sleep"
+        with patch("logreader.workers.analysis_worker.monotonic", return_value=1.0), patch(
+            "logreader.workers.analysis_worker.sleep"
         ) as pause:
             for _ in range(100):
                 token.check()
             pause.assert_called_once_with(.001)
-        with patch("logreader.analysis_worker.monotonic", return_value=2.0), patch(
-            "logreader.analysis_worker.sleep", side_effect=lambda _seconds: token.cancel()
+        with patch("logreader.workers.analysis_worker.monotonic", return_value=2.0), patch(
+            "logreader.workers.analysis_worker.sleep", side_effect=lambda _seconds: token.cancel()
         ):
             with self.assertRaises(AnalysisCancelled):
                 token.check()

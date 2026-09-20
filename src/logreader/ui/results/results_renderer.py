@@ -9,15 +9,15 @@ from PySide6.QtCore import QElapsedTimer, QObject, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit
 
-from .config import LogreaderConfig
-from .core import AnalysisResult
+from ...config import LogreaderConfig
+from ...core import AnalysisResult
 from .result_formatting import RenderOperation, _iter_analysis_render_operations
 from .result_source_map import ResultSourceMap
 from .results_editor import (
     ExcerptGapBlock, ResultsEditor, StructuralBlock, SummaryBlock, mark_summary, size_excerpt_gap,
 )
 from .results_model import ResultsModel
-from .theme import THEME_COLORS
+from ..theme import THEME_COLORS
 
 
 RESULT_COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}

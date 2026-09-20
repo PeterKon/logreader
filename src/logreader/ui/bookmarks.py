@@ -14,12 +14,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from .input_menus import InputContextMenu
-from .results_model import ResultLocation, SourceLocation
+from .widgets.input_menus import InputContextMenu
+from .results.results_model import ResultLocation, SourceLocation
 from .theme import THEME_COLORS, configure_action_button
 
 if TYPE_CHECKING:
-    from .results_view import ResultsView
+    from .results.results_view import ResultsView
 
 
 BOOKMARK_MENU_HOVER_COLOR = "#b8d8f5"

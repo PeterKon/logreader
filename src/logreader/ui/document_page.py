@@ -7,15 +7,15 @@ from pathlib import Path
 from PySide6.QtCore import QTimer, Signal, Slot
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from .analysis_worker import AnalysisWorker
-from .config import LogreaderConfig
-from .core import AnalysisResult
-from .document_session import AnalysisPhase, DocumentSession
-from .file_loader import DEFAULT_MAX_LINES_SCANNED, LoadedLog
-from .load_worker import LoadWorker
+from ..workers.analysis_worker import AnalysisWorker
+from ..config import LogreaderConfig
+from ..core import AnalysisResult
+from ..document_session import AnalysisPhase, DocumentSession
+from ..file_loader import DEFAULT_MAX_LINES_SCANNED, LoadedLog
+from ..workers.load_worker import LoadWorker
 from .filter_panel import FilterPanel, VisibleCheckBox, VisibleSpinBox
-from .results_view import ResultsView
-from .work_queue import WorkScheduler
+from .results.results_view import ResultsView
+from ..workers.work_queue import WorkScheduler
 
 
 ANALYSIS_BUSY_DELAY_MS = 1_000

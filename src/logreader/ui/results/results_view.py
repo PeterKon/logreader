@@ -39,21 +39,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .config import LogreaderConfig
-from .bookmarks import ResultsBookmarks
-from .core import AnalysisResult
-from .search_storage import SearchMatches
-from .search_widgets import SearchMatchHighlighter, SearchMarkerScrollBar
+from ...config import LogreaderConfig
+from ..bookmarks import ResultsBookmarks
+from ...core import AnalysisResult
+from ...search_storage import SearchMatches
+from ..widgets.search_widgets import SearchMatchHighlighter, SearchMarkerScrollBar
 from .result_source_map import ResultSourceMap
 from .results_editor import ResultsEditor
 from .results_renderer import (
     IncrementalAnalysisRenderer, render_analysis, prepend_performance_timings, _prepend_result_header,
 )
 from .results_model import ResultLocation, ResultsModel, SourceLocation
-from .source_search import iter_source_matches
-from .source_view import SourceView
-from .input_menus import InputContextMenu, ScrollbarContextMenu
-from .theme import THEME_COLORS, configure_action_button, configure_clear_button, vertical_resize_icon
+from ..source_search import iter_source_matches
+from ..source_view import SourceView
+from ..widgets.input_menus import InputContextMenu, ScrollbarContextMenu
+from ..theme import THEME_COLORS, configure_action_button, configure_clear_button, vertical_resize_icon
 
 
 INCREMENTAL_SEARCH_BATCH_MS = 4

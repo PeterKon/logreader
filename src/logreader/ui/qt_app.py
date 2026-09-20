@@ -43,11 +43,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .config import APP_VERSION, LogreaderConfig
+from ..config import APP_VERSION, LogreaderConfig
 from .document_page import DocumentPage
-from .document_session import LoadPhase
+from ..document_session import LoadPhase
 from .theme import THEME_COLORS, configure_action_button
-from .work_queue import WorkScheduler
+from ..workers.work_queue import WorkScheduler
 
 
 COLORS = {role: QColor(value) for role, value in THEME_COLORS.items()}

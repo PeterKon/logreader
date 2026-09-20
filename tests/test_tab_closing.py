@@ -15,7 +15,7 @@ try:
     from shiboken6 import isValid
 
     from logreader.core import analyze_lines
-    from logreader.qt_app import APP_VERSION, LogreaderWindow
+    from logreader.ui.qt_app import APP_VERSION, LogreaderWindow
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -100,7 +100,7 @@ class TabClosingTests(unittest.TestCase):
                         raise TimeoutError("Test worker was not released")
                     return analyze_lines(lines, patterns, combined=combined, line_offset=line_offset, cancellation=cancellation)
 
-                with patch("logreader.analysis_worker.analyze_lines", side_effect=blocked):
+                with patch("logreader.workers.analysis_worker.analyze_lines", side_effect=blocked):
                     try:
                         self.window.analyze_current()
                         worker = first._analysis_worker
@@ -120,7 +120,7 @@ class TabClosingTests(unittest.TestCase):
                         self.assertFalse(first._analysis_busy_timer.isActive())
                         self.assertIn(worker.request_id, first._workers)
                         status = self.window.statusBar().currentMessage()
-                        with patch("logreader.qt_app.QMessageBox.warning") as warning:
+                        with patch("logreader.ui.qt_app.QMessageBox.warning") as warning:
                             worker.signals.completed.emit(worker.request_id, None, 0.1)
                             worker.signals.failed.emit(worker.request_id, "late failure")
                             self.assertEqual(self.window.statusBar().currentMessage(), status)
@@ -151,7 +151,7 @@ class TabClosingTests(unittest.TestCase):
                 workers[0].run()
                 renderer = first.results_view._renderer
                 self.assertTrue(renderer._timer.isActive())
-                with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
+                with patch("logreader.ui.results.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
                     renderer._render_next_batch()
                 renderer._timer.stop()
                 if active:
@@ -195,7 +195,7 @@ class TabClosingTests(unittest.TestCase):
                 self.assertEqual(first.session.lines, ())
                 self.assertEqual(second.session.lines, ())
                 done = QSignalSpy(workers[0].signals.finished)
-                with patch("logreader.analysis_worker.analyze_lines", wraps=analyze_lines):
+                with patch("logreader.workers.analysis_worker.analyze_lines", wraps=analyze_lines):
                     workers[0].run()
                 self.assertEqual(done.count(), 1)
                 self.assertEqual(workers[0].lines, ())

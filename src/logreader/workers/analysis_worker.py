@@ -6,8 +6,8 @@ from time import monotonic, perf_counter, sleep
 
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
-from .core import SearchPattern, analyze_lines
-from .cancellation import AnalysisCancelled, CancellationToken
+from ..core import SearchPattern, analyze_lines
+from ..cancellation import AnalysisCancelled, CancellationToken
 
 
 class InteractiveAnalysisToken(CancellationToken):

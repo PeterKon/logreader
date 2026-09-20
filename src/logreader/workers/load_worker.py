@@ -4,8 +4,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
-from .cancellation import AnalysisCancelled, CancellationToken
-from .file_loader import DEFAULT_MAX_LINES_SCANNED, load_log
+from ..cancellation import AnalysisCancelled, CancellationToken
+from ..file_loader import DEFAULT_MAX_LINES_SCANNED, load_log
 
 
 class LoadWorkerSignals(QObject):

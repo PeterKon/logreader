@@ -14,10 +14,10 @@ from PySide6.QtWidgets import QApplication, QPlainTextEdit, QWidget
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
 from logreader.file_loader import LoadedLog
-from logreader.qt_app import LogreaderWindow
-from logreader.source_search import iter_source_matches, utf16_length
-from logreader.source_view import SOURCE_PAGE_CHARACTERS, SOURCE_PAGE_LINES
-from logreader.work_queue import WorkQueue
+from logreader.ui.qt_app import LogreaderWindow
+from logreader.ui.source_search import iter_source_matches, utf16_length
+from logreader.ui.source_view import SOURCE_PAGE_CHARACTERS, SOURCE_PAGE_LINES
+from logreader.workers.work_queue import WorkQueue
 
 
 class SourceSearchTests(unittest.TestCase):

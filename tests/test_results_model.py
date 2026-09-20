@@ -5,7 +5,7 @@ from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
 from logreader.document_session import DocumentSession
 from logreader.file_loader import LoadedLog
-from logreader.results_model import ResultsModel, SourceLocation
+from logreader.ui.results.results_model import ResultsModel, SourceLocation
 
 
 class ResultsModelTests(unittest.TestCase):

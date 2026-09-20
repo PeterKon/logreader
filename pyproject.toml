@@ -25,7 +25,7 @@ classifiers = [
 Repository = "https://github.com/PeterKon/logreader"
 
 [project.gui-scripts]
-logreader = "logreader.qt_app:main"
+logreader = "logreader.ui.qt_app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

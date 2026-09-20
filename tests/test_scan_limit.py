@@ -11,12 +11,12 @@ from PySide6.QtGui import QValidator
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from logreader.analysis_worker import AnalysisWorker
+from logreader.workers.analysis_worker import AnalysisWorker
 from logreader.document_session import LoadPhase
 from logreader.file_loader import LoadedLog
-from logreader.load_worker import LoadWorker
-from logreader.qt_app import LogreaderWindow
-from logreader.work_queue import WorkQueue
+from logreader.workers.load_worker import LoadWorker
+from logreader.ui.qt_app import LogreaderWindow
+from logreader.workers.work_queue import WorkQueue
 
 
 class ScanLimitTests(unittest.TestCase):
@@ -77,7 +77,7 @@ class ScanLimitTests(unittest.TestCase):
         for combined in (False, True):
             self.page.filter_panel._combined_view.setChecked(combined)
             self.spin.setValue(2)
-            with patch("logreader.load_worker.load_log", side_effect=AssertionError("Unneeded reload")):
+            with patch("logreader.workers.load_worker.load_log", side_effect=AssertionError("Unneeded reload")):
                 self.page.analyze()
                 self.wait_until(lambda: not self.page.session.is_busy)
             self.assertIs(self.page.session.lines, retained)
@@ -144,7 +144,7 @@ class ScanLimitTests(unittest.TestCase):
         self.wait_until(lambda: self.page.session.analysis is not None and not self.page.session.is_busy)
         self.assertEqual(self.page.session.lines, ("ERROR: replacement",))
         self.assertEqual(self.page.session.total_line_count, 1)
-        with patch("logreader.load_worker.load_log", side_effect=AssertionError("Already have whole file")):
+        with patch("logreader.workers.load_worker.load_log", side_effect=AssertionError("Already have whole file")):
             self.spin.setValue(100)
             self.page.analyze()
             self.wait_until(lambda: not self.page.session.is_busy)

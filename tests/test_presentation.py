@@ -1,7 +1,7 @@
 import unittest
 
 from logreader.core import SearchPattern, analyze_lines
-from logreader.presentation import build_category_presentations
+from logreader.ui.results.presentation import build_category_presentations
 
 
 class PresentationTests(unittest.TestCase):

@@ -32,7 +32,7 @@ def main():
     from search_storage import storage_bytes
     from logreader.config import LogreaderConfig, PAIRED_PATTERN_KEYS
     from logreader.core import analyze_lines
-    from logreader.results_view import ResultsView
+    from logreader.ui.results.results_view import ResultsView
 
     app = QApplication([])
     view = ResultsView()

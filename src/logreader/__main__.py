@@ -1,6 +1,6 @@
 """Launch the Logreader desktop application with ``python -m logreader``."""
 
-from .qt_app import main
+from .ui.qt_app import main
 
 
 if __name__ == "__main__":

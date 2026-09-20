@@ -1,6 +1,7 @@
 """Compare search storage and UI latency against a git revision in fresh processes."""
 
 import argparse
+import ast
 import gc
 import json
 from pathlib import Path
@@ -70,17 +71,55 @@ def reset_state_report(view):
     return results
 
 
-def run_child(args):
-    # Only replace results_view, whose dependencies are unchanged by this work.
-    # The reference is read from git without changing the checkout or worktree.
-    if args.implementation == "baseline":
-        source = subprocess.check_output(
-            ["git", "show", f"{args.reference}:src/logreader/results_view.py"], encoding="utf-8",
+def _load_baseline_view(reference):
+    for path, package in (
+        ("src/logreader/ui/results/results_view.py", "logreader.ui.results"),
+        ("src/logreader/results_view.py", "logreader"),
+    ):
+        result = subprocess.run(
+            ["git", "show", f"{reference}:{path}"],
+            capture_output=True, text=True, encoding="utf-8",
         )
-        module = types.ModuleType("logreader.results_view")
-        module.__package__ = "logreader"
-        sys.modules[module.__name__] = module
-        exec(compile(source, "<baseline-results_view>", "exec"), module.__dict__)
+        if result.returncode == 0:
+            break
+    result.check_returncode()
+    source = result.stdout
+    # Historical revisions use the flat package. Translate their imports while
+    # leaving the reference implementation and current application modules intact.
+    moved_modules = {
+        "analysis_worker": "workers.analysis_worker",
+        "load_worker": "workers.load_worker",
+        "work_queue": "workers.work_queue",
+        "qt_app": "ui.qt_app",
+        "document_page": "ui.document_page",
+        "filter_panel": "ui.filter_panel",
+        "bookmarks": "ui.bookmarks",
+        "source_view": "ui.source_view",
+        "source_search": "ui.source_search",
+        "theme": "ui.theme",
+        "results_view": "ui.results.results_view",
+        "results_editor": "ui.results.results_editor",
+        "results_renderer": "ui.results.results_renderer",
+        "results_model": "ui.results.results_model",
+        "result_formatting": "ui.results.result_formatting",
+        "result_source_map": "ui.results.result_source_map",
+        "presentation": "ui.results.presentation",
+        "line_number_editor": "ui.widgets.line_number_editor",
+        "search_widgets": "ui.widgets.search_widgets",
+        "input_menus": "ui.widgets.input_menus",
+    }
+    tree = ast.parse(source, filename="<baseline-results_view>")
+    for node in ast.walk(tree):
+        if package == "logreader" and isinstance(node, ast.ImportFrom) and node.level == 1:
+            node.module = moved_modules.get(node.module, node.module)
+    module = types.ModuleType("logreader._benchmark_results_view")
+    module.__package__ = package
+    sys.modules[module.__name__] = module
+    exec(compile(tree, "<baseline-results_view>", "exec"), module.__dict__)
+    return module.ResultsView
+
+
+def run_child(args):
 
     from PySide6 import __version__ as qt_version
     from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
@@ -88,7 +127,10 @@ def run_child(args):
     from PySide6.QtWidgets import QApplication
     from logreader.config import LogreaderConfig
     from logreader.core import analyze_lines
-    from logreader.results_view import ResultsView
+    from logreader.ui.results.results_view import ResultsView
+
+    if args.implementation == "baseline":
+        ResultsView = _load_baseline_view(args.reference)
 
     app = QApplication([])
     view = ResultsView()

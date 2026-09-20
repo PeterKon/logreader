@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .core import COMBINED_CATEGORY_KEY, AnalysisResult, CategoryResult, LogExcerpt
+from ...core import COMBINED_CATEGORY_KEY, AnalysisResult, CategoryResult, LogExcerpt
 
 
 @dataclass(frozen=True, slots=True)

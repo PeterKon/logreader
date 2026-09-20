@@ -13,12 +13,12 @@ from PySide6.QtWidgets import QApplication, QPlainTextEdit
 from qt_helpers import wait_for_search
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
-from logreader.results_editor import StructuralBlock
-from logreader.results_model import SourceLocation
-from logreader.results_view import ResultsView
-from logreader.results_renderer import IncrementalAnalysisRenderer, prepend_performance_timings
-from logreader.source_search import utf16_length
-from logreader.theme import THEME_COLORS
+from logreader.ui.results.results_editor import StructuralBlock
+from logreader.ui.results.results_model import SourceLocation
+from logreader.ui.results.results_view import ResultsView
+from logreader.ui.results.results_renderer import IncrementalAnalysisRenderer, prepend_performance_timings
+from logreader.ui.source_search import utf16_length
+from logreader.ui.theme import THEME_COLORS
 
 
 class ResultsViewTests(unittest.TestCase):
@@ -76,7 +76,7 @@ class ResultsViewTests(unittest.TestCase):
                     self.assertEqual(self.cursor(row).block().text(), line.text)
 
     def test_total_uses_thousands_separator_in_both_views(self):
-        from logreader.result_formatting import _iter_analysis_render_operations
+        from logreader.ui.results.result_formatting import _iter_analysis_render_operations
 
         for combined in (False, True):
             with self.subTest(combined=combined):
@@ -299,7 +299,7 @@ class ResultsViewTests(unittest.TestCase):
         renderer = IncrementalAnalysisRenderer(1, self.view.editor, "sample", analysis, config)
         renderer.start()
         reference = weakref.ref(self.view.editor.model)
-        with patch("logreader.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
+        with patch("logreader.ui.results.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
             renderer._render_next_batch()
         self.assertFalse(self.view.editor.model.ready)
         renderer.cancel()

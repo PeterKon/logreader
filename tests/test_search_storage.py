@@ -84,7 +84,7 @@ from PySide6.QtWidgets import QApplication
 from qt_helpers import wait_for_search
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
-from logreader.results_view import ResultsView
+from logreader.ui.results.results_view import ResultsView
 
 
 class SearchStorageIntegrationTests(unittest.TestCase):

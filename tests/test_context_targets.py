@@ -12,8 +12,8 @@ from PySide6.QtWidgets import QApplication, QInputDialog, QMenu
 from qt_helpers import wait_for_search
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
-from logreader.results_model import SourceLocation
-from logreader.results_view import ResultsView
+from logreader.ui.results.results_model import SourceLocation
+from logreader.ui.results.results_view import ResultsView
 
 
 class ContextTargetTests(unittest.TestCase):

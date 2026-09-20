@@ -14,11 +14,11 @@ try:
     from shiboken6 import isValid
 
     from qt_helpers import wait_for_load
-    from logreader.document_page import DocumentPage
+    from logreader.ui.document_page import DocumentPage
     from logreader.document_session import LoadPhase
     from logreader.file_loader import LoadedLog, _iter_decoded_lines
-    from logreader.qt_app import LogreaderWindow
-    from logreader.work_queue import WorkQueue
+    from logreader.ui.qt_app import LogreaderWindow
+    from logreader.workers.work_queue import WorkQueue
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -152,7 +152,7 @@ class LoadingTests(unittest.TestCase):
         self.assertEqual(workers[0].request_id, workers[1].request_id)
         self.window._select_document(first)
         status = self.window.statusBar().currentMessage()
-        with patch("logreader.qt_app.QMessageBox.critical") as dialog:
+        with patch("logreader.ui.qt_app.QMessageBox.critical") as dialog:
             workers[1].run()
             dialog.assert_not_called()
         self.assertEqual(second.session.load_phase, LoadPhase.FAILED)
@@ -188,7 +188,7 @@ class LoadingTests(unittest.TestCase):
                     # Deliberately return despite cancellation to test the worker guard.
                     return LoadedLog(("old contents",), "UTF-8")
 
-                with patch("logreader.load_worker.load_log", side_effect=blocked):
+                with patch("logreader.workers.load_worker.load_log", side_effect=blocked):
                     try:
                         path = self.root / f"pending-{shutdown}.log"
                         self.window.load_file(path)
