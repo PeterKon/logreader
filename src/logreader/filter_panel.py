@@ -272,6 +272,7 @@ class ContextSpinBox(TieredSpinBox):
         super().__init__()
         self.setRange(0, 1_000)
         self.setValue(DEFAULT_CONTEXT)
+        self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
 
 class ScanLimitSpinBox(TieredSpinBox):
@@ -288,6 +289,7 @@ class ScanLimitSpinBox(TieredSpinBox):
         super().__init__()
         self.setRange(1, 2_147_483_647)
         self.setValue(DEFAULT_MAX_LINES_SCANNED)
+        self.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.setKeyboardTracking(False)
         self.setAccessibleName("Max lines scanned")
         self.setToolTip("Scan this many lines from the end/tail of the file.")

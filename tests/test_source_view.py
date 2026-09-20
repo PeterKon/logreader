@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QThreadPool
+from PySide6.QtCore import QThreadPool, Qt
 from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QWidget
@@ -285,6 +285,31 @@ class SourceViewTests(unittest.TestCase):
         self.assertEqual(self.source.current_match, 1)
         self.assertEqual(self.source.editor.toPlainText(), "\n".join(lines[self.source.page_start:self.source.page_end]))
 
+    def test_go_to_line_formats_on_commit_without_navigating_on_focus_loss(self):
+        self.stage(("first", "second"), total=125_000)
+        self.view.toggle_source()
+        field = self.source.goto_input
+        field.setFocus()
+        QTest.keyClicks(field, "125000")
+        self.assertEqual(field.text(), "125000")
+        self.source.editor.setFocus()
+        self.app.processEvents()
+        self.assertEqual(field.text(), "125 000")
+        self.assertIsNone(self.source.target_line)
+
+        for text in ("125000", "125 000", "125\u00a0000"):
+            with self.subTest(text=text):
+                field.setText(text)
+                QTest.keyClick(field, Qt.Key.Key_Return)
+                self.assertEqual(field.text(), "125 000")
+                self.assertEqual(self.source.target_line, 125_000)
+
+        for text in ("", "1.5", "x", "9" * 21):
+            with self.subTest(text=text):
+                field.setText(text)
+                field.editingFinished.emit()
+                self.assertEqual(field.text(), text)
+
     def test_page_boundaries_and_original_go_to_line_do_not_skip_text(self):
         line_length = SOURCE_PAGE_CHARACTERS // 1000
         lines = self.stage((str(i) + "x" * line_length for i in range(1400)), total=9400)
@@ -305,6 +330,7 @@ class SourceViewTests(unittest.TestCase):
         self.assertEqual(self.source.range_label.text(), before_range)
         self.assertIn("not loaded", self.source.goto_input.toolTip())
         self.assertTrue(self.source.go_to_line(9350))
+        self.assertEqual(self.source.goto_input.text(), "9 350")
         self.assertNotIn("not loaded", self.source.goto_input.toolTip())
 
     def test_cleared_results_count_does_not_reappear_on_switching(self):

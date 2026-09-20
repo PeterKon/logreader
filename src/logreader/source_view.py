@@ -154,6 +154,7 @@ class SourceView(QWidget):
             "QPushButton#sourceFirstPage, QPushButton#sourceLastPage {"
             " padding-left: 6px; padding-right: 6px; }"
             f"QLineEdit {{ padding-left: 6px; placeholder-text-color: {THEME_COLORS['ui_muted']}; }}"
+            "QLineEdit#sourceGoToLine { padding-top: 0; padding-bottom: 2px; }"
             f"QPushButton:hover {{ background: {THEME_COLORS['ui_button_hover']}; }}"
             f"QPushButton:focus, QLineEdit:focus {{ border-color: {THEME_COLORS['ui_accent']}; }}"
             f"QPushButton:pressed {{ background: {THEME_COLORS['ui_button_pressed']}; }}"
@@ -191,6 +192,7 @@ class SourceView(QWidget):
         InputContextMenu(self.goto_input)
         self.goto_input.setAccessibleName("Original source line number")
         self.goto_input.setPlaceholderText("Line number")
+        self.goto_input.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.goto_input.setMaximumWidth(125)
         self.goto_button = SegmentedButton("Go to line")
         self.goto_button.setObjectName("sourceGoToLineButton")
@@ -217,6 +219,7 @@ class SourceView(QWidget):
         self.last_button.clicked.connect(self.last_page)
         self.goto_button.clicked.connect(self.go_to_input)
         self.goto_input.returnPressed.connect(self.go_to_input)
+        self.goto_input.editingFinished.connect(self._format_line_input)
         controls.addWidget(self.page_navigation)
         self.range_label = QLabel()
         self.range_label.setObjectName("sourceRange")
@@ -374,12 +377,18 @@ class SourceView(QWidget):
         cursor = QTextCursor(self.editor.document().findBlockByNumber(index - self.page_start))
         self.editor.setTextCursor(cursor)
         self.editor.centerCursor()
-        self.goto_input.setText(str(number))
+        self.goto_input.setText(f"{number:,}".replace(",", " "))
         self._update_range()
         self._update_selections()
         return True
 
+    def _format_line_input(self) -> None:
+        value = "".join(self.goto_input.text().split())
+        if value.isascii() and value.isdecimal() and len(value) <= 20:
+            self.goto_input.setText(f"{int(value):,}".replace(",", " "))
+
     def go_to_input(self) -> None:
+        self._format_line_input()
         value = "".join(self.goto_input.text().split())
         if not value.isascii() or not value.isdecimal():
             self._show_line_error(f"Enter a valid line number. {self._retained_range()}")
