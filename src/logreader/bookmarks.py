@@ -191,7 +191,7 @@ class BookmarkNotesDialog(QDialog):
 class BookmarkDeletionDialog(QDialog):
     def __init__(self, bookmark: Bookmark, source: SourceLocation, parent=None, *, note_only=False) -> None:
         super().__init__(parent)
-        title = "Delete note" if note_only else "Remove bookmark"
+        title = "Delete note" if note_only else "Delete bookmark"
         self.setWindowTitle(title)
         self.setFixedWidth(420)
         self.setStyleSheet(BOOKMARK_DIALOG_STYLE_SHEET)
@@ -362,8 +362,8 @@ class BookmarkStrip(QTabBar):
             return
         source = self.tabData(index)
         menu = QMenu(self)
-        menu.addAction("Remove bookmark", lambda: self.remove_requested.emit(source))
         menu.addAction("Rename bookmark", lambda: self.rename_requested.emit(source))
+        menu.addAction("Delete bookmark", lambda: self.remove_requested.emit(source))
         self.menu_requested.emit(menu, source)
         menu.exec(self.mapToGlobal(point))
         menu.deleteLater()
@@ -518,8 +518,8 @@ class ResultsBookmarks(QObject):
     def add_menu_actions(self, menu: QMenu, location: ResultLocation | SourceLocation) -> None:
         source = location.source if isinstance(location, ResultLocation) else location
         if source in self.items:
-            menu.addAction("Remove bookmark", lambda: self.request_remove(source))
             menu.addAction("Rename bookmark", lambda: self.rename(source))
+            menu.addAction("Delete bookmark", lambda: self.request_remove(source))
             self._add_extra_menu_actions(menu, source)
         else:
             menu.addAction("Add bookmark", lambda: self.prompt(location))
@@ -529,7 +529,7 @@ class ResultsBookmarks(QObject):
         if bookmark is None:
             return
         before = menu.actions()[-2]
-        notes = QAction("Open note" if bookmark.note else "Add note...", menu)
+        notes = QAction("Open note" if bookmark.note else "Add note", menu)
         notes.triggered.connect(lambda: self.edit_notes(source))
         menu.insertAction(before, notes)
         if bookmark.note:
