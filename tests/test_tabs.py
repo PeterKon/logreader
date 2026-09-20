@@ -133,8 +133,8 @@ class TabTests(unittest.TestCase):
             page.analyze()
             self.wait_for_completion(done)
             output = page.results_view.editor.toPlainText()
-            self.assertTrue(output.startswith("Performance timing\nAnalysis time:"))
-            self.assertIn("Result rendering time:", output)
+            self.assertTrue(output.startswith("Performance results\nAnalysis:"))
+            self.assertIn("Rendering:", output)
             self.assertIn("ERROR: example", output)
 
     def test_performance_cli_flag_preserves_qt_options(self):

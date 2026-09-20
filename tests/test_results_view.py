@@ -86,6 +86,25 @@ class ResultsViewTests(unittest.TestCase):
                 operations = _iter_analysis_render_operations("test.log", analysis, config)
                 self.assertEqual(next(operations)[0], "Matches (12,500 total):\n")
 
+    def test_performance_metrics_use_scanned_lines_and_result_rows(self):
+        lines = ("before", "ERROR: needle", "after", "unmatched")
+        for source, combined, analysis_rate, rendering_rate in (
+            (lines, True, "30.000 s", "113.333 s"),
+            (lines, False, "30.000 s", "56.667 s"),
+            (("unmatched",) * 4, True, "30.000 s", "N/A"),
+            ((), True, "N/A", "N/A"),
+        ):
+            with self.subTest(source=source, combined=combined):
+                config = LogreaderConfig(context=1, combined_view=combined,
+                                         enabled_patterns=("error_colon",), custom_patterns=("needle",))
+                editor = self.render(source, config)
+                self.view.prepend_performance_timings(.0012, .0034)
+                self.assertIn(
+                    f"Analysis per 100K source rows: {analysis_rate}\n"
+                    f"Rendering per 100K result rows: {rendering_rate}\n\n",
+                    editor.toPlainText(),
+                )
+
     def test_copy_all_excludes_structure_and_preserves_duplicate_rows_and_empty_source_lines(self):
         lines = ("before", "ERROR: needle", "", "omitted", "ERROR: needle -------->", "after")
         for combined in (False, True):
@@ -103,7 +122,7 @@ class ResultsViewTests(unittest.TestCase):
                     self.assertFalse(mime.hasHtml())
                     self.assertIn("needle\n\n", mime.text())
                     self.assertIn("-------->", mime.text())  # Actual source text survives.
-                    cursor = editor.document().find("Performance timing")
+                    cursor = editor.document().find("Performance results")
                     editor.setTextCursor(cursor)
                     self.assertEqual(editor.createMimeDataFromSelection().text(), "")
 
@@ -127,7 +146,7 @@ class ResultsViewTests(unittest.TestCase):
                                  enabled_patterns=("error_colon",), custom_patterns=("needle",))
         self.render(("😀 ERROR: needle NEEDLE",), config)
         self.view.prepend_performance_timings(.1, .2)
-        for query, expected in (("matches", 0), ("10000001", 0), ("Analysis time", 0),
+        for query, expected in (("matches", 0), ("10000001", 0), ("Analysis:", 0),
                                 ("needle", 4), ("😀", 2), ("ERROR:", 2)):
             with self.subTest(query=query):
                 self.view._search_input.setText(query)
@@ -208,7 +227,7 @@ class ResultsViewTests(unittest.TestCase):
         self.app.processEvents()
         for row in range(self.view.model.row_count):
             self.assertIsNone(self.cursor(row).block().userData())
-        for heading in ("Performance timing", "Matches (1 total):", "ERROR:"):
+        for heading in ("Performance results", "Matches (1 total):", "ERROR:"):
             cursor = editor.document().find(heading)
             block = cursor.block()
             self.assertIsInstance(block.userData(), StructuralBlock)

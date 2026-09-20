@@ -1932,9 +1932,9 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(staged_output, "")
         self.assertEqual(output_after_return, "")
         self.assertEqual("Loaded as UTF-8: server.log", staged_status)
-        self.assertNotIn("Performance timing", output)
-        self.assertNotIn("Analysis time:", output)
-        self.assertNotIn("Result rendering time:", output)
+        self.assertNotIn("Performance results", output)
+        self.assertNotIn("Analysis:", output)
+        self.assertNotIn("Rendering:", output)
         self.assertIn("ERROR: boom", output)
         self.assertNotIn("\033[", output)
         self.assertIn(COLORS["match"].name(), html)
@@ -2172,9 +2172,12 @@ class LogreaderQtTests(unittest.TestCase):
 
         self.assertTrue(
             results_view.editor.toPlainText().startswith(
-                "Performance timing\n"
-                "Analysis time: 1.234 s\n"
-                "Result rendering time: 6.789 s\n\n"
+                "Performance results\n"
+                "Analysis: 1.234 s\n"
+                "Rendering: 6.789 s\n"
+                "Total: 8.024 s\n\n"
+                "Analysis per 100K source rows: N/A\n"
+                "Rendering per 100K result rows: N/A\n\n"
                 "Rendered output"
             )
         )
@@ -2352,7 +2355,7 @@ class LogreaderQtTests(unittest.TestCase):
                         self.assertEqual(editor.document().find("Only 2").charFormat().foreground().color(),
                                          COLORS["muted"])
                     if timings:
-                        self.assertLess(output.index("Performance timing"), output.index("Matches ("))
+                        self.assertLess(output.index("Performance results"), output.index("Matches ("))
                     summary = editor.document().find("Matches (").block().userData()
                     self.assertIsInstance(summary, SummaryBlock)
                     self.assertTrue(summary.first)

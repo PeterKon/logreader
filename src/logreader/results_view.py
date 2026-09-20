@@ -1414,10 +1414,22 @@ def prepend_performance_timings(
 ) -> None:
     """Place diagnostic analysis and rendering durations above the results."""
 
+    model = view.model if isinstance(view, ResultsEditor) else None
+    scanned_lines = model.analysis.line_count if model is not None else 0
+    result_rows = model.row_count if model is not None else 0
+    analysis_per_100k = (
+        f"{(analysis_seconds / scanned_lines) * 100_000:.3f} s" if scanned_lines else "N/A"
+    )
+    rendering_per_100k = (
+        f"{(rendering_seconds / result_rows) * 100_000:.3f} s" if result_rows else "N/A"
+    )
     _prepend_result_header(view, (
-        ("Performance timing\n", "heading", True),
-        (f"Analysis time: {analysis_seconds:.3f} s\n", "muted", False),
-        (f"Result rendering time: {rendering_seconds:.3f} s\n\n", "muted", False),
+        ("Performance results\n", "heading", True),
+        (f"Analysis: {analysis_seconds:.3f} s\n", "muted", False),
+        (f"Rendering: {rendering_seconds:.3f} s\n", "muted", False),
+        (f"Total: {analysis_seconds + rendering_seconds:.3f} s\n\n", "muted", False),
+        (f"Analysis per 100K source rows: {analysis_per_100k}\n", "muted", False),
+        (f"Rendering per 100K result rows: {rendering_per_100k}\n\n", "muted", False),
     ))
 
 
