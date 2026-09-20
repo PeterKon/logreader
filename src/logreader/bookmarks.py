@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QAction, QColor, QCursor, QHoverEvent, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QAction, QColor, QCursor, QHoverEvent, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMenu, QPlainTextEdit, QProxyStyle, QPushButton, QStyle, QStyleFactory,
@@ -547,9 +547,11 @@ class ResultsBookmarks(QObject):
         bookmark = self.items.get(source)
         if bookmark is None or not isinstance(bookmark.location, SourceLocation):
             return
+        disabled_text = menu.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text).name()
         menu.setStyleSheet(
             "QMenu { background: #ffffff; color: #000000; border: 1px solid #a0a0a0; }"
             "QMenu::item { padding: 4px 4px 4px 8px; }"
+            f"QMenu::item:disabled {{ color: {disabled_text}; }}"
             f"QMenu::item:selected {{ background: {BOOKMARK_MENU_HOVER_COLOR}; color: #000000; }}"
             "QMenu::separator { height: 1px; background: #cccccc; margin: 3px 0; }"
             "QMenu::icon { width: 16px; height: 16px; left: 6px; }"
