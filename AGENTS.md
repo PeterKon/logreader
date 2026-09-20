@@ -17,5 +17,5 @@ Preserve important scope distinctions when simplifying wording, such as whether 
 When the user supplies replacement text, follow it closely. Correct only clear grammatical mistakes unless asked to rewrite.
 
 Testing:
+For tests, assess existing coverage first and reuse helpers; avoid duplicate tests and checks that merely repeat framework behavior.
 Keep tests proportionate to the change, adding or updating them only for meaningful behavior or regression risks.
-Assess existing coverage first and reuse helpers; avoid duplicate tests and checks that merely repeat framework behavior.
