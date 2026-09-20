@@ -42,14 +42,17 @@ class LineNumberEditor(QPlainTextEdit):
         self.set_context_target(None)
         super().hideEvent(event)
 
-    def _paint_context_target(self, painter: QPainter, width: int) -> None:
+    def _paint_context_target(self, painter: QPainter, *, gutter: bool = False) -> None:
         block = self._context_target
         if block is None or not block.isValid() or not block.isVisible():
             return
         rect = self.blockBoundingGeometry(block).translated(self.contentOffset())
         painter.setPen(QColor(THEME_COLORS["ui_accent"]))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(QRectF(0.5, rect.top() + 0.5, width - 1, max(0, rect.height() - 1)))
+        # Paint the same outer border in both surfaces, clipped at their shared edge.
+        left = 0.5 if gutter else 0.5 - self.gutter.width()
+        width = self.gutter.width() + self.viewport().width() - 1
+        painter.drawRect(QRectF(left, rect.top() + 0.5, width, max(0, rect.height() - 1)))
 
     def set_bookmarked_blocks(self, blocks: dict[int, bool]) -> None:
         """Compose persistent row decoration with search/navigation overlays."""
@@ -139,7 +142,7 @@ class LineNumberEditor(QPlainTextEdit):
         painter = QPainter(self.viewport())
         painter.setClipRect(event.rect())
         if not margin or not self._bookmark_blocks:
-            self._paint_context_target(painter, self.viewport().width())
+            self._paint_context_target(painter)
             return
         block = self.firstVisibleBlock()
         while block.isValid():
@@ -151,7 +154,7 @@ class LineNumberEditor(QPlainTextEdit):
                 painter.fillRect(0, round(rect.top()), margin, round(rect.height()),
                                  QColor(THEME_COLORS["bookmark" if preferred else "bookmark_related"]))
             block = block.next()
-        self._paint_context_target(painter, self.viewport().width())
+        self._paint_context_target(painter)
 
     def paint_line_numbers(self, event) -> None:
         painter = QPainter(self.gutter)
@@ -178,4 +181,4 @@ class LineNumberEditor(QPlainTextEdit):
                     Qt.AlignmentFlag.AlignRight, str(number),
                 )
             block = block.next()
-        self._paint_context_target(painter, self.gutter.width())
+        self._paint_context_target(painter, gutter=True)
