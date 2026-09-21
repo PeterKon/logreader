@@ -389,6 +389,10 @@ class ResultsView(QWidget):
         if not active:
             self._search_count_label.setVisible(bool(self._searched_query))
         self._source_button.setText("Go to results" if active else "Go to source")
+        self._source_button.setProperty("sourceActive", active)
+        self._source_button.style().unpolish(self._source_button)
+        self._source_button.style().polish(self._source_button)
+        self._source_button.update()
         self._source_button.setToolTip("Open the results window" if active else "Open the original file")
         with QSignalBlocker(self._search_input), QSignalBlocker(self._line_wrap_check):
             self._search_input.setText(self.source_view.query if active else self._results_query)

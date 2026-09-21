@@ -381,7 +381,7 @@ class FilterPanel(QGroupBox):
 
         self._context_spin = ContextSpinBox()
         self._context_spin.setObjectName("contextSpin")
-        context_label = QLabel("Context around errors")
+        context_label = QLabel("Context around matches")
         context_label.setObjectName("contextLabel")
         top_layout.addWidget(context_label)
         top_layout.addWidget(self._context_spin)
@@ -428,7 +428,7 @@ class FilterPanel(QGroupBox):
         text_groups_layout.setSpacing(8)
         text_groups_layout.addWidget(
             self._build_pattern_group(
-                "Colon / plain error pairs",
+                "Colon / regular matches",
                 PAIRED_PATTERN_KEYS,
                 object_name="pairedPatternGroup",
                 columns=2,
@@ -436,7 +436,7 @@ class FilterPanel(QGroupBox):
             )
         )
         text_pattern_group = self._build_pattern_group(
-            "Other errors",
+            "Other matches",
             TEXT_PATTERN_KEYS,
             object_name="textPatternGroup",
             columns=4,
@@ -466,7 +466,7 @@ class FilterPanel(QGroupBox):
             Qt.AlignmentFlag.AlignTop,
         )
         http_status_group = self._build_pattern_group(
-            "HTTP codes",
+            "HTTP matches",
             HTTP_STATUS_PATTERN_KEYS,
             object_name="httpStatusGroup",
             columns=1,
@@ -507,7 +507,7 @@ class FilterPanel(QGroupBox):
             self._custom_pattern,
             self._custom_pattern_list,
         ) = self._build_list_search_group(
-            title="Plain text search",
+            title="Plain text matches",
             group_object_name="customPatternGroup",
             input_object_name="customPattern",
             add_button_object_name="customPatternAddButton",
@@ -522,7 +522,7 @@ class FilterPanel(QGroupBox):
             self._regex_pattern,
             self._regex_pattern_list,
         ) = self._build_list_search_group(
-            title="Regex search",
+            title="Regex matches",
             group_object_name="regexPatternGroup",
             input_object_name="regexPattern",
             add_button_object_name="regexPatternAddButton",

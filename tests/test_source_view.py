@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QThreadPool, Qt
-from PySide6.QtGui import QTextCursor, QTextDocument
+from PySide6.QtGui import QPalette, QTextCursor, QTextDocument
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QWidget
 
@@ -113,9 +113,11 @@ class SourceViewTests(unittest.TestCase):
         self.assertTrue(self.view._source_button.isEnabled())
         self.assertGreater(self.view._source_button.x(), self.view._maximize_button.x())
         self.assertEqual(self.view._source_button.text(), "Go to source")
+        self.assertEqual(self.view._source_button.palette().color(QPalette.ColorRole.Button).name(), "#0d1117")
         self.view._source_button.click()
         self.assertTrue(self.view.source_active)
         self.assertEqual(self.view._source_button.text(), "Go to results")
+        self.assertEqual(self.view._source_button.palette().color(QPalette.ColorRole.Button).name(), "#2f3e50")
         self.assertLessEqual(self.source.editor.blockCount(), SOURCE_PAGE_LINES)
         self.assertLessEqual(len(self.source.editor.toPlainText()), SOURCE_PAGE_CHARACTERS)
         self.assertEqual(self.source.editor.toPlainText(), "\n".join(lines[:self.source.page_end]))
@@ -125,6 +127,7 @@ class SourceViewTests(unittest.TestCase):
         self.assertIsNone(self.page.session.analysis)
         self.view._source_button.click()
         self.assertFalse(self.view.source_active)
+        self.assertEqual(self.view._source_button.palette().color(QPalette.ColorRole.Button).name(), "#0d1117")
         self.assertEqual(self.view.editor.toPlainText(), "")
 
     def test_source_navigation_uses_source_background_for_bar_and_controls(self):

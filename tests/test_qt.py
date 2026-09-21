@@ -259,7 +259,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertEqual(
             self.window.findChild(QLabel, "contextLabel").text(),
-            "Context around errors",
+            "Context around matches",
         )
         self.assertEqual(
             self.window.findChild(QCheckBox, "separateEntriesCheck").text(),
@@ -352,7 +352,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
         self.assertIn(
             "QWidget#resultsHeader {\n"
-            f"    background-color: {COLORS['ui_island'].name()}",
+            f"    background-color: {COLORS['ui_canvas'].name()}",
             style_sheet,
         )
         self.assertIn(
@@ -1426,11 +1426,11 @@ class LogreaderQtTests(unittest.TestCase):
 
     def test_patterns_are_split_into_five_named_groups(self):
         expected_groups = {
-            "pairedPatternGroup": "Colon / plain error pairs",
-            "textPatternGroup": "Other errors",
-            "httpStatusGroup": "HTTP codes",
-            "customPatternGroup": "Plain text search",
-            "regexPatternGroup": "Regex search",
+            "pairedPatternGroup": "Colon / regular matches",
+            "textPatternGroup": "Other matches",
+            "httpStatusGroup": "HTTP matches",
+            "customPatternGroup": "Plain text matches",
+            "regexPatternGroup": "Regex matches",
         }
 
         for object_name, title in expected_groups.items():

@@ -89,7 +89,7 @@ QWidget#fileControlsRow {{
     border-radius: 6px;
 }}
 QWidget#resultsHeader {{
-    background-color: {THEME_COLORS['ui_island']};
+    background-color: {THEME_COLORS['ui_canvas']};
     border: none;
     border-bottom: 1px solid {THEME_COLORS['border']};
     border-top: 1px solid {THEME_COLORS['border']};
@@ -97,6 +97,9 @@ QWidget#resultsHeader {{
 QWidget#resultsHeader QPushButton#maximizeResultsButton,
 QWidget#resultsHeader QPushButton#sourceToggleButton {{
     background-color: {THEME_COLORS['background']};
+}}
+QWidget#resultsHeader QPushButton#sourceToggleButton[sourceActive="true"] {{
+    background-color: {THEME_COLORS['ui_island']};
 }}
 QWidget#resultsHeader QLineEdit#resultsSearch,
 QWidget#resultsHeader QSpinBox#resultsSearchNavigation,
