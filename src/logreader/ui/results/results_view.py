@@ -468,20 +468,20 @@ class ResultsView(QWidget):
     def _exec_line_context_menu(self, editor, point, location, *, show_source=False) -> None:
         source = location.source if isinstance(location, ResultLocation) else location
         menu = editor.createStandardContextMenu()
+        for action in menu.actions():
+            if action.isSeparator():
+                menu.removeAction(action)
         editor.set_context_target(editor.cursorForPosition(point).block() if source else None)
         try:
-            if source is not None:
-                menu.addSeparator()
-                menu.addAction(f"Line {source.line:,}").setEnabled(False)
             if show_source:
-                if source is None:
-                    menu.addSeparator()
+                menu.addSeparator()
                 action = menu.addAction("Show in source")
                 action.setEnabled(source is not None)
                 if source is not None:
                     action.triggered.connect(lambda: self.show_source_line(source.line)
                                              if source.snapshot_id == self._snapshot_id else None)
             if location is not None:
+                menu.addSeparator()
                 self.bookmarks.add_menu_actions(menu, location)
             menu.exec(editor.viewport().mapToGlobal(point))
         finally:

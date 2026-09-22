@@ -110,8 +110,7 @@ class ContextTargetTests(unittest.TestCase):
                     self.assertEqual(editor._context_target, target)
                     self.assertEqual((editor.textCursor().position(), editor.textCursor().anchor()), selection)
                     self.assertEqual(self.decorations(editor), decorations)
-                    heading = next(a for a in menu.actions() if a.text() == "Line 1,002")
-                    self.assertFalse(heading.isEnabled())
+                    self.assertFalse(any(a.text().startswith("Line ") for a in menu.actions()))
                     copy = next(a for a in menu.actions() if a.text().split("\t")[0].replace("&", "") == "Copy")
                     copy.trigger()
                     self.assertEqual(self.app.clipboard().text(), "ERROR: keep selected")
@@ -137,7 +136,12 @@ class ContextTargetTests(unittest.TestCase):
 
                     def inspect(menu):
                         self.assertEqual(editor._context_target, block)
-                        self.assertIn(f"Line {1001 + row:,}", [a.text() for a in menu.actions()])
+                        labels = [None if a.isSeparator() else a.text().split("\t")[0].replace("&", "")
+                                  for a in menu.actions()]
+                        expected = ["Copy", "Select All", None]
+                        if not source:
+                            expected += ["Show in source", None]
+                        self.assertEqual(labels, expected + ["Add bookmark"])
 
                     self.right_click(editor, point, inspect, gutter=gutter)
                     self.assertIsNone(editor._context_target)
