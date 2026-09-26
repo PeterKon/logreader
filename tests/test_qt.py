@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from qt_helpers import wait_for_search, wait_for_load
-    from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+    from PySide6.QtCore import QEvent, QMimeData, QObject, QPoint, QPointF, Qt, QUrl
     from PySide6.QtGui import (
         QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent,
         QTextCursor, QWheelEvent,
@@ -402,7 +402,7 @@ class LogreaderQtTests(unittest.TestCase):
                     count += 1
         return count
 
-    def test_filter_tabs_resize_only_the_upper_controls(self):
+    def test_filter_tabs_and_list_drag_resize_only_the_upper_controls(self):
         self.window.resize(self.window.size().expandedTo(self.window.minimumSizeHint()))
         self.window.show()
         self.app.processEvents()
@@ -414,14 +414,42 @@ class LogreaderQtTests(unittest.TestCase):
         initial_height = page.controls_container.height()
         config = page.build_config()
         output = page.results_view.editor.toPlainText()
+        grip = filters._resize_handle
+        self.assertFalse(grip.isVisible())
 
         filters._tabs.setCurrentIndex(1)
         self.app.processEvents()
         self.assertGreater(page.controls_container.height(), initial_height)
         for pattern_list in (filters._custom_pattern_list, filters._regex_pattern_list):
             self.assertTrue(pattern_list.isVisible())
-            self.assertGreaterEqual(pattern_list.height(), 150)
+            self.assertEqual(pattern_list.height(), 160)
             self.assertGreater(pattern_list.width(), filters.width() * 0.4)
+        self.assertTrue(grip.isVisible())
+        self.assertLess(grip.mapTo(page, grip.rect().bottomLeft()).y(),
+                        header.mapTo(page, header.rect().topLeft()).y())
+        for button, distance, expected_height in (
+            (Qt.MouseButton.RightButton, 60, 160),
+            (Qt.MouseButton.LeftButton, 60, 220),
+            (Qt.MouseButton.LeftButton, -200, 124),
+            (Qt.MouseButton.LeftButton, 500, 310),
+            (Qt.MouseButton.LeftButton, -90, 220),
+        ):
+            with self.subTest(button=button, distance=distance):
+                previous_list_height = filters._custom_pattern_list.height()
+                previous_controls_height = page.controls_container.height()
+                start = grip.rect().center()
+                destination = grip.mapToGlobal(start) + QPoint(0, distance)
+                QTest.mousePress(grip, button, pos=start)
+                QTest.mouseMove(grip, grip.mapFromGlobal(destination))
+                QTest.qWait(20)
+                # A second move at the same screen position must not compound the delta.
+                QTest.mouseMove(grip, grip.mapFromGlobal(destination))
+                QTest.mouseRelease(grip, button, pos=grip.mapFromGlobal(destination))
+                QTest.qWait(20)
+                self.assertEqual(filters._custom_pattern_list.height(), expected_height)
+                self.assertEqual(filters._regex_pattern_list.height(), expected_height)
+                self.assertEqual(page.controls_container.height() - previous_controls_height,
+                                 expected_height - previous_list_height)
         self.assertEqual(page.build_config(), config)
         self.assertEqual(page.results_view.editor.toPlainText(), output)
         for widget, geometry in zip(widgets, before):
@@ -431,9 +459,67 @@ class LogreaderQtTests(unittest.TestCase):
         page.results_view.set_maximized(False)
         self.app.processEvents()
         self.assertEqual(filters._tabs.currentIndex(), 1)
+        self.assertEqual(filters._custom_pattern_list.height(), 220)
         filters._tabs.setCurrentIndex(0)
         self.app.processEvents()
         self.assertEqual(page.controls_container.height(), initial_height)
+        self.assertFalse(grip.isVisible())
+        filters._tabs.setCurrentIndex(1)
+        self.app.processEvents()
+        self.assertEqual(filters._custom_pattern_list.height(), 220)
+        self.assertEqual(filters._regex_pattern_list.height(), 220)
+
+    def test_shrinking_search_lists_keeps_upper_controls_stationary(self):
+        self.window.resize(self.window.size().expandedTo(self.window.minimumSizeHint()))
+        filters = self.window._document.filter_panel
+        filters._tabs.setCurrentIndex(1)
+        self.window.show()
+        QTest.qWait(20)
+        grip = filters._resize_handle
+        start = grip.rect().center()
+        destination = grip.mapToGlobal(start) + QPoint(0, 100)
+        QTest.mousePress(grip, Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(grip, grip.mapFromGlobal(destination))
+        QTest.qWait(20)
+        QTest.mouseRelease(grip, Qt.MouseButton.LeftButton, pos=grip.mapFromGlobal(destination))
+        self.assertEqual(filters._custom_pattern_list.height(), 260)
+
+        anchored = [self.window._analyze_button, filters._context_spin, filters._tabs,
+                    filters._custom_heading, filters._regex_heading,
+                    filters._custom_pattern, filters._regex_pattern,
+                    filters._custom_pattern_list, filters._regex_pattern_list]
+        expected = [widget.mapTo(self.window, QPoint()) for widget in anchored]
+        frames = []
+        window = self.window
+
+        class PaintPositions(QObject):
+            def eventFilter(self, obj, event):
+                if event.type() == QEvent.Type.Paint:
+                    frames.append([widget.mapTo(window, QPoint()) for widget in anchored])
+                return False
+
+        observer = PaintPositions()
+        for widget in anchored:
+            widget.installEventFilter(observer)
+        try:
+            start = grip.rect().center()
+            origin = grip.mapToGlobal(start)
+            QTest.mousePress(grip, Qt.MouseButton.LeftButton, pos=start)
+            for distance in range(5, 101, 5):
+                destination = origin - QPoint(0, distance)
+                QTest.mouseMove(grip, grip.mapFromGlobal(destination))
+                QTest.qWait(10)
+            QTest.mouseRelease(grip, Qt.MouseButton.LeftButton, pos=grip.mapFromGlobal(destination))
+            QTest.qWait(20)
+        finally:
+            for widget in anchored:
+                widget.removeEventFilter(observer)
+
+        self.assertEqual(filters._custom_pattern_list.height(), 160)
+        self.assertEqual(filters._regex_pattern_list.height(), 160)
+        self.assertTrue(frames)
+        for frame in frames:
+            self.assertEqual(frame, expected)
 
     def test_results_view_can_be_maximized_and_restored(self):
         file_controls = self.window.findChild(QWidget, "fileControlsRow")

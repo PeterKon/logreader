@@ -113,8 +113,8 @@ QFrame#filterSectionSeparator {{
 QWidget#resultsHeader {{
     background-color: {THEME_COLORS['ui_canvas']};
     border: none;
-    border-bottom: 1px solid {THEME_COLORS['border']};
-    border-top: 1px solid {THEME_COLORS['border']};
+    border-bottom: 1px solid {THEME_COLORS['scrollbar_track']};
+    border-top: 1px solid {THEME_COLORS['scrollbar_track']};
 }}
 QWidget#resultsHeader QPushButton#maximizeResultsButton,
 QWidget#resultsHeader QPushButton#sourceToggleButton {{
@@ -197,11 +197,37 @@ QPushButton#openButton:focus {{
 QPushButton#openButton:pressed {{
     background-color: {THEME_COLORS['ui_button_pressed']};
 }}
-QPushButton#toggleAllButton {{
-    background-color: {THEME_COLORS['ui_island']};
+QPushButton#toggleAllButton,
+QPushButton#togglePairedButton,
+QPushButton#toggleTextButton {{
+    background-color: transparent;
+    border-color: transparent;
+    padding: 1px 6px;
 }}
 QPushButton#togglePairedButton,
-QPushButton#toggleTextButton,
+QPushButton#toggleTextButton {{
+    color: {THEME_COLORS['ui_accent']};
+}}
+QPushButton#toggleAllButton:hover,
+QPushButton#togglePairedButton:hover,
+QPushButton#toggleTextButton:hover {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+}}
+QPushButton#toggleAllButton:pressed,
+QPushButton#togglePairedButton:pressed,
+QPushButton#toggleTextButton:pressed {{
+    background-color: {THEME_COLORS['ui_button_pressed']};
+}}
+QPushButton#toggleAllButton:focus,
+QPushButton#togglePairedButton:focus,
+QPushButton#toggleTextButton:focus {{
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QPushButton#toggleAllButton:disabled,
+QPushButton#togglePairedButton:disabled,
+QPushButton#toggleTextButton:disabled {{
+    color: {THEME_COLORS['ui_disabled_text']};
+}}
 QPushButton#customPatternAddButton,
 QPushButton#regexPatternAddButton {{
     background-color: {THEME_COLORS['ui_island']};

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QPointF, QSize, Qt
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -354,6 +354,70 @@ class FilterPages(QStackedWidget):
         return page.minimumSizeHint() if page is not None else super().minimumSizeHint()
 
 
+class SearchListResizeHandle(QWidget):
+    """Resize both search lists from a shared drag grip."""
+
+    height_changed = Signal(int)
+    DEFAULT_LIST_HEIGHT = 160
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName("searchListResizeHandle")
+        self.setAccessibleName("Resize search lists")
+        self.setToolTip("Drag to resize both lists")
+        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setFixedHeight(10)
+        self._list_height = self.DEFAULT_LIST_HEIGHT
+        self._drag_origin: tuple[float, int] | None = None
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_origin = (event.globalPosition().y(), self._list_height)
+            event.accept()
+            self.update()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_origin is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            y, height = self._drag_origin
+            new_height = max(124, min(310, height + round(event.globalPosition().y() - y)))
+            if new_height != self._list_height:
+                self._list_height = new_height
+                self.height_changed.emit(new_height)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_origin = None
+            event.accept()
+            self.update()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self._drag_origin = None
+        super().hideEvent(event)
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = "ui_accent" if self.underMouse() or self._drag_origin else "ui_border_strong"
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(THEME_COLORS[color]))
+        painter.drawRoundedRect(QRectF((self.width() - 35) / 2, 3.5, 35, 3), 1.5, 1.5)
+
+
 class FilterPanel(QGroupBox):
     """Own all filter controls and build their shared configuration."""
 
@@ -374,12 +438,14 @@ class FilterPanel(QGroupBox):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._base_controls = QWidget(self)
         self._base_controls.setObjectName("fileControlsRow")
         top_layout = QHBoxLayout(self._base_controls)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(8)
+        top_layout.addStretch(1)
 
         self._context_spin = ContextSpinBox()
         self._context_spin.setObjectName("contextSpin")
@@ -397,7 +463,6 @@ class FilterPanel(QGroupBox):
         limit_label.setObjectName("limitLabel")
         top_layout.addWidget(limit_label)
         top_layout.addWidget(self._limit_spin)
-        top_layout.addStretch(1)
 
         self._separate_entries = VisibleCheckBox("Line-spacing")
         self._separate_entries.setObjectName("separateEntriesCheck")
@@ -490,14 +555,23 @@ class FilterPanel(QGroupBox):
         self._pages.addWidget(patterns)
         searches = QWidget()
         searches.setObjectName("customSearchesPage")
-        searches_layout = QHBoxLayout(searches)
-        searches_layout.setContentsMargins(0, 4, 0, 4)
-        searches_layout.setSpacing(16)
-        searches_layout.addWidget(self._build_custom_pattern_group(), 1)
-        searches_layout.addWidget(self._build_regex_pattern_group(), 1)
+        searches_layout = QVBoxLayout(searches)
+        searches_layout.setContentsMargins(0, 4, 0, 0)
+        searches_layout.setSpacing(0)
+        searches_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        columns = QHBoxLayout()
+        columns.setSpacing(16)
+        columns.addWidget(self._build_custom_pattern_group(), 1, Qt.AlignmentFlag.AlignTop)
+        columns.addWidget(self._build_regex_pattern_group(), 1, Qt.AlignmentFlag.AlignTop)
+        searches_layout.addLayout(columns)
+        self._resize_handle = SearchListResizeHandle(searches)
+        self._resize_handle.height_changed.connect(self._resize_search_lists)
+        searches_layout.addWidget(self._resize_handle)
+        searches_layout.addStretch(1)
         self._pages.addWidget(searches)
         self._tabs.currentChanged.connect(self._select_editor)
         layout.addWidget(self._pages)
+        layout.addStretch(1)
 
     def set_analysis_button(self, button: QPushButton) -> None:
         if button.parentWidget() is not self._base_controls:
@@ -507,6 +581,11 @@ class FilterPanel(QGroupBox):
     def _select_editor(self, index: int) -> None:
         self._pages.setCurrentIndex(index)
         self._toggle_all_button.setVisible(index == 0)
+        self._pages.updateGeometry()
+
+    def _resize_search_lists(self, height: int) -> None:
+        for pattern_list in (self._custom_pattern_list, self._regex_pattern_list):
+            pattern_list.setFixedHeight(height)
         self._pages.updateGeometry()
 
     def _update_summary(self) -> None:
@@ -589,6 +668,8 @@ class FilterPanel(QGroupBox):
         layout = QVBoxLayout(group)
         layout.setContentsMargins(8, 0, 8, 4)
         layout.setSpacing(8)
+        # Keep controls anchored while a smaller list height propagates to its parents.
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         heading = QLabel(title)
         heading.setObjectName("filterSectionTitle")
         layout.addWidget(heading)
@@ -633,8 +714,9 @@ class FilterPanel(QGroupBox):
             "QListWidget::item:hover, QListWidget::item:selected {"
             " background: transparent; }"
         )
-        pattern_list.setFixedHeight(192)
+        pattern_list.setFixedHeight(SearchListResizeHandle.DEFAULT_LIST_HEIGHT)
         layout.addWidget(pattern_list)
+        layout.addStretch(1)
         return group, input_box, pattern_list
 
     @staticmethod
