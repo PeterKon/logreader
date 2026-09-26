@@ -125,13 +125,13 @@ class FilterPanelTests(unittest.TestCase):
 
         global_toggle.click()
         self.assertEqual(self.panel.build_config().enabled_patterns, ("http_4xx",))
-        self.assertEqual(global_toggle.text(), "Select all text patterns")
+        self.assertEqual(global_toggle.text(), "Select all patterns")
         global_toggle.click()
         self.assertEqual(
             self.panel.build_config().enabled_patterns,
             PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + ("http_4xx",),
         )
-        self.assertEqual(global_toggle.text(), "Clear all text patterns")
+        self.assertEqual(global_toggle.text(), "Clear all patterns")
         self.assertEqual(self.panel.build_config().custom_patterns, ("keep",))
 
     def test_switching_editors_preserves_filters_options_and_drafts(self):

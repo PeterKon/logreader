@@ -439,10 +439,19 @@ class LogreaderQtTests(unittest.TestCase):
                 ]
                 self.assertLess(max(border_alpha), 128)
 
+    def _wait_for_controls_layout(self):
+        controls = self.window._document.controls_container
+        for _ in range(100):
+            self.app.processEvents()
+            if controls.height() == controls.sizeHint().height():
+                return
+            QTest.qWait(5)
+        self.fail("Controls layout did not settle")
+
     def test_filter_tabs_and_list_drag_resize_only_the_upper_controls(self):
         self.window.resize(self.window.size().expandedTo(self.window.minimumSizeHint()))
         self.window.show()
-        self.app.processEvents()
+        self._wait_for_controls_layout()
         page = self.window._document
         filters = page.filter_panel
         header = page.results_view.findChild(QWidget, "resultsHeader")
@@ -1057,7 +1066,7 @@ class LogreaderQtTests(unittest.TestCase):
 
         self.window.resize(1_000, 700)
         self.window.show()
-        self.app.processEvents()
+        self._wait_for_controls_layout()
         option = QStyleOptionSlider()
         scrollbar.initStyleOption(option)
         groove = scrollbar.style().subControlRect(

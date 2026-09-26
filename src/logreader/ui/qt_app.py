@@ -114,10 +114,6 @@ QLabel#filterSectionTitle {{
 QLabel#filterExclusions {{
     color: {THEME_COLORS['ui_muted']};
 }}
-QFrame#filterSectionSeparator {{
-    background-color: {THEME_COLORS['ui_border']};
-    border: none;
-}}
 QWidget#resultsHeader {{
     background-color: {THEME_COLORS['ui_canvas']};
     border: none;
@@ -156,12 +152,7 @@ QLabel {{
 QLabel#emptyTabLabel, QLabel#emptySubtitle {{
     color: {THEME_COLORS['ui_muted']};
 }}
-QGroupBox#filterGroup,
-QGroupBox#pairedPatternGroup,
-QGroupBox#textPatternGroup,
-QGroupBox#customPatternGroup,
-QGroupBox#regexPatternGroup,
-QGroupBox#httpStatusGroup {{
+QGroupBox#filterGroup {{
     background-color: {THEME_COLORS['ui_surface']};
     border: none;
     color: {THEME_COLORS['ui_text']};
@@ -419,7 +410,12 @@ QCheckBox:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
 }}
 QFrame#analysisControlsGroup,
-QFrame#displayControlsGroup {{
+QFrame#displayControlsGroup,
+QGroupBox#pairedPatternGroup,
+QGroupBox#textPatternGroup,
+QGroupBox#httpStatusGroup,
+QGroupBox#customPatternGroup,
+QGroupBox#regexPatternGroup {{
     background-color: {THEME_COLORS['ui_button']};
     border: 1px solid {THEME_COLORS['ui_border']};
     border-radius: 5px;

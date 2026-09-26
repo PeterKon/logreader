@@ -528,15 +528,6 @@ class FilterPanel(QGroupBox):
         self._exclusions_label = QLabel()
         self._exclusions_label.setObjectName("filterExclusions")
         header_layout.addWidget(self._exclusions_label)
-        self._toggle_all_button = UnclippedPushButton("Select all text patterns")
-        configure_action_button(self._toggle_all_button)
-        self._toggle_all_button.setObjectName("toggleAllButton")
-        self._toggle_all_button.setToolTip(
-            "Affects colon / regular and other matches. Keeps HTTP and custom searches unchanged."
-        )
-        self._toggle_all_button.clicked.connect(self.toggle_all_patterns)
-        self._bulk_buttons.append((self._toggle_all_button, PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS))
-        header_layout.addWidget(self._toggle_all_button)
         layout.addWidget(filter_header)
 
         self._pages = FilterPages(self)
@@ -544,10 +535,12 @@ class FilterPanel(QGroupBox):
         self._pages.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         patterns = QWidget()
         patterns.setObjectName("commonPatternsPage")
-        patterns_layout = QHBoxLayout(patterns)
+        patterns_layout = QVBoxLayout(patterns)
         patterns_layout.setContentsMargins(12, 4, 0, 4)
-        patterns_layout.setSpacing(12)
-        patterns_layout.addWidget(
+        patterns_layout.setSpacing(10)
+        pattern_groups = QHBoxLayout()
+        pattern_groups.setSpacing(16)
+        pattern_groups.addWidget(
             self._build_pattern_group(
                 "Other matches",
                 TEXT_PATTERN_KEYS,
@@ -555,11 +548,8 @@ class FilterPanel(QGroupBox):
                 columns=4,
                 toggle_object_name="toggleTextButton",
             ),
-            0,
-            Qt.AlignmentFlag.AlignTop,
         )
-        patterns_layout.addWidget(self._make_group_separator())
-        patterns_layout.addWidget(
+        pattern_groups.addWidget(
             self._build_pattern_group(
                 "Colon / regular matches",
                 PAIRED_PATTERN_KEYS,
@@ -567,9 +557,18 @@ class FilterPanel(QGroupBox):
                 columns=2,
                 toggle_object_name="togglePairedButton",
             ),
-            1,
-            Qt.AlignmentFlag.AlignTop,
         )
+        pattern_groups.addStretch(1)
+        patterns_layout.addLayout(pattern_groups)
+        self._toggle_all_button = UnclippedPushButton("Select all patterns")
+        configure_action_button(self._toggle_all_button)
+        self._toggle_all_button.setObjectName("toggleAllButton")
+        self._toggle_all_button.setToolTip(
+            "Affects colon / regular and other matches. Keeps HTTP and custom searches unchanged."
+        )
+        self._toggle_all_button.clicked.connect(self.toggle_all_patterns)
+        self._bulk_buttons.append((self._toggle_all_button, PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS))
+        patterns_layout.addWidget(self._toggle_all_button, 0, Qt.AlignmentFlag.AlignLeft)
         self._pages.addWidget(patterns)
         advanced = QWidget()
         advanced.setObjectName("advancedPatternsPage")
@@ -615,7 +614,6 @@ class FilterPanel(QGroupBox):
 
     def _select_editor(self, index: int) -> None:
         self._pages.setCurrentIndex(index)
-        self._toggle_all_button.setVisible(index == 0)
         self._pages.updateGeometry()
 
     def _resize_search_lists(self, height: int) -> None:
@@ -642,7 +640,7 @@ class FilterPanel(QGroupBox):
         self._exclusions_label.setVisible(excluded > 0)
         for button, keys in self._bulk_buttons:
             verb = "Clear" if all(self._pattern_checkboxes[key].isChecked() for key in keys) else "Select"
-            scope = " all text patterns" if button is self._toggle_all_button else " all"
+            scope = " all patterns" if button is self._toggle_all_button else " all"
             button.setText(verb + scope)
 
     def _set_tab_count(self, index: int, text: str, description: str) -> None:
@@ -655,14 +653,6 @@ class FilterPanel(QGroupBox):
         # Refresh the tab's cached width after its count label changes.
         self._tabs.setTabText(index, title)
         self._tabs.setAccessibleTabName(index, f"{title}: {description}")
-
-    @staticmethod
-    def _make_group_separator() -> QFrame:
-        separator = QFrame()
-        separator.setObjectName("filterSectionSeparator")
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setFixedWidth(1)
-        return separator
 
     def _build_custom_pattern_group(self) -> QGroupBox:
         (
@@ -714,7 +704,7 @@ class FilterPanel(QGroupBox):
             QSizePolicy.Policy.Fixed,
         )
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(8, 0, 8, 4)
+        layout.setContentsMargins(12, 8, 12, 12)
         layout.setSpacing(8)
         # Keep controls anchored while a smaller list height propagates to its parents.
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -781,16 +771,18 @@ class FilterPanel(QGroupBox):
         group.setAccessibleName(title)
         group.setSizePolicy(
             QSizePolicy.Policy.Preferred,
-            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Preferred,
         )
         outer_layout = QVBoxLayout(group)
-        outer_layout.setContentsMargins(8, 0, 8, 4)
+        outer_layout.setContentsMargins(12, 8, 12, 12)
         outer_layout.setSpacing(8)
+        outer_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         header = QHBoxLayout()
         heading = QLabel(title)
         heading.setObjectName("filterSectionTitle")
         heading.setMinimumHeight(28)
         header.addWidget(heading)
+        header.addStretch(1)
         if toggle_object_name is not None:
             toggle_button = QPushButton("Select all")
             configure_action_button(toggle_button)
@@ -800,7 +792,6 @@ class FilterPanel(QGroupBox):
             )
             self._bulk_buttons.append((toggle_button, pattern_keys))
             header.addWidget(toggle_button)
-        header.addStretch(1)
         outer_layout.addLayout(header)
         layout = QGridLayout()
         layout.setHorizontalSpacing(10)
