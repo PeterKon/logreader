@@ -196,34 +196,44 @@ QPushButton#openButton:focus {{
 QPushButton#openButton:pressed {{
     background-color: {THEME_COLORS['ui_button_pressed']};
 }}
-QPushButton#toggleAllButton,
-QPushButton#togglePairedButton,
-QPushButton#toggleTextButton {{
+QPushButton#toggleAllButton {{
     background-color: transparent;
     border: 1px solid {THEME_COLORS['ui_border_strong']};
     color: {THEME_COLORS['ui_text']};
     padding: 1px 6px;
 }}
-QPushButton#toggleAllButton:hover,
-QPushButton#togglePairedButton:hover,
-QPushButton#toggleTextButton:hover {{
+QPushButton#toggleAllButton:hover {{
     background-color: {THEME_COLORS['ui_button_hover']};
     border-color: {THEME_COLORS['ui_accent']};
 }}
-QPushButton#toggleAllButton:pressed,
-QPushButton#togglePairedButton:pressed,
-QPushButton#toggleTextButton:pressed {{
+QPushButton#toggleAllButton:pressed {{
     background-color: {THEME_COLORS['ui_button_pressed']};
 }}
-QPushButton#toggleAllButton:focus,
-QPushButton#togglePairedButton:focus,
-QPushButton#toggleTextButton:focus {{
+QPushButton#toggleAllButton:focus {{
     border-color: {THEME_COLORS['ui_accent']};
 }}
-QPushButton#toggleAllButton:disabled,
+QPushButton#toggleAllButton:disabled {{
+    border-color: {THEME_COLORS['ui_border']};
+    color: {THEME_COLORS['ui_disabled_text']};
+}}
+QPushButton#togglePairedButton,
+QPushButton#toggleTextButton {{
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
+    color: {THEME_COLORS['ui_text']};
+    min-height: 0;
+    padding: 0;
+}}
+QPushButton#togglePairedButton:hover,
+QPushButton#toggleTextButton:hover,
+QPushButton#togglePairedButton:focus,
+QPushButton#toggleTextButton:focus {{
+    color: {THEME_COLORS['ui_accent']};
+    text-decoration: underline;
+}}
 QPushButton#togglePairedButton:disabled,
 QPushButton#toggleTextButton:disabled {{
-    border-color: {THEME_COLORS['ui_border']};
     color: {THEME_COLORS['ui_disabled_text']};
 }}
 QPushButton#customPatternAddButton,
