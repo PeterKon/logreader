@@ -216,7 +216,7 @@ class TabTests(unittest.TestCase):
         )
         self.window.show()
         self.app.processEvents()
-        first.filter_panel._tabs.setCurrentIndex(1)
+        first.filter_panel._tabs.setCurrentIndex(2)
         first.findChild(QSpinBox, "contextSpin").setValue(1)
         first.findChild(QCheckBox, "combinedViewCheck").setChecked(False)
         first.findChild(QLineEdit, "customPattern").setText("noise")
@@ -270,7 +270,7 @@ class TabTests(unittest.TestCase):
         self.window._select_document(first)
         self.app.processEvents()
         self.assertEqual(first.build_config(), before_config)
-        self.assertEqual(first.filter_panel._tabs.currentIndex(), 1)
+        self.assertEqual(first.filter_panel._tabs.currentIndex(), 2)
         self.assertEqual(first.findChild(QLineEdit, "customPattern").text(), "unfinished text")
         self.assertEqual(first.findChild(QLineEdit, "regexPattern").text(), "unfinished [")
         self.assertEqual(editor.toPlainText(), before_output)
@@ -357,7 +357,7 @@ class TabTests(unittest.TestCase):
             with self.subTest(target=target.objectName()):
                 self.window._select_document(third)
                 if target is third.filter_panel._custom_pattern:
-                    third.filter_panel._tabs.setCurrentIndex(1)
+                    third.filter_panel._tabs.setCurrentIndex(2)
                 target.setFocus()
                 self.app.processEvents()
                 QTest.keyClick(target, Qt.Key.Key_Tab, Qt.KeyboardModifier.ControlModifier)

@@ -495,8 +495,15 @@ class FilterPanel(QGroupBox):
         self._tabs.setAccessibleName("Filter editors")
         self._tabs.setDrawBase(False)
         self._tabs.setExpanding(False)
-        self._tabs.addTab("Built-in patterns")
-        self._tabs.addTab("Text and Regex")
+        self._tab_counts: list[QLabel] = []
+        for title in ("Common patterns", "Advanced patterns", "Text and Regex"):
+            index = self._tabs.addTab(title)
+            count = QLabel(self._tabs)
+            count.setObjectName("filterTabCount")
+            count.setContentsMargins(0, 0, 8, 0)
+            count.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            self._tabs.setTabButton(index, QTabBar.ButtonPosition.RightSide, count)
+            self._tab_counts.append(count)
         header_layout.addWidget(self._tabs)
         header_layout.addStretch(1)
         self._exclusions_label = QLabel()
@@ -517,7 +524,7 @@ class FilterPanel(QGroupBox):
         self._pages.setObjectName("filterPages")
         self._pages.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         patterns = QWidget()
-        patterns.setObjectName("builtInPatternsPage")
+        patterns.setObjectName("commonPatternsPage")
         patterns_layout = QHBoxLayout(patterns)
         patterns_layout.setContentsMargins(0, 4, 0, 4)
         patterns_layout.setSpacing(12)
@@ -544,8 +551,13 @@ class FilterPanel(QGroupBox):
             1,
             Qt.AlignmentFlag.AlignTop,
         )
-        patterns_layout.addWidget(self._make_group_separator())
-        patterns_layout.addWidget(
+        self._pages.addWidget(patterns)
+        advanced = QWidget()
+        advanced.setObjectName("advancedPatternsPage")
+        advanced_layout = QHBoxLayout(advanced)
+        advanced_layout.setContentsMargins(0, 4, 0, 4)
+        advanced_layout.setSpacing(12)
+        advanced_layout.addWidget(
             self._build_pattern_group(
                 "HTTP matches",
                 HTTP_STATUS_PATTERN_KEYS,
@@ -555,7 +567,8 @@ class FilterPanel(QGroupBox):
             0,
             Qt.AlignmentFlag.AlignTop,
         )
-        self._pages.addWidget(patterns)
+        advanced_layout.addStretch(1)
+        self._pages.addWidget(advanced)
         searches = QWidget()
         searches.setObjectName("customSearchesPage")
         searches_layout = QVBoxLayout(searches)
@@ -592,11 +605,13 @@ class FilterPanel(QGroupBox):
         self._pages.updateGeometry()
 
     def _update_summary(self) -> None:
-        selected = sum(checkbox.isChecked() for checkbox in self._pattern_checkboxes.values())
-        self._tabs.setTabText(0, f"Built-in patterns ({selected}/{len(PATTERN_KEYS)})")
+        for index, keys in enumerate((PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, HTTP_STATUS_PATTERN_KEYS)):
+            selected = sum(self._pattern_checkboxes[key].isChecked() for key in keys)
+            self._set_tab_count(index, f"({selected}/{len(keys)})", f"{selected} of {len(keys)} selected")
         custom_count = self._custom_pattern_list.count()
         regex_count = self._regex_pattern_list.count()
-        self._tabs.setTabText(1, f"Text and Regex ({custom_count + regex_count})")
+        search_count = custom_count + regex_count
+        self._set_tab_count(2, f"({search_count})", f"{search_count} searches")
         self._custom_heading.setText(f"Plain text matches ({custom_count})")
         self._regex_heading.setText(f"Regex matches ({regex_count})")
         excluded = sum(
@@ -610,6 +625,17 @@ class FilterPanel(QGroupBox):
             verb = "Clear" if all(self._pattern_checkboxes[key].isChecked() for key in keys) else "Select"
             scope = " all text patterns" if button is self._toggle_all_button else " all"
             button.setText(verb + scope)
+
+    def _set_tab_count(self, index: int, text: str, description: str) -> None:
+        label = self._tab_counts[index]
+        if label.text() == text:
+            return
+        label.setText(text)
+        label.adjustSize()
+        title = self._tabs.tabText(index)
+        # Refresh the tab's cached width after its count label changes.
+        self._tabs.setTabText(index, title)
+        self._tabs.setAccessibleTabName(index, f"{title}: {description}")
 
     @staticmethod
     def _make_group_separator() -> QFrame:

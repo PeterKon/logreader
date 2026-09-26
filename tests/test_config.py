@@ -133,6 +133,7 @@ class LogreaderConfigTests(unittest.TestCase):
             "aborted",
             "terminated",
             "timeout",
+            "unavailable",
             "http_4xx",
             "http_5xx",
         )

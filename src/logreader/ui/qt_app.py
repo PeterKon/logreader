@@ -100,6 +100,9 @@ QTabBar#filterTabs::tab:selected {{
 QTabBar#filterTabs::tab:hover {{
     background-color: {THEME_COLORS['ui_button_hover']};
 }}
+QLabel#filterTabCount {{
+    color: {THEME_COLORS['ui_disabled_text']};
+}}
 QLabel#filterSectionTitle {{
     color: {THEME_COLORS['ui_accent']};
 }}

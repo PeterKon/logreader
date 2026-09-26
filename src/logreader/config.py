@@ -66,6 +66,7 @@ PATTERN_PRESETS = (
     PatternPreset("aborted", "aborted", "ABORTED"),
     PatternPreset("terminated", "terminated", "TERMINATED"),
     PatternPreset("timeout", "timeout", "TIMEOUT"),
+    PatternPreset("unavailable", "unavailable", "UNAVAILABLE"),
     # Exact three-digit HTTP status-code ranges. Numeric lookarounds prevent
     # matches inside longer values such as 1404 or 5000.
     PatternPreset(
@@ -109,6 +110,7 @@ TEXT_PATTERN_KEYS = (
     "aborted",
     "terminated",
     "timeout",
+    "unavailable",
 )
 HTTP_STATUS_PATTERN_KEYS = ("http_4xx", "http_5xx")
 PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + HTTP_STATUS_PATTERN_KEYS

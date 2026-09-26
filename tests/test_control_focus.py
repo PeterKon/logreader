@@ -74,7 +74,7 @@ class ControlFocusTests(unittest.TestCase):
             self.app.processEvents()
             self.assertIs(self.app.focusWidget(), page)
         editor = pages[1].filter_panel._custom_pattern
-        pages[1].filter_panel._tabs.setCurrentIndex(1)
+        pages[1].filter_panel._tabs.setCurrentIndex(2)
         editor.setFocus()
         self.window._select_document(pages[0])
         self.window._select_document(pages[1])
@@ -100,7 +100,7 @@ class ControlFocusTests(unittest.TestCase):
             for name in names:
                 with self.subTest(button=name):
                     button = self.window.findChild(QPushButton, name)
-                    page.filter_panel._tabs.setCurrentIndex(1 if name in (
+                    page.filter_panel._tabs.setCurrentIndex(2 if name in (
                         "customPatternAddButton", "regexPatternAddButton",
                     ) else 0)
                     self.app.processEvents()

@@ -23,6 +23,8 @@ try:
         TEXT_PATTERN_KEYS,
     )
     from logreader.ui.filter_panel import FilterPanel
+    from logreader.ui.qt_app import INTERFACE_STYLE_SHEET
+    from logreader.core import analyze_lines
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -51,6 +53,7 @@ class FilterPanelTests(unittest.TestCase):
             "pattern_error_colon",
         ).setChecked(False)
         self.panel.findChild(QCheckBox, "pattern_warning").setChecked(True)
+        self.panel.findChild(QCheckBox, "pattern_unavailable").setChecked(True)
         self.panel.findChild(
             QCheckBox,
             "separateEntriesCheck",
@@ -73,6 +76,7 @@ class FilterPanelTests(unittest.TestCase):
                 "fatal",
                 "critical",
                 "refused",
+                "unavailable",
             ),
         )
         self.assertTrue(config.separate_entries)
@@ -132,9 +136,20 @@ class FilterPanelTests(unittest.TestCase):
 
     def test_switching_editors_preserves_filters_options_and_drafts(self):
         tabs = self.panel.findChild(QTabBar, "filterTabs")
-        self.panel.resize(975, 500)
+        # Documents inherit the window theme after the counts are first sized.
+        self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
+        self.panel.resize(1400, 500)
         self.panel.show()
-        tabs.setCurrentIndex(1)
+        self.app.processEvents()
+        for count in self.panel._tab_counts:
+            self.assertGreaterEqual(count.width(), count.sizeHint().width(), count.text())
+        self.assertEqual([tabs.tabText(index) for index in range(tabs.count())],
+                         ["Common patterns", "Advanced patterns", "Text and Regex"])
+        self.assertEqual(self.panel._tab_counts[0].text(), "(9/22)")
+        self.assertEqual(self.panel._tab_counts[1].text(), "(0/2)")
+        self.panel._pattern_checkboxes["unavailable"].setChecked(True)
+        self.panel._pattern_checkboxes["http_5xx"].setChecked(True)
+        tabs.setCurrentIndex(2)
         self.app.processEvents()
         self.panel._custom_pattern.setText("CaseSensitive")
         QTest.keyClick(self.panel._custom_pattern, Qt.Key.Key_Return)
@@ -145,15 +160,25 @@ class FilterPanelTests(unittest.TestCase):
         self.panel._custom_pattern.setText("unfinished text")
         self.panel._regex_pattern.setText("unfinished [")
         before = self.panel.build_config()
+        self.app.processEvents()
 
-        for index in (0, 1, 0, 1):
-            QTest.mouseClick(tabs, Qt.MouseButton.LeftButton, pos=tabs.tabRect(index).center())
+        for index in (0, 1, 2, 1, 0, 2):
+            count = tabs.tabButton(index, QTabBar.ButtonPosition.RightSide)
+            self.assertGreaterEqual(count.width(), count.sizeHint().width(), count.text())
+            self.assertTrue(tabs.rect().contains(tabs.tabRect(index)),
+                            f"Tab {index}: {tabs.tabRect(index)} outside {tabs.rect()}")
+            self.assertTrue(tabs.tabRect(index).contains(count.geometry()))
+            QTest.mouseClick(tabs, Qt.MouseButton.LeftButton,
+                             pos=count.mapTo(tabs, count.rect().center()))
             self.app.processEvents()
+            self.assertEqual(tabs.currentIndex(), index)
             self.assertEqual(self.panel.build_config(), before)
             self.assertEqual(self.panel._custom_pattern.text(), "unfinished text")
             self.assertEqual(self.panel._regex_pattern.text(), "unfinished [")
-            self.assertEqual(self.panel._custom_pattern.isVisible(), index == 1)
+            self.assertEqual(self.panel._custom_pattern.isVisible(), index == 2)
             self.assertEqual(self.panel._pattern_checkboxes["error_colon"].isVisible(), index == 0)
+            self.assertEqual(self.panel._pattern_checkboxes["http_5xx"].isVisible(), index == 1)
+            self.assertEqual(self.panel._toggle_all_button.isVisible(), index == 0)
             self.assertTrue(self.panel._context_spin.isVisible())
             self.assertTrue(self.panel._limit_spin.isVisible())
             self.assertTrue(self.panel._separate_entries.isVisible())
@@ -161,11 +186,17 @@ class FilterPanelTests(unittest.TestCase):
 
         self.assertEqual(before.custom_pattern_match_case, (True,))
         self.assertEqual(before.custom_pattern_exclude, (True,))
-        self.assertEqual(tabs.tabText(1), "Text and Regex (2)")
+        self.assertEqual(self.panel._tab_counts[0].text(), "(10/22)")
+        self.assertEqual(self.panel._tab_counts[1].text(), "(1/2)")
+        self.assertEqual(self.panel._tab_counts[2].text(), "(2)")
+        analysis = analyze_lines(["service UNAVAILABLE", "HTTP 503", "service available"],
+                                 before.search_patterns())
+        self.assertEqual(analysis.category_match_counts["unavailable"], 1)
+        self.assertEqual(analysis.category_match_counts["http_5xx"], 1)
         self.assertEqual(self.panel._exclusions_label.text(), "1 exclusion")
         self.assertTrue(self.panel._exclusions_label.isVisible())
         self.panel.findChild(QPushButton, "customPatternRemoveButton").click()
-        self.assertEqual(tabs.tabText(1), "Text and Regex (1)")
+        self.assertEqual(self.panel._tab_counts[2].text(), "(1)")
         self.assertFalse(self.panel._exclusions_label.isVisible())
 
     def test_each_colon_and_regular_pattern_remains_independent(self):

@@ -419,6 +419,15 @@ class LogreaderQtTests(unittest.TestCase):
 
         filters._tabs.setCurrentIndex(1)
         self.app.processEvents()
+        self.assertLess(page.controls_container.height(), initial_height)
+        self.assertTrue(filters._pattern_checkboxes["http_4xx"].isVisible())
+        self.assertFalse(filters._pattern_checkboxes["unavailable"].isVisible())
+        self.assertFalse(grip.isVisible())
+        for widget, geometry in zip(widgets, before):
+            self.assertEqual(widget.geometry(), geometry, widget.objectName())
+
+        filters._tabs.setCurrentIndex(2)
+        self.app.processEvents()
         self.assertGreater(page.controls_container.height(), initial_height)
         for pattern_list in (filters._custom_pattern_list, filters._regex_pattern_list):
             self.assertTrue(pattern_list.isVisible())
@@ -458,13 +467,13 @@ class LogreaderQtTests(unittest.TestCase):
         page.results_view.set_maximized(True)
         page.results_view.set_maximized(False)
         self.app.processEvents()
-        self.assertEqual(filters._tabs.currentIndex(), 1)
+        self.assertEqual(filters._tabs.currentIndex(), 2)
         self.assertEqual(filters._custom_pattern_list.height(), 220)
         filters._tabs.setCurrentIndex(0)
         self.app.processEvents()
         self.assertEqual(page.controls_container.height(), initial_height)
         self.assertFalse(grip.isVisible())
-        filters._tabs.setCurrentIndex(1)
+        filters._tabs.setCurrentIndex(2)
         self.app.processEvents()
         self.assertEqual(filters._custom_pattern_list.height(), 220)
         self.assertEqual(filters._regex_pattern_list.height(), 220)
@@ -472,7 +481,7 @@ class LogreaderQtTests(unittest.TestCase):
     def test_shrinking_search_lists_keeps_upper_controls_stationary(self):
         self.window.resize(self.window.size().expandedTo(self.window.minimumSizeHint()))
         filters = self.window._document.filter_panel
-        filters._tabs.setCurrentIndex(1)
+        filters._tabs.setCurrentIndex(2)
         self.window.show()
         QTest.qWait(20)
         grip = filters._resize_handle
@@ -1212,7 +1221,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn("error", config.enabled_patterns)
 
     def test_plain_text_match_case_is_per_item_and_controls_analysis(self):
-        self.window._document.filter_panel._tabs.setCurrentIndex(1)
+        self.window._document.filter_panel._tabs.setCurrentIndex(2)
         input_box = self.window.findChild(QLineEdit, "customPattern")
         pattern_list = self.window.findChild(QListWidget, "customPatternList")
         for _ in range(2):
@@ -1247,7 +1256,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(self.window.build_config().custom_pattern_match_case, (True, False))
 
     def test_exclude_toggle_filters_analysis_and_survives_other_item_deletion(self):
-        self.window._document.filter_panel._tabs.setCurrentIndex(1)
+        self.window._document.filter_panel._tabs.setCurrentIndex(2)
         entry = self.window.findChild(QLineEdit, "customPattern")
         pattern_list = self.window.findChild(QListWidget, "customPatternList")
         for text in ("unused", "Skip"):
@@ -1285,7 +1294,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(config.custom_pattern_match_case, (True,))
 
     def test_regex_exclude_toggle_controls_analysis_and_stays_with_item(self):
-        self.window._document.filter_panel._tabs.setCurrentIndex(1)
+        self.window._document.filter_panel._tabs.setCurrentIndex(2)
         entry = self.window.findChild(QLineEdit, "regexPattern")
         pattern_list = self.window.findChild(QListWidget, "regexPatternList")
         for text in ("unused", r"skip\d+"):
