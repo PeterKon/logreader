@@ -27,8 +27,14 @@ Repository = "https://github.com/PeterKon/logreader"
 [project.gui-scripts]
 logreader = "logreader.ui.qt_app:main"
 
+[project.optional-dependencies]
+build = ["pyinstaller>=6,<7"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+logreader = ["assets/*.ico"]
 
 [tool.setuptools.dynamic]
 version = {attr = "logreader.__version__"}

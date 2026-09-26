@@ -145,11 +145,14 @@ class TabTests(unittest.TestCase):
                 patch("logreader.ui.qt_app.QApplication") as app,
                 patch("logreader.ui.qt_app.LogreaderWindow") as window,
                 patch("logreader.ui.qt_app.QThreadPool"),
+                patch("logreader.ui.qt_app.set_windows_app_id") as set_app_id,
             ):
                 app.return_value.exec.return_value = 0
                 self.assertEqual(main(["logreader", *flags, "-platform", "offscreen"]), 0)
                 window.assert_called_once_with(show_performance=enabled)
                 app.assert_called_once_with(["logreader", "-platform", "offscreen"])
+                set_app_id.assert_called_once_with()
+                self.assertFalse(app.return_value.setWindowIcon.call_args.args[0].isNull())
 
     def test_normalized_duplicate_selects_existing_page_without_reloading(self):
         first = self.open_log("first.log")

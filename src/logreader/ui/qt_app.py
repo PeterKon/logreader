@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import APP_VERSION, LogreaderConfig
+from .app_icon import application_icon, set_windows_app_id
 from .document_page import DocumentPage
 from ..document_session import LoadPhase
 from .theme import THEME_COLORS, configure_action_button
@@ -481,6 +482,7 @@ class LogreaderWindow(QMainWindow):
 
     def __init__(self, *, show_performance: bool = False) -> None:
         super().__init__()
+        self.setWindowIcon(application_icon())
         self._show_performance = show_performance
         self._apply_interface_palette()
         self.setStyleSheet(INTERFACE_STYLE_SHEET)
@@ -900,9 +902,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     app_flags = {"-p", "--performance", "-h", "--help"}
     options = parser.parse_args([arg for arg in arguments[1:] if arg in app_flags])
     qt_arguments = [arg for arg in arguments[1:] if arg not in app_flags]
+    set_windows_app_id()
     app = QApplication(arguments[:1] + qt_arguments)
     app.setApplicationName("Logreader")
     app.setApplicationDisplayName(APP_VERSION)
+    app.setWindowIcon(application_icon())
     window = LogreaderWindow(show_performance=options.performance)
     window.show()
     try:

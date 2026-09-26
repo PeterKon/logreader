@@ -402,6 +402,43 @@ class LogreaderQtTests(unittest.TestCase):
                     count += 1
         return count
 
+    def test_window_icon_loads_packaged_artwork_at_small_and_large_sizes(self):
+        icon = self.window.windowIcon()
+        self.assertFalse(icon.isNull())
+        sizes = {size.width() for size in icon.availableSizes()}
+        self.assertTrue({16, 24, 32, 48, 256}.issubset(sizes))
+        for size in (16, 24, 32, 48, 256):
+            with self.subTest(size=size):
+                image = icon.pixmap(size, size).toImage()
+                self.assertEqual(image.width(), size)
+                self.assertEqual(image.height(), size)
+                self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+                self.assertGreater(image.pixelColor(size // 2, size // 2).alpha(), 0)
+                visible = [
+                    (x, y)
+                    for y in range(size)
+                    for x in range(size)
+                    if image.pixelColor(x, y).alpha() > 8
+                ]
+                self.assertGreaterEqual(
+                    max(x for x, y in visible) - min(x for x, y in visible) + 1,
+                    round(size * 0.88),
+                )
+                self.assertGreaterEqual(
+                    max(y for x, y in visible) - min(y for x, y in visible) + 1,
+                    round(size * 0.78),
+                )
+                border_alpha = [
+                    image.pixelColor(x, y).alpha()
+                    for x in range(size)
+                    for y in (0, size - 1)
+                ] + [
+                    image.pixelColor(x, y).alpha()
+                    for y in range(size)
+                    for x in (0, size - 1)
+                ]
+                self.assertLess(max(border_alpha), 128)
+
     def test_filter_tabs_and_list_drag_resize_only_the_upper_controls(self):
         self.window.resize(self.window.size().expandedTo(self.window.minimumSizeHint()))
         self.window.show()
