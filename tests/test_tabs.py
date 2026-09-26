@@ -73,11 +73,9 @@ class TabTests(unittest.TestCase):
         self.assertTrue(self.window._empty_page.isVisible())
         self.assertEqual(self.window._open_button.text(), "&Open file")
         self.assertIs(self.window._open_button.parentWidget(), self.window._tab_controls)
-        self.assertIs(self.window._file_controls.layout().itemAt(0).widget(), self.window._analyze_button)
-        self.assertIs(self.window._file_controls.layout().itemAt(1).widget(), self.window._path_label)
         self.assertEqual(self.window._empty_heading.text(), "Open or drop log files")
         self.assertEqual(self.window._empty_subtitle.text(), "Each file opens in its own tab.")
-        self.assertFalse(self.window._action_margin.isVisible())
+        self.assertFalse(self.window._analyze_button.isVisible())
         self.assertTrue(self.window._empty_tab_label.isVisible())
         self.assertTrue(self.window._empty_version_label.isVisible())
         self.assertEqual(self.window._empty_version_label.text(), APP_VERSION)
@@ -112,7 +110,8 @@ class TabTests(unittest.TestCase):
         self.assertFalse(self.window._empty_page.isVisible())
         self.assertFalse(self.window._empty_tab_label.isVisible())
         self.assertFalse(self.window._empty_version_label.isVisible())
-        self.assertTrue(self.window._action_margin.isVisible())
+        self.assertTrue(self.window._analyze_button.isVisible())
+        self.assertIs(self.window._analyze_button.parentWidget(), page.filter_panel._base_controls)
         self.assertTrue(self.window._tabs.isVisible())
         self.assertTrue(self.window._analyze_button.isEnabled())
         self.assertEqual(page.session.path, path)
@@ -217,6 +216,7 @@ class TabTests(unittest.TestCase):
         )
         self.window.show()
         self.app.processEvents()
+        first.filter_panel._tabs.setCurrentIndex(1)
         first.findChild(QSpinBox, "contextSpin").setValue(1)
         first.findChild(QCheckBox, "combinedViewCheck").setChecked(False)
         first.findChild(QLineEdit, "customPattern").setText("noise")
@@ -261,6 +261,7 @@ class TabTests(unittest.TestCase):
 
         second = self.open_log("second.log")
         self.assertEqual(second.build_config(), LogreaderConfig())
+        self.assertEqual(second.filter_panel._tabs.currentIndex(), 0)
         self.assertEqual(second.findChild(QLineEdit, "customPattern").text(), "")
         self.assertEqual(second.findChild(QLineEdit, "regexPattern").text(), "")
         self.assertEqual(second.findChild(QLineEdit, "resultsSearch").text(), "")
@@ -269,6 +270,7 @@ class TabTests(unittest.TestCase):
         self.window._select_document(first)
         self.app.processEvents()
         self.assertEqual(first.build_config(), before_config)
+        self.assertEqual(first.filter_panel._tabs.currentIndex(), 1)
         self.assertEqual(first.findChild(QLineEdit, "customPattern").text(), "unfinished text")
         self.assertEqual(first.findChild(QLineEdit, "regexPattern").text(), "unfinished [")
         self.assertEqual(editor.toPlainText(), before_output)
@@ -327,10 +329,10 @@ class TabTests(unittest.TestCase):
         first.results_view.set_maximized(True)
         self.window._select_document(second)
         self.assertFalse(second.results_view.is_maximized)
-        self.assertFalse(self.window._action_margin.isHidden())
+        self.assertFalse(second.controls_container.isHidden())
         self.window._select_document(first)
         self.assertTrue(first.results_view.is_maximized)
-        self.assertTrue(self.window._action_margin.isHidden())
+        self.assertTrue(first.controls_container.isHidden())
         self.assertFalse(self.window._tabs.isHidden())
 
     def test_keyboard_navigation_wraps_from_controls_and_maximized_results(self):
@@ -354,6 +356,8 @@ class TabTests(unittest.TestCase):
         ):
             with self.subTest(target=target.objectName()):
                 self.window._select_document(third)
+                if target is third.filter_panel._custom_pattern:
+                    third.filter_panel._tabs.setCurrentIndex(1)
                 target.setFocus()
                 self.app.processEvents()
                 QTest.keyClick(target, Qt.Key.Key_Tab, Qt.KeyboardModifier.ControlModifier)

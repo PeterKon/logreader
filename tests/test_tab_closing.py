@@ -80,7 +80,7 @@ class TabClosingTests(unittest.TestCase):
         self.assertTrue(self.window._empty_page.isVisible())
         self.assertFalse(self.window._analyze_button.isEnabled())
         self.assertEqual(self.window.windowTitle(), APP_VERSION)
-        self.assertEqual(self.window._path_label.text(), "No file selected")
+        self.assertFalse(self.window._analyze_button.isVisible())
         QTest.keyClick(self.window, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
         self.assertTrue(self.window.load_file(second_path))
         self.assertIsNot(self.window._document, second)

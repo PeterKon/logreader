@@ -19,10 +19,12 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QStackedWidget,
     QStyle,
     QStyleOptionButton,
     QStyleOptionSpinBox,
     QStylePainter,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -42,7 +44,6 @@ from ..file_loader import DEFAULT_MAX_LINES_SCANNED
 from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
 
 
-FILTER_ALIGNMENT_EXTRA_WIDTH = 115
 MATCH_CASE_ROLE = Qt.ItemDataRole.UserRole + 1
 EXCLUDE_ROLE = Qt.ItemDataRole.UserRole + 2
 
@@ -341,46 +342,48 @@ class UnclippedPushButton(QPushButton):
         )
 
 
+class FilterPages(QStackedWidget):
+    """Reserve space for the visible editor only."""
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        page = self.currentWidget()
+        return page.sizeHint() if page is not None else super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        page = self.currentWidget()
+        return page.minimumSizeHint() if page is not None else super().minimumSizeHint()
+
+
 class FilterPanel(QGroupBox):
     """Own all filter controls and build their shared configuration."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("Filters", parent)
+        super().__init__(parent)
         self.setObjectName("filterGroup")
+        self.setAccessibleName("Filters")
         self._pattern_checkboxes: dict[str, QCheckBox] = {}
+        self._bulk_buttons: list[tuple[QPushButton, tuple[str, ...]]] = []
         self._build_interface()
+        for checkbox in self._pattern_checkboxes.values():
+            checkbox.toggled.connect(self._update_summary)
+        for pattern_list in (self._custom_pattern_list, self._regex_pattern_list):
+            pattern_list.itemChanged.connect(self._update_summary)
+        self._update_summary()
 
     def _build_interface(self) -> None:
-        outer_layout = QHBoxLayout(self)
-        outer_layout.setContentsMargins(10, 18, 10, 10)
-        outer_layout.setSpacing(0)
-
-        self._filter_alignment_container = QWidget(self)
-        self._filter_alignment_container.setObjectName(
-            "filterAlignmentContainer"
-        )
-        self._filter_alignment_container.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        layout = QVBoxLayout(self._filter_alignment_container)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        outer_layout.addWidget(
-            self._filter_alignment_container,
-            0,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-        )
-        outer_layout.addStretch(1)
 
-        top_controls = QWidget(self._filter_alignment_container)
-        top_controls.setObjectName("topControlsRow")
-        top_layout = QHBoxLayout(top_controls)
+        self._base_controls = QWidget(self)
+        self._base_controls.setObjectName("fileControlsRow")
+        top_layout = QHBoxLayout(self._base_controls)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(8)
 
         self._context_spin = ContextSpinBox()
         self._context_spin.setObjectName("contextSpin")
+        self._context_spin.setFixedWidth(self.fontMetrics().horizontalAdvance("1 000") + 48)
         context_label = QLabel("Context around matches")
         context_label.setObjectName("contextLabel")
         top_layout.addWidget(context_label)
@@ -389,20 +392,12 @@ class FilterPanel(QGroupBox):
 
         self._limit_spin = ScanLimitSpinBox()
         self._limit_spin.setObjectName("limitSpin")
+        self._limit_spin.setFixedWidth(self.fontMetrics().horizontalAdvance("2 147 483 647") + 48)
         limit_label = QLabel("Max lines scanned")
         limit_label.setObjectName("limitLabel")
         top_layout.addWidget(limit_label)
         top_layout.addWidget(self._limit_spin)
-        top_layout.addWidget(self._make_top_separator("topSeparatorLimit"))
-
-        toggle_all_button = UnclippedPushButton("Global toggle all")
-        configure_action_button(toggle_all_button)
-        toggle_all_button.setObjectName("toggleAllButton")
-        toggle_all_button.setToolTip(
-            "Toggle all patterns on/off."
-        )
-        toggle_all_button.clicked.connect(self.toggle_all_patterns)
-        top_layout.addWidget(toggle_all_button)
+        top_layout.addStretch(1)
 
         self._separate_entries = VisibleCheckBox("Line-spacing")
         self._separate_entries.setObjectName("separateEntriesCheck")
@@ -418,88 +413,129 @@ class FilterPanel(QGroupBox):
         self._combined_view.setToolTip(
             "Show all matches in one combined category on the results view."
         )
-        top_layout.addStretch(1)
-        layout.addWidget(top_controls)
+        top_layout.addWidget(self._separate_entries)
+        top_layout.addWidget(self._combined_view)
+        layout.addWidget(self._base_controls)
 
-        text_groups = QWidget(self._filter_alignment_container)
-        text_groups.setObjectName("textPatternGroupsRow")
-        text_groups_layout = QHBoxLayout(text_groups)
-        text_groups_layout.setContentsMargins(0, 0, 0, 0)
-        text_groups_layout.setSpacing(8)
-        text_groups_layout.addWidget(
+        filter_header = QWidget(self)
+        filter_header.setObjectName("filterHeader")
+        header_layout = QHBoxLayout(filter_header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(12)
+        self._tabs = QTabBar(filter_header)
+        self._tabs.setObjectName("filterTabs")
+        self._tabs.setAccessibleName("Filter editors")
+        self._tabs.setDrawBase(False)
+        self._tabs.setExpanding(False)
+        self._tabs.addTab("Built-in patterns")
+        self._tabs.addTab("Text and Regex")
+        header_layout.addWidget(self._tabs)
+        header_layout.addStretch(1)
+        self._exclusions_label = QLabel()
+        self._exclusions_label.setObjectName("filterExclusions")
+        header_layout.addWidget(self._exclusions_label)
+        self._toggle_all_button = UnclippedPushButton("Select all text patterns")
+        configure_action_button(self._toggle_all_button)
+        self._toggle_all_button.setObjectName("toggleAllButton")
+        self._toggle_all_button.setToolTip(
+            "Affects colon / regular and other matches. Keeps HTTP and custom searches unchanged."
+        )
+        self._toggle_all_button.clicked.connect(self.toggle_all_patterns)
+        self._bulk_buttons.append((self._toggle_all_button, PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS))
+        header_layout.addWidget(self._toggle_all_button)
+        layout.addWidget(filter_header)
+
+        self._pages = FilterPages(self)
+        self._pages.setObjectName("filterPages")
+        self._pages.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        patterns = QWidget()
+        patterns.setObjectName("builtInPatternsPage")
+        patterns_layout = QHBoxLayout(patterns)
+        patterns_layout.setContentsMargins(0, 4, 0, 4)
+        patterns_layout.setSpacing(12)
+        patterns_layout.addWidget(
             self._build_pattern_group(
                 "Colon / regular matches",
                 PAIRED_PATTERN_KEYS,
                 object_name="pairedPatternGroup",
                 columns=2,
                 toggle_object_name="togglePairedButton",
-            )
+            ),
+            0,
+            Qt.AlignmentFlag.AlignTop,
         )
-        text_pattern_group = self._build_pattern_group(
-            "Other matches",
-            TEXT_PATTERN_KEYS,
-            object_name="textPatternGroup",
-            columns=4,
-            toggle_object_name="toggleTextButton",
-            reserve_toggle_cell=True,
+        patterns_layout.addWidget(self._make_group_separator())
+        patterns_layout.addWidget(
+            self._build_pattern_group(
+                "Other matches",
+                TEXT_PATTERN_KEYS,
+                object_name="textPatternGroup",
+                columns=4,
+                toggle_object_name="toggleTextButton",
+            ),
+            1,
+            Qt.AlignmentFlag.AlignTop,
         )
-        text_pattern_group.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
+        patterns_layout.addWidget(self._make_group_separator())
+        patterns_layout.addWidget(
+            self._build_pattern_group(
+                "HTTP matches",
+                HTTP_STATUS_PATTERN_KEYS,
+                object_name="httpStatusGroup",
+                columns=1,
+            ),
+            0,
+            Qt.AlignmentFlag.AlignTop,
         )
-        text_groups_layout.addWidget(text_pattern_group, 1)
-        layout.addWidget(text_groups)
+        self._pages.addWidget(patterns)
+        searches = QWidget()
+        searches.setObjectName("customSearchesPage")
+        searches_layout = QHBoxLayout(searches)
+        searches_layout.setContentsMargins(0, 4, 0, 4)
+        searches_layout.setSpacing(16)
+        searches_layout.addWidget(self._build_custom_pattern_group(), 1)
+        searches_layout.addWidget(self._build_regex_pattern_group(), 1)
+        self._pages.addWidget(searches)
+        self._tabs.currentChanged.connect(self._select_editor)
+        layout.addWidget(self._pages)
 
-        http_row = QWidget(self._filter_alignment_container)
-        http_row.setObjectName("httpStatusRow")
-        http_layout = QHBoxLayout(http_row)
-        http_layout.setContentsMargins(0, 0, 0, 0)
-        http_layout.setSpacing(8)
-        http_layout.addWidget(
-            self._build_custom_pattern_group(),
-            0,
-            Qt.AlignmentFlag.AlignTop,
+    def set_analysis_button(self, button: QPushButton) -> None:
+        if button.parentWidget() is not self._base_controls:
+            self._base_controls.layout().insertWidget(0, button)
+        button.show()
+
+    def _select_editor(self, index: int) -> None:
+        self._pages.setCurrentIndex(index)
+        self._toggle_all_button.setVisible(index == 0)
+        self._pages.updateGeometry()
+
+    def _update_summary(self) -> None:
+        selected = sum(checkbox.isChecked() for checkbox in self._pattern_checkboxes.values())
+        self._tabs.setTabText(0, f"Built-in patterns ({selected}/{len(PATTERN_KEYS)})")
+        custom_count = self._custom_pattern_list.count()
+        regex_count = self._regex_pattern_list.count()
+        self._tabs.setTabText(1, f"Text and Regex ({custom_count + regex_count})")
+        self._custom_heading.setText(f"Plain text matches ({custom_count})")
+        self._regex_heading.setText(f"Regex matches ({regex_count})")
+        excluded = sum(
+            bool(pattern_list.item(index).data(EXCLUDE_ROLE))
+            for pattern_list in (self._custom_pattern_list, self._regex_pattern_list)
+            for index in range(pattern_list.count())
         )
-        http_layout.addWidget(
-            self._build_regex_pattern_group(),
-            0,
-            Qt.AlignmentFlag.AlignTop,
-        )
-        http_status_group = self._build_pattern_group(
-            "HTTP matches",
-            HTTP_STATUS_PATTERN_KEYS,
-            object_name="httpStatusGroup",
-            columns=1,
-        )
-        http_options = QWidget(http_row)
-        http_options.setObjectName("httpOptionsColumn")
-        http_options.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        http_options_layout = QVBoxLayout(http_options)
-        http_options_layout.setContentsMargins(0, 0, 0, 0)
-        http_options_layout.setSpacing(9)
-        http_status_group.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        http_options_layout.addWidget(http_status_group)
-        http_options_layout.addWidget(
-            self._separate_entries,
-            0,
-            Qt.AlignmentFlag.AlignLeft,
-        )
-        http_options_layout.addWidget(
-            self._combined_view,
-            0,
-            Qt.AlignmentFlag.AlignLeft,
-        )
-        http_layout.addWidget(http_options, 1, Qt.AlignmentFlag.AlignTop)
-        layout.addWidget(http_row)
-        self._filter_alignment_container.setMaximumWidth(
-            top_controls.sizeHint().width() + FILTER_ALIGNMENT_EXTRA_WIDTH
-        )
+        self._exclusions_label.setText(f"{excluded} exclusion{'s' if excluded != 1 else ''}")
+        self._exclusions_label.setVisible(excluded > 0)
+        for button, keys in self._bulk_buttons:
+            verb = "Clear" if all(self._pattern_checkboxes[key].isChecked() for key in keys) else "Select"
+            scope = " all text patterns" if button is self._toggle_all_button else " all"
+            button.setText(verb + scope)
+
+    @staticmethod
+    def _make_group_separator() -> QFrame:
+        separator = QFrame()
+        separator.setObjectName("filterSectionSeparator")
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setFixedWidth(1)
+        return separator
 
     def _build_custom_pattern_group(self) -> QGroupBox:
         (
@@ -514,6 +550,7 @@ class FilterPanel(QGroupBox):
             list_object_name="customPatternList",
             add_handler=self.add_custom_pattern,
         )
+        self._custom_heading = group.findChild(QLabel, "filterSectionTitle")
         return group
 
     def _build_regex_pattern_group(self) -> QGroupBox:
@@ -529,6 +566,7 @@ class FilterPanel(QGroupBox):
             list_object_name="regexPatternList",
             add_handler=self.add_regex_pattern,
         )
+        self._regex_heading = group.findChild(QLabel, "filterSectionTitle")
         return group
 
     def _build_list_search_group(
@@ -541,15 +579,19 @@ class FilterPanel(QGroupBox):
         list_object_name: str,
         add_handler: Callable[[], None],
     ) -> tuple[QGroupBox, QLineEdit, QListWidget]:
-        group = QGroupBox(title)
+        group = QGroupBox()
         group.setObjectName(group_object_name)
+        group.setAccessibleName(title)
         group.setSizePolicy(
-            QSizePolicy.Policy.Maximum,
+            QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(8, 14, 8, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(8, 0, 8, 4)
+        layout.setSpacing(8)
+        heading = QLabel(title)
+        heading.setObjectName("filterSectionTitle")
+        layout.addWidget(heading)
 
         entry_row = QHBoxLayout()
         entry_row.setSpacing(6)
@@ -591,7 +633,7 @@ class FilterPanel(QGroupBox):
             "QListWidget::item:hover, QListWidget::item:selected {"
             " background: transparent; }"
         )
-        pattern_list.setFixedHeight(64)
+        pattern_list.setFixedHeight(192)
         layout.addWidget(pattern_list)
         return group, input_box, pattern_list
 
@@ -619,23 +661,38 @@ class FilterPanel(QGroupBox):
         object_name: str,
         columns: int,
         toggle_object_name: str | None = None,
-        reserve_toggle_cell: bool = False,
     ) -> QGroupBox:
-        group = QGroupBox(title)
+        group = QGroupBox()
         group.setObjectName(object_name)
+        group.setAccessibleName(title)
         group.setSizePolicy(
-            QSizePolicy.Policy.Maximum,
+            QSizePolicy.Policy.Preferred,
             QSizePolicy.Policy.Fixed,
         )
-        if object_name == "httpStatusGroup":
-            group.setMinimumWidth(
-                max(130, group.fontMetrics().horizontalAdvance(title) + 32)
+        outer_layout = QVBoxLayout(group)
+        outer_layout.setContentsMargins(8, 0, 8, 4)
+        outer_layout.setSpacing(8)
+        header = QHBoxLayout()
+        heading = QLabel(title)
+        heading.setObjectName("filterSectionTitle")
+        heading.setMinimumHeight(28)
+        header.addWidget(heading)
+        header.addStretch(1)
+        if toggle_object_name is not None:
+            toggle_button = QPushButton("Select all")
+            configure_action_button(toggle_button)
+            toggle_button.setObjectName(toggle_object_name)
+            toggle_button.clicked.connect(
+                lambda _checked=False, keys=pattern_keys: self.toggle_patterns(keys)
             )
-        layout = QGridLayout(group)
-        layout.setContentsMargins(8, 14, 8, 8)
+            self._bulk_buttons.append((toggle_button, pattern_keys))
+            header.addWidget(toggle_button)
+        outer_layout.addLayout(header)
+        layout = QGridLayout()
         layout.setHorizontalSpacing(10)
         layout.setVerticalSpacing(4)
-        layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        outer_layout.addLayout(layout)
 
         checkboxes = []
         for index, key in enumerate(pattern_keys):
@@ -650,8 +707,6 @@ class FilterPanel(QGroupBox):
             self._pattern_checkboxes[key] = checkbox
             checkboxes.append(checkbox)
             row, column = divmod(index, columns)
-            if reserve_toggle_cell and row == len(pattern_keys) // columns:
-                column += 1
             layout.addWidget(
                 checkbox,
                 row,
@@ -662,30 +717,7 @@ class FilterPanel(QGroupBox):
         column_width = max(checkbox.sizeHint().width() for checkbox in checkboxes)
         for column in range(columns):
             layout.setColumnMinimumWidth(column, column_width)
-            layout.setColumnStretch(column, 0)
-
-        if toggle_object_name is not None:
-            toggle_button = QPushButton("Toggle all")
-            configure_action_button(toggle_button)
-            toggle_button.setObjectName(toggle_object_name)
-            toggle_button.setMaximumWidth(100)
-            toggle_button.setSizePolicy(
-                QSizePolicy.Policy.Fixed,
-                QSizePolicy.Policy.Fixed,
-            )
-            toggle_button.clicked.connect(
-                lambda _checked=False, keys=pattern_keys: self.toggle_patterns(keys)
-            )
-            layout.addWidget(
-                toggle_button,
-                (
-                    len(pattern_keys) // columns
-                    if reserve_toggle_cell
-                    else (len(pattern_keys) + columns - 1) // columns
-                ),
-                0,
-                Qt.AlignmentFlag.AlignLeft,
-            )
+            layout.setColumnStretch(column, 1)
 
         return group
 
@@ -818,6 +850,7 @@ class FilterPanel(QGroupBox):
 
         input_box.clear()
         input_box.setFocus()
+        self._update_summary()
 
     def remove_custom_pattern(self, item: QListWidgetItem) -> None:
         """Remove one committed custom pattern from the filter list."""
@@ -829,8 +862,8 @@ class FilterPanel(QGroupBox):
 
         self._remove_search_list_item(self._regex_pattern_list, item)
 
-    @staticmethod
     def _remove_search_list_item(
+        self,
         pattern_list: QListWidget,
         item: QListWidgetItem,
     ) -> None:
@@ -843,6 +876,7 @@ class FilterPanel(QGroupBox):
         pattern_list.takeItem(row)
         if item_widget is not None:
             item_widget.deleteLater()
+        self._update_summary()
 
     def toggle_all_patterns(self) -> None:
         """Toggle text error presets while preserving manual HTTP selections."""

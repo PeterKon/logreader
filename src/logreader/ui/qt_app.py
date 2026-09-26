@@ -83,10 +83,32 @@ QTabBar#documentTabs::tab:hover {{
 QLineEdit#customPattern, QLineEdit#regexPattern {{
     placeholder-text-color: rgba({COLORS['ui_muted'].red()}, {COLORS['ui_muted'].green()}, {COLORS['ui_muted'].blue()}, 90);
 }}
-QWidget#fileControlsRow {{
-    background-color: {THEME_COLORS['ui_canvas']};
-    border: 1px solid {THEME_COLORS['ui_border']};
-    border-radius: 6px;
+QWidget#filterHeader {{
+    border-bottom: 1px solid {THEME_COLORS['ui_border']};
+}}
+QTabBar#filterTabs::tab {{
+    background-color: {THEME_COLORS['ui_surface']};
+    color: {THEME_COLORS['ui_muted']};
+    border-bottom: 2px solid transparent;
+    padding: 8px 12px;
+}}
+QTabBar#filterTabs::tab:selected {{
+    background-color: {THEME_COLORS['ui_island']};
+    color: {THEME_COLORS['ui_text']};
+    border-bottom-color: {THEME_COLORS['ui_accent']};
+}}
+QTabBar#filterTabs::tab:hover {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+}}
+QLabel#filterSectionTitle {{
+    color: {THEME_COLORS['ui_accent']};
+}}
+QLabel#filterExclusions {{
+    color: {THEME_COLORS['ui_muted']};
+}}
+QFrame#filterSectionSeparator {{
+    background-color: {THEME_COLORS['ui_border']};
+    border: none;
 }}
 QWidget#resultsHeader {{
     background-color: {THEME_COLORS['ui_canvas']};
@@ -123,44 +145,18 @@ QLabel {{
     border: none;
     color: {THEME_COLORS['ui_text']};
 }}
-QLabel#pathLabel, QLabel#emptyTabLabel, QLabel#emptySubtitle {{
+QLabel#emptyTabLabel, QLabel#emptySubtitle {{
     color: {THEME_COLORS['ui_muted']};
 }}
-QGroupBox#filterGroup {{
-    background-color: {THEME_COLORS['ui_surface']};
-    border: 1px solid {THEME_COLORS['ui_border']};
-    border-radius: 7px;
-    color: {THEME_COLORS['ui_text']};
-    margin-top: 10px;
-}}
-QGroupBox#filterGroup::title {{
-    color: {THEME_COLORS['ui_accent']};
-    font-weight: 600;
-    left: 10px;
-    padding: 0 4px;
-    subcontrol-origin: margin;
-}}
+QGroupBox#filterGroup,
 QGroupBox#pairedPatternGroup,
 QGroupBox#textPatternGroup,
 QGroupBox#customPatternGroup,
 QGroupBox#regexPatternGroup,
 QGroupBox#httpStatusGroup {{
-    background-color: {THEME_COLORS['ui_island']};
-    border: 1px solid {THEME_COLORS['ui_border']};
-    border-radius: 6px;
+    background-color: {THEME_COLORS['ui_surface']};
+    border: none;
     color: {THEME_COLORS['ui_text']};
-    margin-top: 10px;
-}}
-QGroupBox#pairedPatternGroup::title,
-QGroupBox#textPatternGroup::title,
-QGroupBox#customPatternGroup::title,
-QGroupBox#regexPatternGroup::title,
-QGroupBox#httpStatusGroup::title {{
-    color: {THEME_COLORS['ui_accent']};
-    font-weight: 600;
-    left: 8px;
-    padding: 0 4px;
-    subcontrol-origin: margin;
 }}
 QPushButton {{
     background-color: {THEME_COLORS['ui_button']};
@@ -389,8 +385,7 @@ QCheckBox:focus {{
 QCheckBox:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
 }}
-QFrame#topSeparatorContext,
-QFrame#topSeparatorLimit {{
+QFrame#topSeparatorContext {{
     color: {THEME_COLORS['ui_border_strong']};
 }}
 QStatusBar {{
@@ -591,34 +586,11 @@ class LogreaderWindow(QMainWindow):
         self._open_button.clicked.connect(self.open_file)
         tab_row.addWidget(self._open_button, 0, Qt.AlignmentFlag.AlignRight)
         root.addWidget(self._tab_controls)
-        self._file_controls = QWidget(central)
-        self._file_controls.setObjectName("fileControlsRow")
-        file_row = QHBoxLayout(self._file_controls)
-        file_row.setContentsMargins(8, 6, 8, 6)
-        file_row.setSpacing(8)
-        self._analyze_button = QPushButton("&Analyze")
+        self._analyze_button = QPushButton("&Analyze", central)
         self._analyze_button.setObjectName("analyzeButton")
         self._analyze_button.setEnabled(False)
         self._analyze_button.clicked.connect(self.analyze_current)
-        file_row.addWidget(self._analyze_button)
-
-        self._path_label = QLabel("No file selected")
-        self._path_label.setObjectName("pathLabel")
-        self._path_label.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Preferred,
-        )
-        self._path_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        file_row.addWidget(self._path_label, 1)
-
-        self._action_margin = QWidget(central)
-        action_layout = QVBoxLayout(self._action_margin)
-        action_layout.setContentsMargins(12, 12, 12, 0)
-        action_layout.addWidget(self._file_controls)
-        root.addWidget(self._action_margin)
-        self._action_margin.hide()
+        self._analyze_button.hide()
         self._workspace = QStackedWidget(central)
         self._workspace.setObjectName("documentWorkspace")
         self._empty_page = QWidget(self._workspace)
@@ -700,12 +672,14 @@ class LogreaderWindow(QMainWindow):
             if other is not page:
                 other.set_render_active(False)
         if page is not None:
+            page.filter_panel.set_analysis_button(self._analyze_button)
             page.set_render_active(True)
+        else:
+            self._analyze_button.setParent(self.centralWidget())
+            self._analyze_button.hide()
         self._workspace.setCurrentWidget(self._pages if page else self._empty_page)
         self._update_file_controls_visibility()
         path = page.session.path if page else None
-        self._path_label.setText(path.name if path else "No file selected")
-        self._path_label.setToolTip(str(path) if path else "")
         self._set_window_title(f"{APP_VERSION} - {path.name}" if path else APP_VERSION)
         self.statusBar().showMessage(
             page.status_message if page else "Ready"
@@ -723,7 +697,6 @@ class LogreaderWindow(QMainWindow):
         page = self._document
         self._empty_tab_label.setVisible(page is None)
         self._empty_version_label.setVisible(page is None)
-        self._action_margin.setVisible(page is not None and not page.results_view.is_maximized)
 
     @Slot(str)
     def _present_document_status(self, message: str) -> None:
@@ -840,7 +813,6 @@ class LogreaderWindow(QMainWindow):
         page.busy_changed.connect(self._present_analysis_busy)
         page.analysis_failed.connect(self._present_analysis_failure)
         page.analysis_finished.connect(self.analysis_finished.emit)
-        page.results_view.maximized_changed.connect(self._update_file_controls_visibility)
         page.load_file(path)
         self._documents_by_path[key] = page
         self._pages.addWidget(page)

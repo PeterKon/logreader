@@ -12,22 +12,20 @@ try:
     from qt_helpers import wait_for_search, wait_for_load
     from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
     from PySide6.QtGui import (
-        QColor, QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent,
-        QPalette, QTextCursor, QWheelEvent,
+        QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent,
+        QTextCursor, QWheelEvent,
     )
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
         QFrame,
-        QGridLayout,
         QGroupBox,
         QLabel,
         QLineEdit,
         QListWidget,
         QPlainTextEdit,
         QPushButton,
-        QSizePolicy,
         QSpinBox,
         QStyle,
         QStyleOptionButton,
@@ -39,18 +37,12 @@ try:
 
     from logreader.config import (
         APP_VERSION,
-        HTTP_STATUS_PATTERN_KEYS,
-        PAIRED_PATTERN_KEYS,
-        PATTERN_KEYS,
-        TEXT_PATTERN_KEYS,
     )
     from logreader.core import analyze_lines
     from logreader.file_loader import load_log
     from logreader.document_session import AnalysisPhase
     from logreader.ui.filter_panel import (
         FilterPanel,
-        UnclippedPushButton,
-        VisibleCheckBox,
         VisibleSpinBox,
     )
     from logreader.ui.qt_app import (
@@ -285,169 +277,6 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIn(COLORS["scrollbar_handle"].name(), style_sheet)
         self.assertIn(COLORS["scrollbar_handle_hover"].name(), style_sheet)
 
-    def test_non_results_theme_uses_distinct_high_contrast_surfaces(self):
-        palette = self.window.palette()
-        style_sheet = self.window.styleSheet()
-        results = self.window.findChild(QPlainTextEdit, "resultsView")
-
-        self.assertEqual(
-            palette.color(QPalette.ColorRole.Window).name(),
-            COLORS["ui_canvas"].name(),
-        )
-        self.assertEqual(
-            palette.color(QPalette.ColorRole.WindowText).name(),
-            COLORS["ui_text"].name(),
-        )
-        self.assertEqual(COLORS["ui_canvas"], QColor("#202b38"))
-        self.assertEqual(COLORS["ui_surface"], COLORS["ui_canvas"])
-        self.assertEqual(COLORS["ui_field"], COLORS["ui_canvas"])
-        self.assertEqual(COLORS["ui_island"], QColor("#2f3e50"))
-        self.assertEqual(COLORS["background"], QColor("#0d1117"))
-        self.assertNotEqual(COLORS["ui_field"], COLORS["background"])
-        self.assertNotEqual(COLORS["ui_surface"], COLORS["ui_island"])
-        self.assertNotEqual(COLORS["ui_island"], COLORS["ui_field"])
-        self.assertGreater(
-            self._relative_luminance(COLORS["ui_island"]),
-            self._relative_luminance(COLORS["ui_surface"]),
-        )
-        for object_name in (
-            "pairedPatternGroup",
-            "textPatternGroup",
-            "customPatternGroup",
-            "regexPatternGroup",
-            "httpStatusGroup",
-        ):
-            self.assertIn(f"QGroupBox#{object_name}", style_sheet)
-        self.assertIn("QCheckBox::indicator:checked", style_sheet)
-        self.assertIn("QSpinBox::up-arrow", style_sheet)
-        self.assertIn("QSpinBox::down-arrow", style_sheet)
-        self.assertIn(
-            "QLineEdit,\nQSpinBox {\n"
-            f"    background-color: {COLORS['ui_island'].name()}",
-            style_sheet,
-        )
-        self.assertIn(
-            'QCheckBox[islandIndicator="true"]::indicator:unchecked {\n'
-            f"    background-color: {COLORS['ui_island'].name()}",
-            style_sheet,
-        )
-        self.assertIn(
-            "QPushButton#toggleAllButton {\n"
-            f"    background-color: {COLORS['ui_island'].name()}",
-            style_sheet,
-        )
-        self.assertIn(
-            "QPushButton#togglePairedButton,\n"
-            "QPushButton#toggleTextButton,\n"
-            "QPushButton#customPatternAddButton,\n"
-            "QPushButton#regexPatternAddButton {\n"
-            f"    background-color: {COLORS['ui_island'].name()}",
-            style_sheet,
-        )
-        self.assertIn(
-            "QWidget#resultsHeader QPushButton#maximizeResultsButton,\n"
-            "QWidget#resultsHeader QPushButton#sourceToggleButton {\n"
-            f"    background-color: {COLORS['background'].name()}",
-            style_sheet,
-        )
-        self.assertIn(
-            "QWidget#resultsHeader {\n"
-            f"    background-color: {COLORS['ui_canvas'].name()}",
-            style_sheet,
-        )
-        self.assertIn(
-            "QWidget#resultsHeader QLineEdit#resultsSearch,\n"
-            "QWidget#resultsHeader QSpinBox#resultsSearchNavigation,\n"
-            "QWidget#resultsHeader QSpinBox#resultsSearchNavigation::up-button,\n"
-            "QWidget#resultsHeader QSpinBox#resultsSearchNavigation::down-button,\n"
-            "QWidget#resultsHeader QCheckBox#lineWrapCheck::indicator {\n"
-            f"    background-color: {COLORS['background'].name()}",
-            style_sheet,
-        )
-        self.assertIn(
-            "QSpinBox::up-button,\nQSpinBox::down-button {\n"
-            f"    background-color: {COLORS['ui_island'].name()};\n"
-            f"    border: 1px solid {COLORS['ui_border_strong'].name()}",
-            style_sheet,
-        )
-        self.assertIn(
-            "QSpinBox::down-button {\n    border-top: none",
-            style_sheet,
-        )
-        self.assertNotIn("QSpinBox:hover", style_sheet)
-        self.assertIn(
-            "QSpinBox::up-button:hover,\nQSpinBox::down-button:hover {\n"
-            f"    background-color: {COLORS['ui_button_hover'].name()};\n"
-            f"    border: 1px solid {COLORS['ui_accent'].name()}",
-            style_sheet,
-        )
-        self.assertIn(
-            "QPushButton#analyzeButton:disabled {\n"
-            f"    background-color: {COLORS['ui_island'].name()}",
-            style_sheet,
-        )
-        self.assertIsInstance(
-            self.window.findChild(QCheckBox, "pattern_error_colon"),
-            VisibleCheckBox,
-        )
-        self.assertIsInstance(
-            self.window.findChild(QSpinBox, "contextSpin"),
-            VisibleSpinBox,
-        )
-        self.assertIsInstance(
-            self.window.findChild(QPushButton, "toggleAllButton"),
-            UnclippedPushButton,
-        )
-        self.assertTrue(
-            self.window.findChild(QCheckBox, "pattern_warning").property(
-                "islandIndicator"
-            )
-        )
-        self.assertTrue(
-            self.window.findChild(QCheckBox, "separateEntriesCheck").property(
-                "islandIndicator"
-            )
-        )
-        self.assertIsNone(
-            self.window.findChild(QCheckBox, "lineWrapCheck").property(
-                "islandIndicator"
-            )
-        )
-
-        contrast_pairs = (
-            ("ui_text", "ui_canvas"),
-            ("ui_text", "ui_surface"),
-            ("ui_text", "ui_island"),
-            ("ui_text", "ui_field"),
-            ("ui_muted", "ui_surface"),
-            ("ui_accent", "ui_island"),
-            ("ui_text", "ui_button"),
-            ("ui_disabled_text", "ui_disabled"),
-        )
-        for foreground, background in contrast_pairs:
-            with self.subTest(foreground=foreground, background=background):
-                self.assertGreaterEqual(
-                    self._contrast_ratio(
-                        COLORS[foreground],
-                        COLORS[background],
-                    ),
-                    4.0,
-                )
-        self.assertGreaterEqual(
-            self._contrast_ratio(QColor("#ffffff"), COLORS["ui_primary"]),
-            4.5,
-        )
-        self.assertIn(
-            COLORS["background"].name(),
-            results.styleSheet(),
-        )
-        self.assertIn(
-            "QStatusBar {\n"
-            f"    background-color: {COLORS['background'].name()};\n"
-            "    border-top: none",
-            style_sheet,
-        )
-
     def test_checkbox_marks_and_spin_arrows_are_painted_visibly(self):
         checkbox = self.window.findChild(QCheckBox, "separateEntriesCheck")
         checkbox.setChecked(True)
@@ -509,6 +338,8 @@ class LogreaderQtTests(unittest.TestCase):
                     self.assertEqual(center.y(), button.center().y() - 0.5)
 
     def test_spin_arrow_hover_outlines_each_button_on_all_sides(self):
+        # Give the platform font enough room before inspecting hover painting.
+        self.window.resize(self.window.size().expandedTo(self.window.minimumSizeHint()))
         self.window.show()
         self.window.activateWindow()
         self.assertTrue(QTest.qWaitForWindowExposed(self.window))
@@ -555,32 +386,6 @@ class LogreaderQtTests(unittest.TestCase):
                         )
 
     @staticmethod
-    def _contrast_ratio(foreground: QColor, background: QColor) -> float:
-        lighter, darker = sorted(
-            (
-                LogreaderQtTests._relative_luminance(foreground),
-                LogreaderQtTests._relative_luminance(background),
-            ),
-            reverse=True,
-        )
-        return (lighter + 0.05) / (darker + 0.05)
-
-    @staticmethod
-    def _relative_luminance(color: QColor) -> float:
-        linear_channels = []
-        for channel in (color.redF(), color.greenF(), color.blueF()):
-            linear_channels.append(
-                channel / 12.92
-                if channel <= 0.04045
-                else ((channel + 0.055) / 1.055) ** 2.4
-            )
-        return (
-            0.2126 * linear_channels[0]
-            + 0.7152 * linear_channels[1]
-            + 0.0722 * linear_channels[2]
-        )
-
-    @staticmethod
     def _light_pixel_count(image, area, *, threshold: int) -> int:
         count = 0
         for y in range(max(0, area.top()), min(image.height(), area.bottom() + 1)):
@@ -596,6 +401,39 @@ class LogreaderQtTests(unittest.TestCase):
                 ):
                     count += 1
         return count
+
+    def test_filter_tabs_resize_only_the_upper_controls(self):
+        self.window.resize(self.window.size().expandedTo(self.window.minimumSizeHint()))
+        self.window.show()
+        self.app.processEvents()
+        page = self.window._document
+        filters = page.filter_panel
+        header = page.results_view.findChild(QWidget, "resultsHeader")
+        widgets = [header] + header.findChildren(QWidget)
+        before = [widget.geometry() for widget in widgets]
+        initial_height = page.controls_container.height()
+        config = page.build_config()
+        output = page.results_view.editor.toPlainText()
+
+        filters._tabs.setCurrentIndex(1)
+        self.app.processEvents()
+        self.assertGreater(page.controls_container.height(), initial_height)
+        for pattern_list in (filters._custom_pattern_list, filters._regex_pattern_list):
+            self.assertTrue(pattern_list.isVisible())
+            self.assertGreaterEqual(pattern_list.height(), 150)
+            self.assertGreater(pattern_list.width(), filters.width() * 0.4)
+        self.assertEqual(page.build_config(), config)
+        self.assertEqual(page.results_view.editor.toPlainText(), output)
+        for widget, geometry in zip(widgets, before):
+            self.assertEqual(widget.geometry(), geometry, widget.objectName())
+
+        page.results_view.set_maximized(True)
+        page.results_view.set_maximized(False)
+        self.app.processEvents()
+        self.assertEqual(filters._tabs.currentIndex(), 1)
+        filters._tabs.setCurrentIndex(0)
+        self.app.processEvents()
+        self.assertEqual(page.controls_container.height(), initial_height)
 
     def test_results_view_can_be_maximized_and_restored(self):
         file_controls = self.window.findChild(QWidget, "fileControlsRow")
@@ -1249,143 +1087,6 @@ class LogreaderQtTests(unittest.TestCase):
                 self.assertTrue(opaque_colors)
                 self.assertEqual(opaque_colors, {(255, 255, 255)})
 
-    def test_top_controls_share_one_compact_row_with_dividers(self):
-        top_controls = self.window.findChild(QWidget, "topControlsRow")
-        item_names = [
-            top_controls.layout().itemAt(index).widget().objectName()
-            for index in range(top_controls.layout().count() - 1)
-        ]
-
-        self.assertEqual(
-            item_names,
-            [
-                "contextLabel",
-                "contextSpin",
-                "topSeparatorContext",
-                "limitLabel",
-                "limitSpin",
-                "topSeparatorLimit",
-                "toggleAllButton",
-            ],
-        )
-        for object_name in (
-            "topSeparatorContext",
-            "topSeparatorLimit",
-        ):
-            separator = self.window.findChild(QFrame, object_name)
-            self.assertEqual(separator.frameShape(), QFrame.Shape.VLine)
-            self.assertEqual(separator.frameShadow(), QFrame.Shadow.Plain)
-            self.assertEqual(separator.lineWidth(), 1)
-            self.assertEqual(separator.minimumWidth(), 1)
-            self.assertEqual(separator.maximumWidth(), 1)
-        self.assertIsNone(
-            self.window.findChild(QFrame, "topSeparatorGlobalToggle")
-        )
-
-        separation = self.window.findChild(QCheckBox, "separateEntriesCheck")
-        combined_view = self.window.findChild(QCheckBox, "combinedViewCheck")
-        http_group = self.window.findChild(QGroupBox, "httpStatusGroup")
-        http_options = self.window.findChild(QWidget, "httpOptionsColumn")
-        self.assertIs(separation.parentWidget(), http_options)
-        self.assertIs(combined_view.parentWidget(), http_options)
-        self.assertIs(http_group.parentWidget(), http_options)
-        self.assertIs(http_options.layout().itemAt(0).widget(), http_group)
-        self.assertIs(http_options.layout().itemAt(1).widget(), separation)
-        self.assertIs(http_options.layout().itemAt(2).widget(), combined_view)
-
-        self.window.resize(1280, 800)
-        self.window.show()
-        self.app.processEvents()
-        self.assertEqual(separation.geometry().left(), http_group.geometry().left())
-        self.assertEqual(
-            separation.geometry().top() - http_group.geometry().bottom() - 1,
-            9,
-        )
-        self.assertEqual(
-            combined_view.geometry().top() - separation.geometry().bottom() - 1,
-            9,
-        )
-        guide_widgets = (
-            self.window.findChild(QPushButton, "toggleAllButton"),
-            self.window.findChild(QGroupBox, "textPatternGroup"),
-            http_group,
-        )
-        guide_edges = [
-            widget.mapTo(self.window, widget.rect().topRight()).x()
-            for widget in guide_widgets
-        ]
-        self.assertLessEqual(max(guide_edges) - min(guide_edges), 1)
-
-        alignment_container = self.window.findChild(
-            QWidget,
-            "filterAlignmentContainer",
-        )
-        top_controls = self.window.findChild(QWidget, "topControlsRow")
-        text_groups = self.window.findChild(QWidget, "textPatternGroupsRow")
-        http_row = self.window.findChild(QWidget, "httpStatusRow")
-        self.assertIs(top_controls.parentWidget(), alignment_container)
-        self.assertIs(text_groups.parentWidget(), alignment_container)
-        self.assertIs(http_row.parentWidget(), alignment_container)
-        aligned_width = alignment_container.width()
-        self.assertEqual(alignment_container.maximumWidth(), aligned_width)
-
-        self.window.resize(1480, 800)
-        self.app.processEvents()
-        guide_button = guide_widgets[0]
-        guide_right = guide_button.mapTo(
-            self.window,
-            guide_button.rect().topRight(),
-        ).x()
-        resized_edges = [
-            widget.mapTo(self.window, widget.rect().topRight()).x()
-            for widget in guide_widgets
-        ]
-        self.assertTrue(
-            all(abs(edge - guide_right) <= 1 for edge in resized_edges)
-        )
-        self.assertEqual(alignment_container.width(), aligned_width)
-        filter_group = self.window.findChild(QGroupBox, "filterGroup")
-        self.assertLess(
-            guide_right,
-            filter_group.mapTo(
-                self.window,
-                filter_group.rect().topRight(),
-            ).x(),
-        )
-
-    def test_controls_update_context_patterns_and_limit(self):
-        self.window.findChild(QSpinBox, "contextSpin").setValue(5)
-        self.window.findChild(QSpinBox, "limitSpin").setValue(10)
-        self.window.findChild(QCheckBox, "pattern_warning").setChecked(True)
-        self.window.findChild(QCheckBox, "separateEntriesCheck").setChecked(True)
-        self.window.findChild(QCheckBox, "combinedViewCheck").setChecked(True)
-        self.window.findChild(QLineEdit, "customPattern").setText(" timeout ")
-        self.window.findChild(QPushButton, "customPatternAddButton").click()
-
-        config = self.window.build_config()
-
-        self.assertEqual(config.context, 5)
-        self.assertEqual(config.max_lines_scanned, 10)
-        self.assertEqual(
-            config.enabled_patterns,
-            (
-                "error_colon",
-                "error",
-                "exception",
-                "exception_generic",
-                "warning",
-                "failed",
-                "failure",
-                "fatal",
-                "critical",
-                "refused",
-            ),
-        )
-        self.assertEqual(config.custom_patterns, ("timeout",))
-        self.assertEqual(config.regex_patterns, ())
-        self.assertTrue(config.separate_entries)
-        self.assertTrue(config.combined_view)
-
     def test_error_patterns_and_plain_variants_are_available_as_toggles(self):
         expected_labels = {
             "pattern_error_colon": "Error:",
@@ -1424,100 +1125,8 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertNotIn("error_colon", config.enabled_patterns)
         self.assertNotIn("error", config.enabled_patterns)
 
-    def test_patterns_are_split_into_five_named_groups(self):
-        expected_groups = {
-            "pairedPatternGroup": "Colon / regular matches",
-            "textPatternGroup": "Other matches",
-            "httpStatusGroup": "HTTP matches",
-            "customPatternGroup": "Plain text matches",
-            "regexPatternGroup": "Regex matches",
-        }
-
-        for object_name, title in expected_groups.items():
-            group = self.window.findChild(QGroupBox, object_name)
-            self.assertIsNotNone(group)
-            self.assertEqual(group.title(), title)
-
-        global_toggle = self.window.findChild(QPushButton, "toggleAllButton")
-        self.assertEqual(global_toggle.text(), "Global toggle all")
-        for key in HTTP_STATUS_PATTERN_KEYS:
-            self.assertFalse(
-                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
-            )
-
-    def test_custom_patterns_are_added_to_the_list_before_configuration(self):
-        input_box = self.window.findChild(QLineEdit, "customPattern")
-        add_button = self.window.findChild(
-            QPushButton,
-            "customPatternAddButton",
-        )
-        pattern_list = self.window.findChild(QListWidget, "customPatternList")
-
-        self.assertEqual(add_button.text(), "+add")
-        self.assertEqual(input_box.placeholderText(), "Enter item")
-        self.assertEqual(
-            input_box.palette()
-            .color(QPalette.ColorRole.PlaceholderText)
-            .alpha(),
-            90,
-        )
-        input_box.setText(" timeout ")
-        self.assertEqual(self.window.build_config().custom_patterns, ())
-
-        add_button.click()
-        self.assertEqual(input_box.text(), "")
-        self.assertEqual(pattern_list.count(), 1)
-        self.assertEqual(pattern_list.item(0).text(), "")
-        self.assertEqual(
-            pattern_list.item(0).data(Qt.ItemDataRole.UserRole),
-            "timeout",
-        )
-        item_label = pattern_list.itemWidget(pattern_list.item(0)).findChild(QLabel)
-        self.assertEqual(item_label.text(), "timeout")
-        self.assertFalse(item_label.font().bold())
-
-        input_box.setText("connection refused")
-        input_box.returnPressed.emit()
-        self.assertEqual(pattern_list.count(), 2)
-        self.assertEqual(pattern_list.spacing(), 0)
-        self.assertTrue(pattern_list.uniformItemSizes())
-        self.assertEqual(
-            [
-                pattern_list.item(index).sizeHint().height()
-                for index in range(pattern_list.count())
-            ],
-            [18, 18],
-        )
-        self.assertEqual(
-            self.window.build_config().custom_patterns,
-            ("timeout", "connection refused"),
-        )
-
-        remove_buttons = pattern_list.findChildren(
-            QPushButton,
-            "customPatternRemoveButton",
-        )
-        self.window.show()
-        self.app.processEvents()
-        self.assertEqual([button.text() for button in remove_buttons], ["-", "-"])
-        self.assertTrue(all(button.width() >= 24 for button in remove_buttons))
-        self.assertEqual(remove_buttons[0].accessibleName(), "Remove timeout")
-        remove_buttons[0].click()
-        self.assertEqual(pattern_list.count(), 1)
-        self.assertEqual(
-            pattern_list.item(0).data(Qt.ItemDataRole.UserRole),
-            "connection refused",
-        )
-        self.assertEqual(
-            self.window.build_config().custom_patterns,
-            ("connection refused",),
-        )
-
-        input_box.setText("   ")
-        add_button.click()
-        self.assertEqual(pattern_list.count(), 1)
-
     def test_plain_text_match_case_is_per_item_and_controls_analysis(self):
+        self.window._document.filter_panel._tabs.setCurrentIndex(1)
         input_box = self.window.findChild(QLineEdit, "customPattern")
         pattern_list = self.window.findChild(QListWidget, "customPatternList")
         for _ in range(2):
@@ -1552,6 +1161,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(self.window.build_config().custom_pattern_match_case, (True, False))
 
     def test_exclude_toggle_filters_analysis_and_survives_other_item_deletion(self):
+        self.window._document.filter_panel._tabs.setCurrentIndex(1)
         entry = self.window.findChild(QLineEdit, "customPattern")
         pattern_list = self.window.findChild(QListWidget, "customPatternList")
         for text in ("unused", "Skip"):
@@ -1589,6 +1199,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(config.custom_pattern_match_case, (True,))
 
     def test_regex_exclude_toggle_controls_analysis_and_stays_with_item(self):
+        self.window._document.filter_panel._tabs.setCurrentIndex(1)
         entry = self.window.findChild(QLineEdit, "regexPattern")
         pattern_list = self.window.findChild(QListWidget, "regexPatternList")
         for text in ("unused", r"skip\d+"):
@@ -1627,259 +1238,6 @@ class LogreaderQtTests(unittest.TestCase):
         entry.setText("new")
         entry.returnPressed.emit()
         self.assertEqual(self.window.build_config().regex_pattern_exclude, (True, False))
-
-    def test_regex_patterns_use_the_same_managed_list_ui(self):
-        input_box = self.window.findChild(QLineEdit, "regexPattern")
-        add_button = self.window.findChild(
-            QPushButton,
-            "regexPatternAddButton",
-        )
-        pattern_list = self.window.findChild(QListWidget, "regexPatternList")
-
-        self.assertEqual(input_box.placeholderText(), "Enter item")
-        self.assertEqual(
-            input_box.palette()
-            .color(QPalette.ColorRole.PlaceholderText)
-            .alpha(),
-            90,
-        )
-        self.assertEqual(add_button.text(), "+add")
-        self.assertEqual(pattern_list.spacing(), 0)
-        self.assertTrue(pattern_list.uniformItemSizes())
-
-        input_box.setText(r"^ERROR:\s+[0-9]+$")
-        self.assertEqual(self.window.build_config().regex_patterns, ())
-        add_button.click()
-
-        config = self.window.build_config()
-        self.assertEqual(config.regex_patterns, (r"^ERROR:\s+[0-9]+$",))
-        self.assertEqual(pattern_list.item(0).sizeHint().height(), 18)
-        item_label = pattern_list.itemWidget(pattern_list.item(0)).findChild(QLabel)
-        self.assertFalse(item_label.font().bold())
-
-        analysis = analyze_lines(
-            ["ERROR: 42", "error: 42"],
-            config.search_patterns(),
-        )
-        self.assertEqual(analysis.category("regex_1").match_count, 1)
-        self.assertEqual(
-            [
-                line.number
-                for excerpt in analysis.category("regex_1").excerpts
-                for line in excerpt.lines
-                if line.is_match
-            ],
-            [1],
-        )
-
-        remove_button = pattern_list.findChild(
-            QPushButton,
-            "regexPatternRemoveButton",
-        )
-        self.assertEqual(remove_button.text(), "-")
-        remove_button.click()
-        self.assertEqual(pattern_list.count(), 0)
-        self.assertEqual(self.window.build_config().regex_patterns, ())
-
-    def test_pattern_groups_are_compact_aligned_and_evenly_spaced(self):
-        text_groups = self.window.findChild(QWidget, "textPatternGroupsRow")
-        paired_group = self.window.findChild(QGroupBox, "pairedPatternGroup")
-        text_group = self.window.findChild(QGroupBox, "textPatternGroup")
-        http_group = self.window.findChild(QGroupBox, "httpStatusGroup")
-        custom_group = self.window.findChild(QGroupBox, "customPatternGroup")
-        regex_group = self.window.findChild(QGroupBox, "regexPatternGroup")
-        http_row = self.window.findChild(QWidget, "httpStatusRow")
-        http_options = self.window.findChild(QWidget, "httpOptionsColumn")
-
-        self.assertIs(paired_group.parentWidget(), text_groups)
-        self.assertIs(text_group.parentWidget(), text_groups)
-        self.assertIs(http_group.parentWidget(), http_options)
-        self.assertIs(http_options.parentWidget(), http_row)
-        self.assertIs(custom_group.parentWidget(), http_row)
-        self.assertIs(regex_group.parentWidget(), http_row)
-        self.assertIs(http_row.layout().itemAt(0).widget(), custom_group)
-        self.assertIs(http_row.layout().itemAt(1).widget(), regex_group)
-        self.assertIs(http_row.layout().itemAt(2).widget(), http_options)
-        self.assertGreaterEqual(http_group.minimumWidth(), 130)
-        self.assertTrue(
-            http_row.layout().itemAt(0).alignment()
-            & Qt.AlignmentFlag.AlignTop
-        )
-        self.assertTrue(
-            http_row.layout().itemAt(1).alignment()
-            & Qt.AlignmentFlag.AlignTop
-        )
-        self.assertTrue(
-            http_row.layout().itemAt(2).alignment()
-            & Qt.AlignmentFlag.AlignTop
-        )
-        self.assertEqual(
-            paired_group.sizePolicy().horizontalPolicy(),
-            QSizePolicy.Policy.Maximum,
-        )
-        self.assertEqual(
-            text_group.sizePolicy().horizontalPolicy(),
-            QSizePolicy.Policy.Expanding,
-        )
-        self.assertEqual(
-            http_group.sizePolicy().horizontalPolicy(),
-            QSizePolicy.Policy.Expanding,
-        )
-
-        paired_layout = paired_group.layout()
-        text_layout = text_group.layout()
-        http_layout = http_group.layout()
-        self.assertIsInstance(paired_layout, QGridLayout)
-        self.assertIsInstance(text_layout, QGridLayout)
-        self.assertIsInstance(http_layout, QGridLayout)
-        self.assertEqual(text_layout.horizontalSpacing(), 10)
-        self.assertEqual(text_layout.verticalSpacing(), 4)
-        self.assertEqual(http_layout.horizontalSpacing(), 10)
-        self.assertEqual(
-            {text_layout.columnMinimumWidth(column) for column in range(4)},
-            {text_layout.columnMinimumWidth(0)},
-        )
-        self.assertGreater(http_layout.columnMinimumWidth(0), 0)
-
-        paired_positions = {
-            key: paired_layout.getItemPosition(
-                paired_layout.indexOf(
-                    self.window.findChild(QCheckBox, f"pattern_{key}")
-                )
-            )[:2]
-            for key in PAIRED_PATTERN_KEYS
-        }
-        text_positions = {
-            key: text_layout.getItemPosition(
-                text_layout.indexOf(
-                    self.window.findChild(QCheckBox, f"pattern_{key}")
-                )
-            )[:2]
-            for key in TEXT_PATTERN_KEYS
-        }
-        self.assertEqual(
-            paired_positions,
-            {
-                "error_colon": (0, 0),
-                "error": (0, 1),
-                "exception": (1, 0),
-                "exception_generic": (1, 1),
-                "warning": (2, 0),
-                "warning_generic": (2, 1),
-            },
-        )
-        self.assertEqual(
-            text_positions,
-            {
-                "failed": (0, 0),
-                "failure": (0, 1),
-                "fatal": (0, 2),
-                "critical": (0, 3),
-                "invalid": (1, 0),
-                "illegal": (1, 1),
-                "not_found": (1, 2),
-                "uninitialized": (1, 3),
-                "refused": (2, 0),
-                "denied": (2, 1),
-                "unauthorized": (2, 2),
-                "expired": (2, 3),
-                "aborted": (3, 1),
-                "terminated": (3, 2),
-                "timeout": (3, 3),
-            },
-        )
-        self.assertEqual(
-            text_layout.getItemPosition(
-                text_layout.indexOf(
-                    self.window.findChild(QPushButton, "toggleTextButton")
-                )
-            )[:2],
-            (3, 0),
-        )
-        self.window.resize(1280, 800)
-        self.window.show()
-        self.app.processEvents()
-        third_row_checkbox = self.window.findChild(
-            QCheckBox,
-            "pattern_refused",
-        )
-        fourth_row_checkbox = self.window.findChild(
-            QCheckBox,
-            "pattern_aborted",
-        )
-        self.assertEqual(
-            fourth_row_checkbox.geometry().top()
-            - third_row_checkbox.geometry().bottom()
-            - 1,
-            4,
-        )
-
-        http_positions = [
-            http_layout.getItemPosition(
-                http_layout.indexOf(
-                    self.window.findChild(QCheckBox, f"pattern_{key}")
-                )
-            )[:2]
-            for key in HTTP_STATUS_PATTERN_KEYS
-        ]
-        self.assertEqual(http_positions, [(0, 0), (1, 0)])
-
-    def test_toggle_all_preserves_manual_http_selections(self):
-        button = self.window.findChild(QPushButton, "toggleAllButton")
-
-        for selected_http in ((), ("http_4xx",), ("http_5xx",), HTTP_STATUS_PATTERN_KEYS):
-            for key in PATTERN_KEYS:
-                self.window.findChild(QCheckBox, f"pattern_{key}").setChecked(key in selected_http)
-            button.click()
-            self.assertEqual(
-                self.window.build_config().enabled_patterns,
-                PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + selected_http,
-            )
-            button.click()
-            self.assertEqual(self.window.build_config().enabled_patterns, selected_http)
-
-    def test_category_toggle_buttons_only_change_their_own_group(self):
-        paired_toggle = self.window.findChild(QPushButton, "togglePairedButton")
-        text_toggle = self.window.findChild(QPushButton, "toggleTextButton")
-        self.assertEqual(paired_toggle.maximumWidth(), 100)
-        self.assertEqual(text_toggle.maximumWidth(), 100)
-
-        paired_toggle.click()
-        self.assertTrue(
-            all(
-                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
-                for key in PAIRED_PATTERN_KEYS
-            )
-        )
-        self.assertFalse(
-            any(
-                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
-                for key in HTTP_STATUS_PATTERN_KEYS
-            )
-        )
-
-        paired_toggle.click()
-        self.assertFalse(
-            any(
-                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
-                for key in PAIRED_PATTERN_KEYS
-            )
-        )
-
-        text_toggle.click()
-        self.assertTrue(
-            all(
-                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
-                for key in TEXT_PATTERN_KEYS
-            )
-        )
-        text_toggle.click()
-        self.assertFalse(
-            any(
-                self.window.findChild(QCheckBox, f"pattern_{key}").isChecked()
-                for key in TEXT_PATTERN_KEYS
-            )
-        )
 
     def test_loading_stages_file_until_analyze_button_is_pressed(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
@@ -13,12 +14,12 @@ try:
         QListWidget,
         QPushButton,
         QSpinBox,
+        QTabBar,
     )
 
     from logreader.config import (
         DEFAULT_ENABLED_PATTERNS,
         PAIRED_PATTERN_KEYS,
-        PATTERN_KEYS,
         TEXT_PATTERN_KEYS,
     )
     from logreader.ui.filter_panel import FilterPanel
@@ -81,6 +82,9 @@ class FilterPanelTests(unittest.TestCase):
         paired_toggle = self.panel.findChild(QPushButton, "togglePairedButton")
         text_toggle = self.panel.findChild(QPushButton, "toggleTextButton")
         global_toggle = self.panel.findChild(QPushButton, "toggleAllButton")
+        self.panel.findChild(QCheckBox, "pattern_http_4xx").setChecked(True)
+        self.panel._custom_pattern.setText("keep")
+        self.panel.add_custom_pattern()
 
         paired_toggle.click()
         self.assertTrue(
@@ -116,12 +120,68 @@ class FilterPanelTests(unittest.TestCase):
         )
 
         global_toggle.click()
-        self.assertEqual(self.panel.build_config().enabled_patterns, ())
+        self.assertEqual(self.panel.build_config().enabled_patterns, ("http_4xx",))
+        self.assertEqual(global_toggle.text(), "Select all text patterns")
         global_toggle.click()
         self.assertEqual(
             self.panel.build_config().enabled_patterns,
-            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS,
+            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + ("http_4xx",),
         )
+        self.assertEqual(global_toggle.text(), "Clear all text patterns")
+        self.assertEqual(self.panel.build_config().custom_patterns, ("keep",))
+
+    def test_switching_editors_preserves_filters_options_and_drafts(self):
+        tabs = self.panel.findChild(QTabBar, "filterTabs")
+        self.panel.resize(975, 500)
+        self.panel.show()
+        tabs.setCurrentIndex(1)
+        self.app.processEvents()
+        self.panel._custom_pattern.setText("CaseSensitive")
+        QTest.keyClick(self.panel._custom_pattern, Qt.Key.Key_Return)
+        self.panel.findChild(QPushButton, "customPatternMatchCaseButton").click()
+        self.panel.findChild(QPushButton, "customPatternExcludeButton").click()
+        self.panel._regex_pattern.setText(r"^ERROR\b")
+        self.panel.add_regex_pattern()
+        self.panel._custom_pattern.setText("unfinished text")
+        self.panel._regex_pattern.setText("unfinished [")
+        before = self.panel.build_config()
+
+        for index in (0, 1, 0, 1):
+            QTest.mouseClick(tabs, Qt.MouseButton.LeftButton, pos=tabs.tabRect(index).center())
+            self.app.processEvents()
+            self.assertEqual(self.panel.build_config(), before)
+            self.assertEqual(self.panel._custom_pattern.text(), "unfinished text")
+            self.assertEqual(self.panel._regex_pattern.text(), "unfinished [")
+            self.assertEqual(self.panel._custom_pattern.isVisible(), index == 1)
+            self.assertEqual(self.panel._pattern_checkboxes["error_colon"].isVisible(), index == 0)
+            self.assertTrue(self.panel._context_spin.isVisible())
+            self.assertTrue(self.panel._limit_spin.isVisible())
+            self.assertTrue(self.panel._separate_entries.isVisible())
+            self.assertTrue(self.panel._combined_view.isVisible())
+
+        self.assertEqual(before.custom_pattern_match_case, (True,))
+        self.assertEqual(before.custom_pattern_exclude, (True,))
+        self.assertEqual(tabs.tabText(1), "Text and Regex (2)")
+        self.assertEqual(self.panel._exclusions_label.text(), "1 exclusion")
+        self.assertTrue(self.panel._exclusions_label.isVisible())
+        self.panel.findChild(QPushButton, "customPatternRemoveButton").click()
+        self.assertEqual(tabs.tabText(1), "Text and Regex (1)")
+        self.assertFalse(self.panel._exclusions_label.isVisible())
+
+    def test_each_colon_and_regular_pattern_remains_independent(self):
+        for colon, regular in zip(PAIRED_PATTERN_KEYS[::2], PAIRED_PATTERN_KEYS[1::2]):
+            with self.subTest(colon=colon, regular=regular):
+                colon_box = self.panel._pattern_checkboxes[colon]
+                regular_box = self.panel._pattern_checkboxes[regular]
+                self.assertEqual(colon_box.text(), regular_box.text() + ":")
+                colon_box.setChecked(True)
+                regular_box.setChecked(False)
+                self.assertIn(colon, self.panel.build_config().enabled_patterns)
+                self.assertNotIn(regular, self.panel.build_config().enabled_patterns)
+                colon_box.setChecked(False)
+                regular_box.setChecked(True)
+                self.assertNotIn(colon, self.panel.build_config().enabled_patterns)
+                self.assertIn(regular, self.panel.build_config().enabled_patterns)
 
     def test_plain_text_list_adds_trims_orders_and_removes_items(self):
         input_box = self.panel.findChild(QLineEdit, "customPattern")
