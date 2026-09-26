@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen, QValidator
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen, QRegion, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -340,6 +340,35 @@ class UnclippedPushButton(QPushButton):
             Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextShowMnemonic,
             label,
         )
+
+
+class BorderTitleGroupBox(QGroupBox):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._border_widgets: tuple[QWidget, ...] = ()
+
+    def set_border_widgets(self, *widgets: QWidget) -> None:
+        self._border_widgets = widgets
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        if not self._border_widgets:
+            return
+        heading = self._border_widgets[0]
+        bounds = QRectF(self.rect()).adjusted(0.5, 0, -0.5, -0.5)
+        bounds.setTop(heading.geometry().center().y() + 0.5)
+        clip = QRegion(self.rect())
+        for widget in self._border_widgets:
+            clip -= QRegion(widget.geometry().adjusted(-4, 0, 4, 0))
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(THEME_COLORS["ui_button"]))
+        painter.drawRoundedRect(bounds, 5, 5)
+        painter.setClipRegion(clip)
+        painter.setPen(QPen(QColor(THEME_COLORS["ui_border"]), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(bounds, 5, 5)
 
 
 class FilterPages(QStackedWidget):
@@ -766,7 +795,7 @@ class FilterPanel(QGroupBox):
         columns: int,
         toggle_object_name: str | None = None,
     ) -> QGroupBox:
-        group = QGroupBox()
+        group = BorderTitleGroupBox()
         group.setObjectName(object_name)
         group.setAccessibleName(title)
         group.setSizePolicy(
@@ -774,13 +803,14 @@ class FilterPanel(QGroupBox):
             QSizePolicy.Policy.Preferred,
         )
         outer_layout = QVBoxLayout(group)
-        outer_layout.setContentsMargins(12, 4, 12, 6)
-        outer_layout.setSpacing(6)
+        outer_layout.setContentsMargins(12, 2, 12, 9)
+        outer_layout.setSpacing(9)
         outer_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         header = QHBoxLayout()
         header.setSpacing(12)
         heading = QLabel(title)
         heading.setObjectName("filterSectionTitle")
+        group.set_border_widgets(heading)
         header.addWidget(heading, 0, Qt.AlignmentFlag.AlignVCenter)
         header.addStretch(1)
         if toggle_object_name is not None:
@@ -792,6 +822,7 @@ class FilterPanel(QGroupBox):
             )
             self._bulk_buttons.append((toggle_button, pattern_keys))
             header.addWidget(toggle_button, 0, Qt.AlignmentFlag.AlignVCenter)
+            group.set_border_widgets(heading, toggle_button)
         outer_layout.addLayout(header)
         layout = QGridLayout()
         layout.setHorizontalSpacing(10)

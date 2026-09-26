@@ -152,7 +152,10 @@ QLabel {{
 QLabel#emptyTabLabel, QLabel#emptySubtitle {{
     color: {THEME_COLORS['ui_muted']};
 }}
-QGroupBox#filterGroup {{
+QGroupBox#filterGroup,
+QGroupBox#pairedPatternGroup,
+QGroupBox#textPatternGroup,
+QGroupBox#httpStatusGroup {{
     background-color: {THEME_COLORS['ui_surface']};
     border: none;
     color: {THEME_COLORS['ui_text']};
@@ -421,9 +424,6 @@ QCheckBox:disabled {{
 }}
 QFrame#analysisControlsGroup,
 QFrame#displayControlsGroup,
-QGroupBox#pairedPatternGroup,
-QGroupBox#textPatternGroup,
-QGroupBox#httpStatusGroup,
 QGroupBox#customPatternGroup,
 QGroupBox#regexPatternGroup {{
     background-color: {THEME_COLORS['ui_button']};
