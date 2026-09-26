@@ -85,7 +85,7 @@ class ControlFocusTests(unittest.TestCase):
         self.assertEqual(button.underMouse(), hovered)
         self.assertFalse(button.hasFocus())
         image = button.grab().toImage()
-        if button.objectName() in ("togglePairedButton", "toggleTextButton"):
+        if button.objectName() in ("toggleAllButton", "togglePairedButton", "toggleTextButton"):
             self.assertEqual(image.pixelColor(0, 0), QColor(Qt.GlobalColor.transparent))
             text_color = QColor(THEME_COLORS["ui_accent" if hovered else "ui_text"])
             self.assertTrue(any(
@@ -93,9 +93,6 @@ class ControlFocusTests(unittest.TestCase):
                 for y in range(image.height()) for x in range(image.width())
             ))
             return
-        if button.objectName() == "toggleAllButton":
-            expected = QColor(THEME_COLORS["ui_button_hover"]) if hovered else QColor(Qt.GlobalColor.transparent)
-            self.assertEqual(image.pixelColor(3, image.height() // 2), expected)
         normal_border = "ui_border" if button.objectName() == "openButton" else "ui_border_strong"
         expected = QColor(THEME_COLORS["ui_accent" if hovered else normal_border])
         self.assertEqual(image.pixelColor(0, image.height() // 2), expected)

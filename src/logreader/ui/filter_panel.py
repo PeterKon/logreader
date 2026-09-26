@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyleOptionButton,
     QStyleOptionSpinBox,
-    QStylePainter,
     QTabBar,
     QVBoxLayout,
     QWidget,
@@ -316,32 +315,6 @@ class ScanLimitSpinBox(TieredSpinBox):
         return state, text, position
 
 
-class UnclippedPushButton(QPushButton):
-    """Push button that paints its label clear of stylesheet padding clips."""
-
-    _TEXT_INSET = 6
-
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API name
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        label = option.text
-        option.text = ""
-
-        painter = QStylePainter(self)
-        painter.drawControl(QStyle.ControlElement.CE_PushButton, option)
-        painter.setPen(option.palette.color(QPalette.ColorRole.ButtonText))
-        painter.drawText(
-            self.rect().adjusted(
-                self._TEXT_INSET,
-                0,
-                -self._TEXT_INSET,
-                0,
-            ),
-            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextShowMnemonic,
-            label,
-        )
-
-
 class BorderTitleGroupBox(QGroupBox):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -589,7 +562,7 @@ class FilterPanel(QGroupBox):
         )
         pattern_groups.addStretch(1)
         patterns_layout.addLayout(pattern_groups)
-        self._toggle_all_button = UnclippedPushButton("Select all patterns")
+        self._toggle_all_button = QPushButton("Select all patterns")
         configure_action_button(self._toggle_all_button)
         self._toggle_all_button.setObjectName("toggleAllButton")
         self._toggle_all_button.setToolTip(
@@ -803,7 +776,7 @@ class FilterPanel(QGroupBox):
             QSizePolicy.Policy.Preferred,
         )
         outer_layout = QVBoxLayout(group)
-        outer_layout.setContentsMargins(12, 2, 12, 9)
+        outer_layout.setContentsMargins(12, 2, 12, 13)
         outer_layout.setSpacing(9)
         outer_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         header = QHBoxLayout()
