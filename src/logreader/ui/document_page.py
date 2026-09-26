@@ -61,7 +61,7 @@ class DocumentPage(QWidget):
         self.controls_container = QWidget(self)
         self.controls_container.setObjectName("controlsContainer")
         self.controls_layout = QVBoxLayout(self.controls_container)
-        self.controls_layout.setContentsMargins(12, 12, 12, 10)
+        self.controls_layout.setContentsMargins(0, 12, 12, 10)
         self.controls_layout.setSpacing(10)
         self.filter_panel = FilterPanel()
         self.controls_layout.addWidget(self.filter_panel)

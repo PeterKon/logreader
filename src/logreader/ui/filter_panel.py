@@ -443,9 +443,45 @@ class FilterPanel(QGroupBox):
         self._base_controls = QWidget(self)
         self._base_controls.setObjectName("fileControlsRow")
         top_layout = QHBoxLayout(self._base_controls)
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(8)
+        top_layout.setContentsMargins(12, 0, 0, 0)
+        top_layout.setSpacing(12)
+
+        analysis_controls = QFrame(self._base_controls)
+        analysis_controls.setObjectName("analysisControlsGroup")
+        analysis_layout = QHBoxLayout(analysis_controls)
+        analysis_layout.setContentsMargins(10, 4, 10, 4)
+        analysis_layout.setSpacing(16)
+        context_layout = QHBoxLayout()
+        context_layout.setSpacing(8)
+
+        self._context_spin = ContextSpinBox()
+        self._context_spin.setObjectName("contextSpin")
+        self._context_spin.setFixedWidth(self.fontMetrics().horizontalAdvance("1 000") + 48)
+        context_label = QLabel("Context around matches")
+        context_label.setObjectName("contextLabel")
+        context_layout.addWidget(context_label)
+        context_layout.addWidget(self._context_spin)
+        analysis_layout.addLayout(context_layout)
+
+        limit_layout = QHBoxLayout()
+        limit_layout.setSpacing(8)
+
+        self._limit_spin = ScanLimitSpinBox()
+        self._limit_spin.setObjectName("limitSpin")
+        self._limit_spin.setFixedWidth(self.fontMetrics().horizontalAdvance("2 147 483 647") + 48)
+        limit_label = QLabel("Max lines scanned")
+        limit_label.setObjectName("limitLabel")
+        limit_layout.addWidget(limit_label)
+        limit_layout.addWidget(self._limit_spin)
+        analysis_layout.addLayout(limit_layout)
+        top_layout.addWidget(analysis_controls)
         top_layout.addStretch(1)
+
+        display_controls = QFrame(self._base_controls)
+        display_controls.setObjectName("displayControlsGroup")
+        display_layout = QHBoxLayout(display_controls)
+        display_layout.setContentsMargins(10, 4, 10, 4)
+        display_layout.setSpacing(12)
 
         self._combined_view = VisibleCheckBox("Combined view")
         self._combined_view.setObjectName("combinedViewCheck")
@@ -454,7 +490,7 @@ class FilterPanel(QGroupBox):
         self._combined_view.setToolTip(
             "Show all matches in one combined category on the results view."
         )
-        top_layout.addWidget(self._combined_view)
+        display_layout.addWidget(self._combined_view)
 
         self._separate_entries = VisibleCheckBox("Line-spacing")
         self._separate_entries.setObjectName("separateEntriesCheck")
@@ -463,25 +499,8 @@ class FilterPanel(QGroupBox):
         self._separate_entries.setToolTip(
             "Add a small gap as separation between mismatching context/errors in results."
         )
-        top_layout.addWidget(self._separate_entries)
-        top_layout.addWidget(self._make_top_separator("topSeparatorContext"))
-
-        self._context_spin = ContextSpinBox()
-        self._context_spin.setObjectName("contextSpin")
-        self._context_spin.setFixedWidth(self.fontMetrics().horizontalAdvance("1 000") + 48)
-        context_label = QLabel("Context around matches")
-        context_label.setObjectName("contextLabel")
-        top_layout.addWidget(context_label)
-        top_layout.addWidget(self._context_spin)
-        top_layout.addWidget(self._make_top_separator("topSeparatorLimit"))
-
-        self._limit_spin = ScanLimitSpinBox()
-        self._limit_spin.setObjectName("limitSpin")
-        self._limit_spin.setFixedWidth(self.fontMetrics().horizontalAdvance("2 147 483 647") + 48)
-        limit_label = QLabel("Max lines scanned")
-        limit_label.setObjectName("limitLabel")
-        top_layout.addWidget(limit_label)
-        top_layout.addWidget(self._limit_spin)
+        display_layout.addWidget(self._separate_entries)
+        top_layout.addWidget(display_controls)
 
         layout.addWidget(self._base_controls)
 
@@ -526,7 +545,7 @@ class FilterPanel(QGroupBox):
         patterns = QWidget()
         patterns.setObjectName("commonPatternsPage")
         patterns_layout = QHBoxLayout(patterns)
-        patterns_layout.setContentsMargins(0, 4, 0, 4)
+        patterns_layout.setContentsMargins(12, 4, 0, 4)
         patterns_layout.setSpacing(12)
         patterns_layout.addWidget(
             self._build_pattern_group(
@@ -555,7 +574,7 @@ class FilterPanel(QGroupBox):
         advanced = QWidget()
         advanced.setObjectName("advancedPatternsPage")
         advanced_layout = QHBoxLayout(advanced)
-        advanced_layout.setContentsMargins(0, 4, 0, 4)
+        advanced_layout.setContentsMargins(12, 4, 0, 4)
         advanced_layout.setSpacing(12)
         advanced_layout.addWidget(
             self._build_pattern_group(
@@ -572,7 +591,7 @@ class FilterPanel(QGroupBox):
         searches = QWidget()
         searches.setObjectName("customSearchesPage")
         searches_layout = QVBoxLayout(searches)
-        searches_layout.setContentsMargins(0, 4, 0, 0)
+        searches_layout.setContentsMargins(12, 4, 0, 0)
         searches_layout.setSpacing(0)
         searches_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         columns = QHBoxLayout()
@@ -747,22 +766,6 @@ class FilterPanel(QGroupBox):
         layout.addWidget(pattern_list)
         layout.addStretch(1)
         return group, input_box, pattern_list
-
-    @staticmethod
-    def _make_top_separator(object_name: str) -> QFrame:
-        separator = QFrame()
-        separator.setObjectName(object_name)
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setFrameShadow(QFrame.Shadow.Plain)
-        separator.setLineWidth(1)
-        separator.setFixedWidth(1)
-        separator.setMaximumHeight(24)
-        separator.setStyleSheet(
-            f"background-color: {THEME_COLORS['ui_border_strong']};"
-            " border: none;"
-            f" color: {THEME_COLORS['ui_border_strong']};"
-        )
-        return separator
 
     def _build_pattern_group(
         self,

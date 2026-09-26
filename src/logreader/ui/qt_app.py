@@ -88,10 +88,14 @@ QWidget#filterHeader {{
     border-bottom: 1px solid {THEME_COLORS['ui_border']};
 }}
 QTabBar#filterTabs::tab {{
-    background-color: {THEME_COLORS['ui_surface']};
+    background-color: {THEME_COLORS['ui_button']};
     color: {THEME_COLORS['ui_muted']};
+    border-right: 1px solid {THEME_COLORS['ui_border']};
     border-bottom: 2px solid transparent;
     padding: 8px 12px;
+}}
+QTabBar#filterTabs::tab:first {{
+    padding-left: 24px;
 }}
 QTabBar#filterTabs::tab:selected {{
     background-color: {THEME_COLORS['ui_island']};
@@ -414,8 +418,11 @@ QCheckBox:focus {{
 QCheckBox:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
 }}
-QFrame#topSeparatorContext {{
-    color: {THEME_COLORS['ui_border_strong']};
+QFrame#analysisControlsGroup,
+QFrame#displayControlsGroup {{
+    background-color: {THEME_COLORS['ui_button']};
+    border: 1px solid {THEME_COLORS['ui_border']};
+    border-radius: 5px;
 }}
 QStatusBar {{
     background-color: {THEME_COLORS['background']};
