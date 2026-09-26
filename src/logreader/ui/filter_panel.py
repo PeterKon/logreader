@@ -447,6 +447,25 @@ class FilterPanel(QGroupBox):
         top_layout.setSpacing(8)
         top_layout.addStretch(1)
 
+        self._combined_view = VisibleCheckBox("Combined view")
+        self._combined_view.setObjectName("combinedViewCheck")
+        self._combined_view.setProperty("islandIndicator", True)
+        self._combined_view.setChecked(True)
+        self._combined_view.setToolTip(
+            "Show all matches in one combined category on the results view."
+        )
+        top_layout.addWidget(self._combined_view)
+
+        self._separate_entries = VisibleCheckBox("Line-spacing")
+        self._separate_entries.setObjectName("separateEntriesCheck")
+        self._separate_entries.setProperty("islandIndicator", True)
+        self._separate_entries.setChecked(True)
+        self._separate_entries.setToolTip(
+            "Add a small gap as separation between mismatching context/errors in results."
+        )
+        top_layout.addWidget(self._separate_entries)
+        top_layout.addWidget(self._make_top_separator("topSeparatorContext"))
+
         self._context_spin = ContextSpinBox()
         self._context_spin.setObjectName("contextSpin")
         self._context_spin.setFixedWidth(self.fontMetrics().horizontalAdvance("1 000") + 48)
@@ -454,7 +473,7 @@ class FilterPanel(QGroupBox):
         context_label.setObjectName("contextLabel")
         top_layout.addWidget(context_label)
         top_layout.addWidget(self._context_spin)
-        top_layout.addWidget(self._make_top_separator("topSeparatorContext"))
+        top_layout.addWidget(self._make_top_separator("topSeparatorLimit"))
 
         self._limit_spin = ScanLimitSpinBox()
         self._limit_spin.setObjectName("limitSpin")
@@ -464,22 +483,6 @@ class FilterPanel(QGroupBox):
         top_layout.addWidget(limit_label)
         top_layout.addWidget(self._limit_spin)
 
-        self._separate_entries = VisibleCheckBox("Line-spacing")
-        self._separate_entries.setObjectName("separateEntriesCheck")
-        self._separate_entries.setProperty("islandIndicator", True)
-        self._separate_entries.setChecked(True)
-        self._separate_entries.setToolTip(
-            "Add a small gap as separation between mismatching context/errors in results."
-        )
-        self._combined_view = VisibleCheckBox("Combined view")
-        self._combined_view.setObjectName("combinedViewCheck")
-        self._combined_view.setProperty("islandIndicator", True)
-        self._combined_view.setChecked(True)
-        self._combined_view.setToolTip(
-            "Show all matches in one combined category on the results view."
-        )
-        top_layout.addWidget(self._separate_entries)
-        top_layout.addWidget(self._combined_view)
         layout.addWidget(self._base_controls)
 
         filter_header = QWidget(self)
@@ -520,11 +523,11 @@ class FilterPanel(QGroupBox):
         patterns_layout.setSpacing(12)
         patterns_layout.addWidget(
             self._build_pattern_group(
-                "Colon / regular matches",
-                PAIRED_PATTERN_KEYS,
-                object_name="pairedPatternGroup",
-                columns=2,
-                toggle_object_name="togglePairedButton",
+                "Other matches",
+                TEXT_PATTERN_KEYS,
+                object_name="textPatternGroup",
+                columns=4,
+                toggle_object_name="toggleTextButton",
             ),
             0,
             Qt.AlignmentFlag.AlignTop,
@@ -532,11 +535,11 @@ class FilterPanel(QGroupBox):
         patterns_layout.addWidget(self._make_group_separator())
         patterns_layout.addWidget(
             self._build_pattern_group(
-                "Other matches",
-                TEXT_PATTERN_KEYS,
-                object_name="textPatternGroup",
-                columns=4,
-                toggle_object_name="toggleTextButton",
+                "Colon / regular matches",
+                PAIRED_PATTERN_KEYS,
+                object_name="pairedPatternGroup",
+                columns=2,
+                toggle_object_name="togglePairedButton",
             ),
             1,
             Qt.AlignmentFlag.AlignTop,
@@ -759,7 +762,6 @@ class FilterPanel(QGroupBox):
         heading.setObjectName("filterSectionTitle")
         heading.setMinimumHeight(28)
         header.addWidget(heading)
-        header.addStretch(1)
         if toggle_object_name is not None:
             toggle_button = QPushButton("Select all")
             configure_action_button(toggle_button)
@@ -769,11 +771,12 @@ class FilterPanel(QGroupBox):
             )
             self._bulk_buttons.append((toggle_button, pattern_keys))
             header.addWidget(toggle_button)
+        header.addStretch(1)
         outer_layout.addLayout(header)
         layout = QGridLayout()
         layout.setHorizontalSpacing(10)
         layout.setVerticalSpacing(4)
-        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         outer_layout.addLayout(layout)
 
         checkboxes = []
@@ -799,7 +802,6 @@ class FilterPanel(QGroupBox):
         column_width = max(checkbox.sizeHint().width() for checkbox in checkboxes)
         for column in range(columns):
             layout.setColumnMinimumWidth(column, column_width)
-            layout.setColumnStretch(column, 1)
 
         return group
 
