@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from . import __version__
 from .core import COMBINED_CATEGORY_KEY, MatchValidator, SearchPattern
-from .matchers import (
+from .network_matchers import (
     CONNECTION_FAILURE_PATTERN,
     REACHABILITY_TIMEOUT_PATTERN,
     TLS_CERTIFICATE_PATTERN,
