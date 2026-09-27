@@ -15,7 +15,7 @@ try:
     from shiboken6 import isValid
 
     from logreader.core import analyze_lines
-    from logreader.ui.qt_app import APP_VERSION, LogreaderWindow
+    from logreader.ui.qt_app import LogreaderWindow
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -79,7 +79,7 @@ class TabClosingTests(unittest.TestCase):
         self.assertEqual(self.window._documents_by_path, {})
         self.assertTrue(self.window._empty_page.isVisible())
         self.assertFalse(self.window._analyze_button.isEnabled())
-        self.assertEqual(self.window.windowTitle(), APP_VERSION)
+        self.assertEqual(self.window.windowTitle(), "Logreader")
         self.assertFalse(self.window._analyze_button.isVisible())
         QTest.keyClick(self.window, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
         self.assertTrue(self.window.load_file(second_path))

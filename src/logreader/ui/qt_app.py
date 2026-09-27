@@ -235,6 +235,7 @@ QPushButton#analyzeButton {{
     border-color: {THEME_COLORS['ui_primary']};
     color: #ffffff;
     font-weight: 600;
+    padding: 3px 13px;
 }}
 QPushButton#analyzeButton:hover {{
     background-color: {THEME_COLORS['ui_primary_hover']};
@@ -485,7 +486,7 @@ class LogreaderWindow(QMainWindow):
         self._show_performance = show_performance
         self._apply_interface_palette()
         self.setStyleSheet(INTERFACE_STYLE_SHEET)
-        self._set_window_title(APP_VERSION)
+        self._set_window_title("Logreader")
         self.resize(975, 1097)
         self.setMinimumWidth(820)
         self._scheduler = WorkScheduler(self)
@@ -627,6 +628,7 @@ class LogreaderWindow(QMainWindow):
         root.addWidget(self._tab_controls)
         self._analyze_button = QPushButton("&Analyze", central)
         self._analyze_button.setObjectName("analyzeButton")
+        self._analyze_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         self._analyze_button.setEnabled(False)
         self._analyze_button.clicked.connect(self.analyze_current)
         self._analyze_button.hide()
@@ -718,8 +720,6 @@ class LogreaderWindow(QMainWindow):
             self._analyze_button.hide()
         self._workspace.setCurrentWidget(self._pages if page else self._empty_page)
         self._update_file_controls_visibility()
-        path = page.session.path if page else None
-        self._set_window_title(f"{APP_VERSION} - {path.name}" if path else APP_VERSION)
         self.statusBar().showMessage(
             page.status_message if page else "Ready"
         )
@@ -914,7 +914,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     set_windows_app_id()
     app = QApplication(arguments[:1] + qt_arguments)
     app.setApplicationName("Logreader")
-    app.setApplicationDisplayName(APP_VERSION)
+    app.setApplicationDisplayName("Logreader")
     app.setWindowIcon(application_icon())
     window = LogreaderWindow(show_performance=options.performance)
     window.show()

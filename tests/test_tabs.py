@@ -99,7 +99,7 @@ class TabTests(unittest.TestCase):
             self.window.font().pointSizeF() + 6,
         )
         self.assertFalse(self.window._analyze_button.isEnabled())
-        self.assertEqual(self.window.windowTitle(), APP_VERSION)
+        self.assertEqual(self.window.windowTitle(), "Logreader")
         self.window.analyze_current()  # Safe in the empty state.
         path = self.make_log("empty.log", "")
         with patch("logreader.ui.qt_app.QFileDialog.getOpenFileNames", return_value=([str(path)], "")):
@@ -327,7 +327,7 @@ class TabTests(unittest.TestCase):
         self.wait_for_completion(first_done)
         self.assertIn("ERROR: first", first.results_view.editor.toPlainText())
         self.assertEqual(self.window.statusBar().currentMessage(), first.status_message)
-        self.assertEqual(self.window.windowTitle(), f"{APP_VERSION} - first.log")
+        self.assertEqual(self.window.windowTitle(), "Logreader")
         self.assertEqual(self.app.applicationDisplayName(), self.window.windowTitle())
         first.results_view.set_maximized(True)
         self.window._select_document(second)
