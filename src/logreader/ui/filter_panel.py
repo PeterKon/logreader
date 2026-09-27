@@ -29,9 +29,10 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import (
+    ADVANCED_PATTERN_KEYS,
+    DATABASE_PATTERN_KEYS,
     DEFAULT_CONTEXT,
     DEFAULT_ENABLED_PATTERNS,
-    NETWORK_PATTERN_KEYS,
     PAIRED_PATTERN_KEYS,
     PATTERN_KEYS,
     PATTERN_PRESETS_BY_KEY,
@@ -600,6 +601,16 @@ class FilterPanel(QGroupBox):
             0,
             Qt.AlignmentFlag.AlignTop,
         )
+        advanced_layout.addWidget(
+            self._build_pattern_group(
+                "Database",
+                DATABASE_PATTERN_KEYS,
+                object_name="databasePatternGroup",
+                columns=1,
+            ),
+            0,
+            Qt.AlignmentFlag.AlignTop,
+        )
         advanced_layout.addStretch(1)
         self._pages.addWidget(advanced)
         searches = QWidget()
@@ -647,7 +658,7 @@ class FilterPanel(QGroupBox):
             layout.activate()
 
     def _update_summary(self) -> None:
-        for index, keys in enumerate((PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, NETWORK_PATTERN_KEYS)):
+        for index, keys in enumerate((PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, ADVANCED_PATTERN_KEYS)):
             selected = sum(self._pattern_checkboxes[key].isChecked() for key in keys)
             self._set_tab_count(index, f"({selected}/{len(keys)})", f"{selected} of {len(keys)} selected")
         custom_count = self._custom_pattern_list.count()
@@ -873,7 +884,7 @@ class FilterPanel(QGroupBox):
             return "HTTP 4xx"
         if key == "http_5xx":
             return "HTTP 5xx"
-        if key in ("reachability_timeouts", "tls_certificates"):
+        if key in ("reachability_timeouts", "tls_certificates") or key in DATABASE_PATTERN_KEYS:
             return PATTERN_PRESETS_BY_KEY[key].label
         return PATTERN_PRESETS_BY_KEY[key].label.capitalize()
 

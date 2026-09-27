@@ -6,6 +6,12 @@ from dataclasses import dataclass
 
 from . import __version__
 from .core import COMBINED_CATEGORY_KEY, MatchValidator, SearchPattern
+from .database_matchers import (
+    DATABASE_CONNECTION_PATTERN,
+    DATABASE_QUERY_PATTERN,
+    is_database_connection_candidate,
+    is_database_query_candidate,
+)
 from .network_matchers import (
     CONNECTION_FAILURE_PATTERN,
     REACHABILITY_TIMEOUT_PATTERN,
@@ -112,6 +118,20 @@ PATTERN_PRESETS = (
         is_regex=True,
         match_validator=is_tls_certificate_candidate,
     ),
+    PatternPreset(
+        "database_connections",
+        DATABASE_CONNECTION_PATTERN,
+        "Connections / Pools",
+        is_regex=True,
+        match_validator=is_database_connection_candidate,
+    ),
+    PatternPreset(
+        "database_queries",
+        DATABASE_QUERY_PATTERN,
+        "Queries / Data",
+        is_regex=True,
+        match_validator=is_database_query_candidate,
+    ),
 )
 
 PATTERN_PRESETS_BY_KEY = {preset.key: preset for preset in PATTERN_PRESETS}
@@ -145,7 +165,9 @@ HTTP_STATUS_PATTERN_KEYS = ("http_4xx", "http_5xx")
 NETWORK_PATTERN_KEYS = HTTP_STATUS_PATTERN_KEYS + (
     "connection_failures", "reachability_timeouts", "tls_certificates",
 )
-PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + NETWORK_PATTERN_KEYS
+DATABASE_PATTERN_KEYS = ("database_connections", "database_queries")
+ADVANCED_PATTERN_KEYS = NETWORK_PATTERN_KEYS + DATABASE_PATTERN_KEYS
+PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + ADVANCED_PATTERN_KEYS
 DEFAULT_ENABLED_PATTERNS = (
     "error_colon",
     "error",

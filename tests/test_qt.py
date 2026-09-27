@@ -1257,6 +1257,8 @@ class LogreaderQtTests(unittest.TestCase):
             "pattern_connection_failures": "Connection failures",
             "pattern_reachability_timeouts": "Reachability / Timeouts",
             "pattern_tls_certificates": "TLS / Certificates",
+            "pattern_database_connections": "Connections / Pools",
+            "pattern_database_queries": "Queries / Data",
         }
 
         for object_name, label in expected_labels.items():
@@ -1266,6 +1268,20 @@ class LogreaderQtTests(unittest.TestCase):
 
         network = self.window.findChild(QGroupBox, "networkPatternGroup")
         self.assertEqual(network.accessibleName(), "Network")
+        database = self.window.findChild(QGroupBox, "databasePatternGroup")
+        self.assertEqual(database.accessibleName(), "Database")
+        database_box = database.findChild(QCheckBox, "pattern_database_connections")
+        self.assertIsNotNone(database_box)
+        self.assertFalse(database_box.isChecked())
+        database_box.setChecked(True)
+        self.assertIn("database_connections", self.window.build_config().enabled_patterns)
+        self.assertEqual(self.window.build_config().label_for("database_connections"),
+                         "Connections / Pools")
+        query_box = database.findChild(QCheckBox, "pattern_database_queries")
+        self.assertFalse(query_box.isChecked())
+        query_box.setChecked(True)
+        self.assertIn("database_queries", self.window.build_config().enabled_patterns)
+        self.assertEqual(self.window.build_config().label_for("database_queries"), "Queries / Data")
         grid = network.findChild(QGridLayout)
         for key, position in (
             ("connection_failures", (0, 0)), ("tls_certificates", (1, 0)),

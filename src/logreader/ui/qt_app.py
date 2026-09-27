@@ -157,6 +157,7 @@ QGroupBox#filterGroup,
 QGroupBox#pairedPatternGroup,
 QGroupBox#textPatternGroup,
 QGroupBox#networkPatternGroup,
+QGroupBox#databasePatternGroup,
 QGroupBox#customPatternGroup,
 QGroupBox#regexPatternGroup {{
     background-color: {THEME_COLORS['ui_surface']};
@@ -398,7 +399,8 @@ QCheckBox#separateEntriesCheck::indicator:unchecked,
 QCheckBox#combinedViewCheck::indicator:unchecked,
 QGroupBox#pairedPatternGroup QCheckBox::indicator:unchecked,
 QGroupBox#textPatternGroup QCheckBox::indicator:unchecked,
-QGroupBox#networkPatternGroup QCheckBox::indicator:unchecked {{
+QGroupBox#networkPatternGroup QCheckBox::indicator:unchecked,
+QGroupBox#databasePatternGroup QCheckBox::indicator:unchecked {{
     background-color: {THEME_COLORS['ui_field']};
 }}
 QCheckBox::indicator:disabled {{

@@ -2,6 +2,7 @@ import unittest
 
 from logreader.config import (
     COMBINED_CATEGORY_LABEL,
+    DATABASE_PATTERN_KEYS,
     DEFAULT_ENABLED_PATTERNS,
     HTTP_STATUS_PATTERN_KEYS,
     NETWORK_PATTERN_KEYS,
@@ -140,13 +141,15 @@ class LogreaderConfigTests(unittest.TestCase):
             "connection_failures",
             "reachability_timeouts",
             "tls_certificates",
+            "database_connections",
+            "database_queries",
         )
         config = LogreaderConfig(enabled_patterns=tuple(reversed(PATTERN_KEYS)))
 
         self.assertEqual(PATTERN_KEYS, expected_order)
         self.assertEqual(
             PATTERN_KEYS,
-            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + NETWORK_PATTERN_KEYS,
+            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + NETWORK_PATTERN_KEYS + DATABASE_PATTERN_KEYS,
         )
         self.assertEqual(
             DEFAULT_ENABLED_PATTERNS,
