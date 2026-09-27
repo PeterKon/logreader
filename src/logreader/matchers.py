@@ -168,6 +168,88 @@ def is_reachability_timeout_candidate(line: str, start: int, end: int) -> bool:
     return True
 
 
+TLS_CERTIFICATE_PATTERN = r"""(?ix)
+    \b(?:
+        ERR_TLS_(?:CERT_ALTNAME_INVALID|CERT_ALTNAME_FORMAT|HANDSHAKE_TIMEOUT
+            |INVALID_PROTOCOL_VERSION|PROTOCOL_VERSION_CONFLICT)
+        | ERR_CERT_(?:COMMON_NAME_INVALID|DATE_INVALID|AUTHORITY_INVALID|REVOKED|INVALID
+            |WEAK_SIGNATURE_ALGORITHM)
+        | ERR_SSL_(?:PROTOCOL_ERROR|VERSION_OR_CIPHER_MISMATCH|BAD_RECORD_MAC_ALERT
+            |CLIENT_AUTH_CERT_NEEDED|CLIENT_AUTH_SIGNATURE_FAILED)
+        | (?:X509_V_ERR_)?(?:CERT_HAS_EXPIRED|CERT_NOT_YET_VALID|CERT_REVOKED
+            |CERT_UNTRUSTED|CERT_SIGNATURE_FAILURE|DEPTH_ZERO_SELF_SIGNED_CERT
+            |SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE
+            |UNABLE_TO_GET_ISSUER_CERT_LOCALLY|HOSTNAME_MISMATCH)
+        | CERTIFICATE_VERIFY_FAILED
+        | (?:SSLV?3|TLSV?1(?:_3)?)_ALERT_(?:HANDSHAKE_FAILURE|BAD_CERTIFICATE
+            |CERTIFICATE_EXPIRED|CERTIFICATE_REVOKED|UNKNOWN_CA|PROTOCOL_VERSION)
+        | SEC_E_(?:CERT_EXPIRED|CERT_UNKNOWN|UNTRUSTED_ROOT|WRONG_PRINCIPAL|ILLEGAL_MESSAGE)
+        | CERT_E_(?:EXPIRED|UNTRUSTEDROOT|CN_NO_MATCH|REVOKED|CHAINING)
+        | CRYPT_E_REVOKED
+        | CURLE_(?:SSL_CONNECT_ERROR|PEER_FAILED_VERIFICATION|SSL_CACERT_BADFILE
+            |SSL_CERTPROBLEM|SSL_ISSUER_ERROR)
+        | SSLHandshakeException|SSLPeerUnverifiedException|SSLCertVerificationError
+        | Certificate(?:Expired|NotYetValid)Exception
+        | RemoteCertificate(?:NameMismatch|ChainErrors)
+        | (?:TLS|SSL)(?:v?[0-9](?:\.[0-9])?)?\s+
+          (?:(?:handshake|connection|negotiation)\s+)?(?:failed|failure|error)
+        | SSL_(?:connect|accept|do_handshake)\s*\(\)\s+failed
+        | (?:failed\s+to|unable\s+to|could\s+not)\s+(?:establish|create)\s+
+          (?:an?\s+)?(?:SSL/TLS|TLS|SSL|secure)\s+(?:secure\s+)?(?:connection|channel)
+        | secure\s+(?:connection|channel)\s+(?:failed|failure|error)
+        | certificate\s+(?:(?:has|is)\s+)?(?:expired|revoked|untrusted|invalid|not\s+(?:trusted|yet\s+valid))
+        | (?:expired|revoked|untrusted)\s+certificate
+        | certificate\s+(?:verify|verification|validation)\s+(?:failed|failure|error)
+        | (?:failed|unable)\s+to\s+(?:verify|validate)\s+(?:the\s+)?certificate
+        | certificate\s+(?:is\s+)?signed\s+by\s+(?:an?\s+)?unknown\s+authority
+        | unable\s+to\s+(?:get\s+(?:the\s+)?(?:local\s+)?issuer\s+certificate
+            |verify\s+the\s+first\s+certificate)
+        | PKIX\s+path\s+(?:building|validation)\s+failed
+        | certificate\s+is\s+valid\s+for\s+[^\s,;]+(?:,\s*[^\s,;]+){0,8},\s+not\s+[^\s;]+
+        | (?:hostname/IP|hostname|host\s+name|IP\s+address)\s+(?:mismatch|does\s+not\s+match)
+        | handshake\s+(?:failed|failure|error)|no\s+shared\s+cipher|wrong\s+version\s+number
+        | self[-\s]signed\s+certificate
+    )\b
+"""
+
+_TLS_CONTEXT = re.compile(
+    r"\b(?:TLS|SSL)(?:v?[0-9](?:\.[0-9])?)?\b|\b(?:OpenSSL|Schannel|X509|PKIX|certificate)\b",
+    re.IGNORECASE,
+)
+_AMBIGUOUS_TLS_FAILURE = re.compile(
+    r"SEC_E_(?:WRONG_PRINCIPAL|ILLEGAL_MESSAGE)|HOSTNAME_MISMATCH"
+    r"|(?:hostname/IP|hostname|host\s+name|IP\s+address)\s+(?:mismatch|does\s+not\s+match)"
+    r"|handshake\s+(?:failed|failure|error)|no\s+shared\s+cipher|wrong\s+version\s+number",
+    re.IGNORECASE,
+)
+_CERTIFICATE_FAILURE_CONTEXT = re.compile(
+    r"\b(?:error|failed|failure|rejected|untrusted)\b|\b(?:unable|failed)\s+to\s+verify\b",
+    re.IGNORECASE,
+)
+_TLS_NORMAL_STATUS = re.compile(
+    r"\s*[:=]\s*SSL_ERROR_(?:WANT_READ|WANT_WRITE|ZERO_RETURN)\b",
+    re.IGNORECASE,
+)
+
+
+def is_tls_certificate_candidate(line: str, start: int, end: int) -> bool:
+    """Separate TLS/certificate failures from routine state and generic errors."""
+
+    before, after = _network_candidate_context(line, start, end)
+    if (_NETWORK_NON_EVENT_PREFIX.search(before)
+            or _NETWORK_NON_EVENT_SUFFIX.match(after)):
+        return False
+    candidate = line[start:end]
+    context = before + " " + after
+    if candidate.casefold() in ("ssl error", "tls error") and _TLS_NORMAL_STATUS.match(after):
+        return False
+    if re.fullmatch(r"self[-\s]signed\s+certificate", candidate, re.IGNORECASE):
+        return _CERTIFICATE_FAILURE_CONTEXT.search(context) is not None
+    if _AMBIGUOUS_TLS_FAILURE.fullmatch(candidate):
+        return _TLS_CONTEXT.search(context) is not None
+    return True
+
+
 _STATUS_CONTEXT_MARKERS = (
     "http",
     "status",

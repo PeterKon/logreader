@@ -1256,6 +1256,7 @@ class LogreaderQtTests(unittest.TestCase):
             "pattern_http_5xx": "HTTP 5xx",
             "pattern_connection_failures": "Connection failures",
             "pattern_reachability_timeouts": "Reachability / Timeouts",
+            "pattern_tls_certificates": "TLS / Certificates",
         }
 
         for object_name, label in expected_labels.items():
@@ -1267,8 +1268,9 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(network.accessibleName(), "Network")
         grid = network.findChild(QGridLayout)
         for key, position in (
-            ("http_4xx", (0, 0)), ("http_5xx", (1, 0)),
-            ("connection_failures", (2, 0)), ("reachability_timeouts", (0, 1)),
+            ("connection_failures", (0, 0)), ("tls_certificates", (1, 0)),
+            ("reachability_timeouts", (2, 0)),
+            ("http_4xx", (0, 1)), ("http_5xx", (1, 1)),
         ):
             checkbox = network.findChild(QCheckBox, f"pattern_{key}")
             self.assertEqual(grid.getItemPosition(grid.indexOf(checkbox))[:2], position)

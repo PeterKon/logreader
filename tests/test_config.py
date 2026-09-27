@@ -139,6 +139,7 @@ class LogreaderConfigTests(unittest.TestCase):
             "http_5xx",
             "connection_failures",
             "reachability_timeouts",
+            "tls_certificates",
         )
         config = LogreaderConfig(enabled_patterns=tuple(reversed(PATTERN_KEYS)))
 
@@ -545,6 +546,161 @@ class LogreaderConfigTests(unittest.TestCase):
                 self.assertIn("request timed out", highlights[0])
                 self.assertIn("DNS lookup failed", highlights[0])
                 self.assertEqual(highlights[2], ["network is unreachable"])
+                if not combined:
+                    self.assertEqual(highlights[1], [])
+
+    def test_tls_certificates_recognize_handshake_trust_and_identity_failures(self):
+        patterns = LogreaderConfig(
+            context=0, enabled_patterns=("tls_certificates",),
+        ).search_patterns()
+        examples = (
+            "ERR_TLS_CERT_ALTNAME_INVALID",
+            "ERR_TLS_HANDSHAKE_TIMEOUT",
+            "net::ERR_CERT_AUTHORITY_INVALID",
+            "net::ERR_CERT_DATE_INVALID",
+            "net::ERR_SSL_VERSION_OR_CIPHER_MISMATCH",
+            "CERT_HAS_EXPIRED",
+            "X509_V_ERR_CERT_NOT_YET_VALID",
+            "X509_V_ERR_HOSTNAME_MISMATCH",
+            "DEPTH_ZERO_SELF_SIGNED_CERT",
+            "SELF_SIGNED_CERT_IN_CHAIN",
+            "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+            "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+            "CERTIFICATE_VERIFY_FAILED",
+            "SSLV3_ALERT_HANDSHAKE_FAILURE",
+            "TLSV1_ALERT_UNKNOWN_CA",
+            "TLS1_ALERT_CERTIFICATE_EXPIRED",
+            "SEC_E_UNTRUSTED_ROOT",
+            "SEC_E_CERT_EXPIRED",
+            "Schannel: SEC_E_ILLEGAL_MESSAGE",
+            "TLS: SEC_E_WRONG_PRINCIPAL",
+            "CERT_E_CN_NO_MATCH",
+            "CRYPT_E_REVOKED",
+            "CURLE_SSL_CONNECT_ERROR",
+            "CURLE_PEER_FAILED_VERIFICATION",
+            "CURLE_SSL_CACERT_BADFILE",
+            "javax.net.ssl.SSLHandshakeException: peer rejected handshake",
+            "SSLPeerUnverifiedException",
+            "ssl.SSLCertVerificationError",
+            "CertificateExpiredException",
+            "RemoteCertificateNameMismatch",
+            "RemoteCertificateChainErrors",
+            "TLS handshake failed",
+            "SSLv3 handshake failure",
+            "TLSv1.3 negotiation failed",
+            "SSL connection error",
+            "SSL_do_handshake() failed",
+            "Could not create SSL/TLS secure channel",
+            "failed to establish a secure connection",
+            "secure channel failure",
+            "certificate has expired",
+            "certificate is not yet valid",
+            "certificate is not trusted",
+            "The remote certificate is invalid according to the validation procedure",
+            "untrusted certificate",
+            "certificate verification failed",
+            "certificate verify failed: self-signed certificate",
+            "failed to validate the certificate",
+            "x509: certificate signed by unknown authority",
+            "unable to get local issuer certificate",
+            "unable to verify the first certificate",
+            "PKIX path building failed",
+            "x509: certificate is valid for example.test, not other.test",
+            "Hostname/IP does not match certificate's altnames",
+            "TLS: hostname mismatch",
+            "SSL: handshake failure",
+            "OpenSSL: no shared cipher",
+            "SSL: wrong version number",
+            "verify error:num=18:self-signed certificate",
+            "retry succeeded after TLS handshake failed",
+        )
+        for line in examples:
+            with self.subTest(line=line):
+                category = analyze_lines([line], patterns).category("tls_certificates")
+                self.assertEqual(category.match_count, 1)
+                self.assertTrue(category.excerpts[0].lines[0].match_spans)
+
+    def test_tls_certificates_reject_routine_states_and_unrelated_failures(self):
+        patterns = LogreaderConfig(
+            context=0, enabled_patterns=("tls_certificates",),
+        ).search_patterns()
+        examples = (
+            "TLS handshake completed successfully",
+            "SSL connection established",
+            "TLSv1.3 negotiated",
+            "certificate expires in 30 days",
+            "certificate has not expired",
+            "certificate is valid",
+            "certificate verification enabled",
+            "verify_certificate=false",
+            "using a self-signed certificate for TLS",
+            "self-signed certificate added to trust store",
+            "self signed certificate loaded",
+            "SSL_ERROR_WANT_READ",
+            "SSL_ERROR_WANT_WRITE",
+            "SSL_ERROR_ZERO_RETURN",
+            "SSL error: SSL_ERROR_WANT_READ",
+            "SSL error: SSL_ERROR_ZERO_RETURN",
+            "TLS alert close_notify",
+            "no TLS handshake failure",
+            "without any certificate verification failure",
+            "TLS handshake failed: false",
+            "certificate expired=false",
+            '"CERT_HAS_EXPIRED": 0',
+            "TLS handshake failure count=0",
+            "TLS handshake failure handler installed",
+            "certificate verification failure not observed",
+            "expected_errors=ERR_TLS_CERT_ALTNAME_INVALID",
+            "retry_on=SSLV3_ALERT_HANDSHAKE_FAILURE",
+            "MY_CERT_HAS_EXPIRED_ERROR",
+            "ERR_CERT_DATE_INVALID_count=0",
+            "error=0x80090328; status=45",
+            "WebSocket handshake failed",
+            "SSH handshake failure",
+            "hostname mismatch in configuration",
+            "HOSTNAME_MISMATCH",
+            "Kerberos: SEC_E_WRONG_PRINCIPAL",
+            "SEC_E_ILLEGAL_MESSAGE",
+            "package has wrong version number",
+            "TLS initialized; SSH handshake failed",
+            "ERROR disk full; loaded self-signed certificate",
+            "connection refused",
+            "DNS lookup failed",
+            "request timed out",
+            "authentication token expired",
+        )
+        for line in examples:
+            with self.subTest(line=line):
+                result = analyze_lines([line], patterns)
+                self.assertEqual(result.category_match_counts["tls_certificates"], 0)
+
+    def test_tls_noise_checks_preserve_other_matches_and_context(self):
+        patterns = LogreaderConfig(
+            context=1,
+            enabled_patterns=("tls_certificates", "reachability_timeouts", "error_colon"),
+        ).search_patterns()
+        lines = [
+            "no TLS handshake failure; ERROR: certificate has expired; CERT_HAS_EXPIRED",
+            "using self-signed certificate; ERROR: request timed out",
+            "retry_on=ERR_CERT_DATE_INVALID; TLS handshake failed",
+        ]
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                result = analyze_lines(lines, patterns, combined=combined)
+                self.assertEqual(result.category_match_counts, {
+                    "error_colon": 2, "reachability_timeouts": 1, "tls_certificates": 2,
+                })
+                category = result.category("combined" if combined else "tls_certificates")
+                rendered = category.excerpts[0].lines
+                self.assertEqual([line.text for line in rendered], lines)
+                highlights = [
+                    [line.text[span.start:span.end] for span in line.match_spans]
+                    for line in rendered
+                ]
+                self.assertNotIn("TLS handshake failure", highlights[0])
+                self.assertIn("certificate has expired", highlights[0])
+                self.assertIn("CERT_HAS_EXPIRED", highlights[0])
+                self.assertEqual(highlights[2], ["TLS handshake failed"])
                 if not combined:
                     self.assertEqual(highlights[1], [])
 

@@ -591,7 +591,8 @@ class FilterPanel(QGroupBox):
         advanced_layout.addWidget(
             self._build_pattern_group(
                 "Network",
-                NETWORK_PATTERN_KEYS,
+                ("connection_failures", "tls_certificates", "reachability_timeouts",
+                 "http_4xx", "http_5xx"),
                 object_name="networkPatternGroup",
                 columns=2,
                 rows_per_column=3,
@@ -853,9 +854,14 @@ class FilterPanel(QGroupBox):
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
             )
 
-        column_width = max(checkbox.sizeHint().width() for checkbox in checkboxes)
         for column in range(columns):
-            layout.setColumnMinimumWidth(column, column_width)
+            column_checkboxes = (
+                checkboxes if rows_per_column is None
+                else checkboxes[column * rows_per_column:(column + 1) * rows_per_column]
+            )
+            layout.setColumnMinimumWidth(
+                column, max((checkbox.sizeHint().width() for checkbox in column_checkboxes), default=0),
+            )
 
         return group
 
@@ -867,7 +873,7 @@ class FilterPanel(QGroupBox):
             return "HTTP 4xx"
         if key == "http_5xx":
             return "HTTP 5xx"
-        if key == "reachability_timeouts":
+        if key in ("reachability_timeouts", "tls_certificates"):
             return PATTERN_PRESETS_BY_KEY[key].label
         return PATTERN_PRESETS_BY_KEY[key].label.capitalize()
 
