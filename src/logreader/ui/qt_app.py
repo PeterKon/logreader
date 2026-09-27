@@ -408,7 +408,8 @@ QCheckBox:focus {{
 QCheckBox:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
 }}
-QFrame#analysisControlsGroup,
+QWidget#contextControlsGroup,
+QWidget#limitControlsGroup,
 QFrame#displayControlsGroup {{
     background-color: {THEME_COLORS['ui_button']};
     border: 1px solid {THEME_COLORS['ui_border']};
