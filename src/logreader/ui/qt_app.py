@@ -48,7 +48,7 @@ from .app_icon import application_icon, set_windows_app_id
 from .document_page import DocumentPage
 from ..document_session import LoadPhase
 from .theme import THEME_COLORS, configure_action_button
-from .window_frame import apply_title_bar_colors
+from .window_frame import TitleBarShadow, apply_title_bar_colors
 from ..workers.work_queue import WorkScheduler
 
 
@@ -660,6 +660,7 @@ class LogreaderWindow(QMainWindow):
         self._tabs.currentChanged.connect(self._current_document_changed)
         root.addWidget(self._workspace, 1)
         self.setCentralWidget(central)
+        self._title_bar_shadow = TitleBarShadow(central)
 
     @property
     def _document(self) -> DocumentPage | None:

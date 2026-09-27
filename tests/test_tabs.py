@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from qt_helpers import wait_for_search, capture_analysis, wait_for_load
-    from PySide6.QtCore import QThreadPool, Qt
+    from PySide6.QtCore import QPoint, QThreadPool, Qt
     from PySide6.QtGui import QKeySequence, QTextCursor
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QCheckBox, QLineEdit, QPushButton, QSpinBox, QTabBar
@@ -121,6 +121,47 @@ class TabTests(unittest.TestCase):
         self.assertIsNone(page.session.analysis)
         self.assertEqual(page.session.phase, AnalysisPhase.IDLE)
         self.assertEqual(page.results_view.editor.toPlainText(), "")
+
+    def test_title_shadow_tracks_resize_and_blends_with_tab_states(self):
+        self.open_log("first.log")
+        self.open_log("second.log")
+        self.window.show()
+        self.app.processEvents()
+        central = self.window.centralWidget()
+        shadow = self.window._title_bar_shadow
+        tabs = self.window._tabs
+
+        for width in (975, 1100):
+            self.window.resize(width, 720)
+            self.app.processEvents()
+            self.assertEqual(shadow.width(), central.width())
+            self.assertEqual(shadow.pos(), QPoint(0, 0))
+
+        sample = QPoint(tabs.tabRect(0).center().x(), 2)
+        central_sample = tabs.mapTo(central, sample)
+        self.assertIs(central.childAt(central_sample), tabs)
+
+        colors = []
+        for hovered in (False, True):
+            if hovered:
+                QTest.mouseMove(tabs, sample)
+            else:
+                QTest.mouseMove(tabs, tabs.tabRect(1).center())
+            self.app.processEvents()
+            shaded = central.grab().toImage()
+            shadow.hide()
+            plain = central.grab().toImage()
+            shadow.show()
+            actual = shaded.pixelColor(central_sample)
+            original = plain.pixelColor(central_sample)
+            colors.append(actual)
+            for channel in ("red", "green", "blue"):
+                self.assertLess(getattr(actual, channel)(), getattr(original, channel)())
+            below = QPoint(central_sample.x(), shadow.height() + 2)
+            self.assertEqual(shaded.pixelColor(below), plain.pixelColor(below))
+        self.assertNotEqual(colors[0], colors[1])
+        QTest.mouseClick(tabs, Qt.MouseButton.LeftButton, pos=sample)
+        self.assertEqual(tabs.currentIndex(), 0)
 
     def test_performance_option_applies_to_each_document(self):
         self.window.close()
