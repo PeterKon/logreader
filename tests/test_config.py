@@ -143,6 +143,7 @@ class LogreaderConfigTests(unittest.TestCase):
             "tls_certificates",
             "database_connections",
             "database_queries",
+            "database_transactions",
         )
         config = LogreaderConfig(enabled_patterns=tuple(reversed(PATTERN_KEYS)))
 

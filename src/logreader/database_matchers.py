@@ -232,3 +232,95 @@ def is_database_query_candidate(line: str, start: int, end: int) -> bool:
         vendor = _MYSQL_CONTEXT if re.fullmatch(_QUERY_MYSQL_CODES, candidate) else _SQLSERVER_CONTEXT
         return _CODE_FIELD.search(before) is not None and vendor.search(context) is not None
     return _QUERY_DATABASE_CONTEXT.search(context) is not None
+
+
+_TRANSACTION_SPECIFIC_SIGNALS = r"""
+    SQLTransactionRollbackException
+    | ER_(?:LOCK_DEADLOCK|LOCK_WAIT_TIMEOUT)
+    | SQLITE_(?:BUSY(?:_(?:RECOVERY|SNAPSHOT|TIMEOUT))?|LOCKED(?:_(?:SHAREDCACHE|VTAB))?
+        |ABORT_ROLLBACK|CONSTRAINT_COMMITHOOK)
+    | ORA-(?:00054|00060|02049|02091|08177)
+    | psycopg[23]?\.errors\.(?:DeadlockDetected|SerializationFailure|LockNotAvailable|InFailedSqlTransaction)
+    | (?:jakarta|javax)\.persistence\.(?:OptimisticLock|PessimisticLock|LockTimeout|Rollback)Exception
+    | database\s+(?:(?:table|schema)\s+)?is\s+locked
+    | current\s+transaction\s+is\s+aborted,\s+commands\s+ignored
+    | could\s+not\s+serialize\s+access\s+due\s+to\s+(?:concurrent\s+update|read/write\s+dependencies)
+    | cancel(?:ing|ling)\s+statement\s+due\s+to\s+lock\s+timeout
+    | lock\s+wait\s+timeout\s+exceeded
+    | lock\s+request\s+time[-\s]?out\s+period\s+exceeded
+    | snapshot\s+isolation\s+transaction\s+aborted\s+due\s+to\s+update\s+conflict
+    | chosen\s+as\s+the\s+deadlock\s+victim
+"""
+_TRANSACTION_SCOPED_SIGNALS = r"""
+    deadlocks?(?:\s+(?:detected|found))?|deadlock\s+victim
+    | (?:(?:database|db|SQL)\s+)?lock[-\s]+(?:wait[-\s]+)?(?:timeout(?:\s+(?:expired|exceeded))?|timed\s+out)
+    | (?:timed\s+out|timeout)\s+(?:while\s+)?(?:waiting\s+for|acquiring)\s+(?:a\s+|the\s+)?lock
+    | (?:could\s+not|cannot|failed\s+to|unable\s+to)\s+(?:acquire|obtain)\s+(?:a\s+|the\s+)?lock
+    | (?:serialization|transaction)\s+failures?
+    | (?:serialization|write|update|transaction)\s+conflicts?
+    | WriteConflict|LockNotAvailable|InFailedSqlTransaction
+    | (?:CannotAcquireLock|CannotSerializeTransaction|DeadlockLoserDataAccess
+        |OptimisticLock|PessimisticLock|LockTimeout|UnexpectedRollback|TransactionAborted)Exception
+    | (?:(?:database|db|SQL)\s+)?transaction
+      (?:\s+(?:\d+|with\s+\{[^;|\r\n]{1,80}?\}))?\s+
+      (?:(?:is|was|has\s+been)\s+)?(?:aborted|failed|rolled\s+back\s+due\s+to\s+(?:an?\s+)?(?:error|failure|conflict))
+    | (?:(?:database|db|SQL)\s+)?commit\s+(?:(?:has\s+|was\s+)?failed|failure)
+    | (?:failed\s+to|unable\s+to|could\s+not|cannot)\s+commit(?:\s+(?:the\s+|a\s+)?transaction)?
+"""
+_TRANSACTION_SQLSTATES = r"(?:40000|40001|40002|40003|40P01|25P02|55P03)"
+_TRANSACTION_SQLSTATE_FIELD = rf"SQL\s*STATE[\s\[\]:=\"']*{_TRANSACTION_SQLSTATES}"
+_TRANSACTION_MYSQL_CODES = r"(?:1205|1213)"
+_TRANSACTION_SQLSERVER_CODES = r"(?:1205|1222|3960)"
+DATABASE_TRANSACTION_PATTERN = rf"""(?ix)\b(?:
+    {_TRANSACTION_SPECIFIC_SIGNALS}|{_TRANSACTION_SCOPED_SIGNALS}
+    | {_TRANSACTION_SQLSTATE_FIELD}
+    | {_TRANSACTION_SQLSTATES}|{_TRANSACTION_MYSQL_CODES}|{_TRANSACTION_SQLSERVER_CODES}
+)\b"""
+_TRANSACTION_SPECIFIC = re.compile(rf"(?:{_TRANSACTION_SPECIFIC_SIGNALS})", re.IGNORECASE | re.VERBOSE)
+_TRANSACTION_DATABASE_CONTEXT = re.compile(
+    _QUERY_DATABASE_CONTEXT.pattern
+    + r"|\b(?:MongoCommandException|MongoBulkWriteError|MongoWriteException|springframework\.dao)\b",
+    re.IGNORECASE,
+)
+_TRANSACTION_NON_EVENT_SUFFIX = re.compile(
+    r"s?\s+(?:detection|monitor(?:ing)?|prevention|priority|statistics)\b"
+    r"|\s+(?:(?:intentionally|explicitly|manually|voluntarily)\b"
+    r"|(?:by|at\s+the\s+request\s+of)\s+(?:the\s+)?(?:user|client)\b"
+    r"|(?:on|upon)\s+request\b|as\s+(?:requested|expected)\b)",
+    re.IGNORECASE,
+)
+_TRANSACTION_NON_EVENT_PREFIX = re.compile(
+    r"\b(?:intentional(?:ly)?|explicit(?:ly)?|manual(?:ly)?|expected)\s+$",
+    re.IGNORECASE,
+)
+
+
+def is_database_transaction_candidate(line: str, start: int, end: int) -> bool:
+    """Separate failed database transactions from routine locks and rollbacks."""
+
+    before, after = _candidate_context(line, start, end)
+    candidate = line[start:end]
+    if (_NON_EVENT_PREFIX.search(before) or _NON_EVENT_SUFFIX.match(after)
+            or _TRANSACTION_NON_EVENT_PREFIX.search(before)
+            or _TRANSACTION_NON_EVENT_SUFFIX.match(after)):
+        return False
+    if (_TRANSACTION_SPECIFIC.fullmatch(candidate)
+            or re.fullmatch(_TRANSACTION_SQLSTATE_FIELD, candidate, re.IGNORECASE)):
+        return True
+    if candidate.casefold().endswith("timeout") and (
+        _TIMEOUT_SETTING.match(after) or _SETTING_PREFIX.search(before)
+    ):
+        return False
+
+    context = before + " " + candidate + " " + after
+    if re.fullmatch(_TRANSACTION_SQLSTATES, candidate, re.IGNORECASE):
+        return (before.endswith("[") and after.startswith("]")
+                and _TRANSACTION_DATABASE_CONTEXT.search(context) is not None)
+    if candidate.isdigit():
+        # 1205 is a lock timeout in MySQL and a deadlock victim in SQL Server.
+        return _CODE_FIELD.search(before) is not None and any(
+            re.fullmatch(codes, candidate) and vendor.search(context)
+            for codes, vendor in ((_TRANSACTION_MYSQL_CODES, _MYSQL_CONTEXT),
+                                  (_TRANSACTION_SQLSERVER_CODES, _SQLSERVER_CONTEXT))
+        )
+    return _TRANSACTION_DATABASE_CONTEXT.search(context) is not None

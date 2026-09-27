@@ -278,5 +278,70 @@ class DatabasePatternTests(unittest.TestCase):
                 self.assertNotIn("SQL query timeout", highlights)
 
 
+    def test_transaction_failures_cover_messages_and_vendor_code_namespaces(self):
+        patterns = LogreaderConfig(context=0, enabled_patterns=("database_transactions",)).search_patterns()
+        for line in (
+            "PostgreSQL: deadlock detected", "MySQL error 1205", "SQL Server error 1205",
+            "MySQL error 1213", "SqlClient: error 1222", "MSSQL error 3960",
+            "ER_LOCK_DEADLOCK", "SQLSTATE[40P01]", '"sqlstate": "40001"', "ODBC [55P03]",
+            "ORA-00060", "ORA-08177", "ORA-02091", "SQLITE_BUSY_SNAPSHOT",
+            "database is locked", "database table is locked", "SQLITE_LOCKED_SHAREDCACHE",
+            "SQLTransactionRollbackException", "psycopg.errors.InFailedSqlTransaction",
+            "canceling statement due to lock timeout: 30000 ms", "Lock wait timeout exceeded",
+            "Lock request time out period exceeded", "Hibernate: could not acquire lock",
+            "could not serialize access due to concurrent update", "MongoDB: WriteConflict",
+            "MongoServerError: Transaction with { txnNumber: 2 } has been aborted",
+            "JDBC: failed to commit transaction", "database commit failed", "SQL transaction aborted",
+            "current transaction is aborted, commands ignored until end of transaction block",
+            "retry succeeded after PostgreSQL deadlock detected",
+            "PostgreSQL deadlock detected retry succeeded",
+        ):
+            with self.subTest(line=line):
+                self.assert_line_matches(line, True, patterns)
+
+    def test_transaction_noise_and_unrelated_failures_do_not_match(self):
+        patterns = LogreaderConfig(context=0, enabled_patterns=("database_transactions",)).search_patterns()
+        for line in (
+            "SQL COMMIT", "SQL ROLLBACK", "database transaction rolled back", "database lock acquired",
+            "PostgreSQL waiting for lock", "SET lock_timeout = 30000", "database lock timeout=30",
+            "configured database lock timeout", "PostgreSQL deadlock detection enabled",
+            "PostgreSQL no deadlocks detected", "PostgreSQL deadlocks=0", '"SQLITE_BUSY": false',
+            'retryable_errors=["ER_LOCK_DEADLOCK", "SQLITE_BUSY"]',
+            "database transaction aborted by user", "database transaction aborted intentionally",
+            "expected SQL transaction aborted", "Git commit failed", "payment transaction failed",
+            "thread deadlock detected", "file lock timed out", "database healthy; Git commit failed",
+            "SQL Server trace flag 1222 enabled", "MySQL rows=1213", "SQL Server error 1213",
+            "SQLSTATE 400010", "ORA-000600", "SQLSTATE HY000", "SQLSTATE 57014",
+            "database connection refused", "SQL query timed out", "SQLSTATE[23505]",
+            "MongoDB write failure", "SQL update failure",
+        ):
+            with self.subTest(line=line):
+                self.assert_line_matches(line, False, patterns)
+
+    def test_transaction_exclusions_preserve_other_candidates_and_categories(self):
+        patterns = LogreaderConfig(
+            context=1, enabled_patterns=("database_transactions", "database_queries"),
+        ).search_patterns()
+        lines = [
+            "database lock timeout=30; SQLSTATE[40P01]",
+            'retryable_errors=["ER_LOCK_DEADLOCK"]; database commit failed',
+            "database transaction aborted by user; SQLSTATE[23505]",
+        ]
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                result = analyze_lines(lines, patterns, combined=combined)
+                self.assertEqual(result.category_match_counts,
+                                 {"database_queries": 1, "database_transactions": 2})
+                category = result.category("combined" if combined else "database_transactions")
+                highlights = [line.text[span.start:span.end]
+                              for excerpt in category.excerpts for line in excerpt.lines
+                              for span in line.match_spans]
+                self.assertIn("SQLSTATE[40P01", highlights)
+                self.assertIn("database commit failed", highlights)
+                self.assertNotIn("ER_LOCK_DEADLOCK", highlights)
+                self.assertNotIn("database lock timeout", highlights)
+                self.assertNotIn("database transaction aborted", highlights)
+
+
 if __name__ == "__main__":
     unittest.main()

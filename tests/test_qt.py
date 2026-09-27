@@ -1259,6 +1259,7 @@ class LogreaderQtTests(unittest.TestCase):
             "pattern_tls_certificates": "TLS / Certificates",
             "pattern_database_connections": "Connections / Pools",
             "pattern_database_queries": "Queries / Data",
+            "pattern_database_transactions": "Transactions / Locks",
         }
 
         for object_name, label in expected_labels.items():
@@ -1282,6 +1283,11 @@ class LogreaderQtTests(unittest.TestCase):
         query_box.setChecked(True)
         self.assertIn("database_queries", self.window.build_config().enabled_patterns)
         self.assertEqual(self.window.build_config().label_for("database_queries"), "Queries / Data")
+        transaction_box = database.findChild(QCheckBox, "pattern_database_transactions")
+        self.assertFalse(transaction_box.isChecked())
+        transaction_box.setChecked(True)
+        self.assertIn("database_transactions", self.window.build_config().enabled_patterns)
+        self.assertEqual(self.window.build_config().label_for("database_transactions"), "Transactions / Locks")
         grid = network.findChild(QGridLayout)
         for key, position in (
             ("connection_failures", (0, 0)), ("tls_certificates", (1, 0)),
