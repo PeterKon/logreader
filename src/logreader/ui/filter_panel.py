@@ -577,12 +577,6 @@ class FilterPanel(QGroupBox):
         )
         pattern_groups.addStretch(1)
         patterns_layout.addLayout(pattern_groups)
-        self._toggle_all_button = QPushButton("Select all patterns")
-        configure_action_button(self._toggle_all_button)
-        self._toggle_all_button.setObjectName("toggleAllButton")
-        self._toggle_all_button.clicked.connect(self.toggle_all_patterns)
-        self._bulk_buttons.append((self._toggle_all_button, PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS))
-        patterns_layout.addWidget(self._toggle_all_button, 0, Qt.AlignmentFlag.AlignLeft)
         self._pages.addWidget(patterns)
         advanced = QWidget()
         advanced.setObjectName("advancedPatternsPage")
@@ -674,13 +668,7 @@ class FilterPanel(QGroupBox):
         self._exclusions_label.setVisible(excluded > 0)
         for button, keys in self._bulk_buttons:
             verb = "Clear" if all(self._pattern_checkboxes[key].isChecked() for key in keys) else "Select"
-            scope = " all patterns" if button is self._toggle_all_button else " all"
-            button.setText(verb + scope)
-            if button is self._toggle_all_button:
-                button.setToolTip(
-                    "Deselect all common patterns" if verb == "Clear"
-                    else "Select all common patterns"
-                )
+            button.setText(verb + " all")
 
     def _set_tab_count(self, index: int, text: str, description: str) -> None:
         label = self._tab_counts[index]
@@ -1034,11 +1022,6 @@ class FilterPanel(QGroupBox):
         if item_widget is not None:
             item_widget.deleteLater()
         self._update_summary()
-
-    def toggle_all_patterns(self) -> None:
-        """Toggle text error presets while preserving manual HTTP selections."""
-
-        self.toggle_patterns(PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS)
 
     def toggle_patterns(self, pattern_keys: tuple[str, ...]) -> None:
         """Toggle every checkbox in one pattern category as a unit."""

@@ -82,11 +82,10 @@ class FilterPanelTests(unittest.TestCase):
         self.assertTrue(config.separate_entries)
         self.assertTrue(config.combined_view)
 
-    def test_global_and_category_toggles_are_scoped(self):
+    def test_category_toggles_are_scoped(self):
         paired_toggle = self.panel.findChild(QPushButton, "togglePairedButton")
         text_toggle = self.panel.findChild(QPushButton, "toggleTextButton")
-        global_toggle = self.panel.findChild(QPushButton, "toggleAllButton")
-        self.assertEqual(global_toggle.toolTip(), "Select all common patterns")
+        self.assertIsNone(self.panel.findChild(QPushButton, "toggleAllButton"))
         self.panel.findChild(QCheckBox, "pattern_http_4xx").setChecked(True)
         self.panel._custom_pattern.setText("keep")
         self.panel.add_custom_pattern()
@@ -124,17 +123,19 @@ class FilterPanelTests(unittest.TestCase):
             )
         )
 
-        global_toggle.click()
+        paired_toggle.click()
+        text_toggle.click()
         self.assertEqual(self.panel.build_config().enabled_patterns, ("http_4xx",))
-        self.assertEqual(global_toggle.text(), "Select all patterns")
-        self.assertEqual(global_toggle.toolTip(), "Select all common patterns")
-        global_toggle.click()
+        self.assertEqual(paired_toggle.text(), "Select all")
+        self.assertEqual(text_toggle.text(), "Select all")
+        paired_toggle.click()
+        text_toggle.click()
         self.assertEqual(
             self.panel.build_config().enabled_patterns,
             PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + ("http_4xx",),
         )
-        self.assertEqual(global_toggle.text(), "Clear all patterns")
-        self.assertEqual(global_toggle.toolTip(), "Deselect all common patterns")
+        self.assertEqual(paired_toggle.text(), "Clear all")
+        self.assertEqual(text_toggle.text(), "Clear all")
         self.assertEqual(self.panel.build_config().custom_patterns, ("keep",))
 
     def test_switching_editors_preserves_filters_options_and_drafts(self):
@@ -195,7 +196,6 @@ class FilterPanelTests(unittest.TestCase):
             self.assertEqual(self.panel._pattern_checkboxes["database_connections"].isVisible(), index == 1)
             self.assertEqual(self.panel._pattern_checkboxes["database_queries"].isVisible(), index == 1)
             self.assertEqual(self.panel._pattern_checkboxes["database_transactions"].isVisible(), index == 1)
-            self.assertEqual(self.panel._toggle_all_button.isVisible(), index == 0)
             self.assertTrue(self.panel._context_spin.isVisible())
             self.assertTrue(self.panel._limit_spin.isVisible())
             self.assertTrue(self.panel._separate_entries.isVisible())

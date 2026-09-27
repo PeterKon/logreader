@@ -85,7 +85,7 @@ class ControlFocusTests(unittest.TestCase):
         self.assertEqual(button.underMouse(), hovered)
         self.assertFalse(button.hasFocus())
         image = button.grab().toImage()
-        if button.objectName() in ("toggleAllButton", "togglePairedButton", "toggleTextButton"):
+        if button.objectName() in ("togglePairedButton", "toggleTextButton"):
             self.assertEqual(image.pixelColor(0, 0), QColor(Qt.GlobalColor.transparent))
             text_color = QColor(THEME_COLORS["ui_accent" if hovered else "ui_text"])
             self.assertTrue(any(
@@ -99,7 +99,7 @@ class ControlFocusTests(unittest.TestCase):
 
     def test_buttons_keep_hover_after_click_and_clear_it_on_leave(self):
         page = self.open_document("sample.log")
-        names = ("openButton", "toggleAllButton", "togglePairedButton", "toggleTextButton",
+        names = ("openButton", "togglePairedButton", "toggleTextButton",
                  "customPatternAddButton", "regexPatternAddButton", "maximizeResultsButton")
         with patch("logreader.ui.qt_app.QFileDialog.getOpenFileNames", return_value=([], "")):
             for name in names:

@@ -116,7 +116,7 @@ QLabel#filterExclusions {{
     color: {THEME_COLORS['ui_muted']};
 }}
 QWidget#resultsHeader {{
-    background-color: {THEME_COLORS['ui_canvas']};
+    background-color: {THEME_COLORS['background']};
     border: none;
     border-bottom: 1px solid {THEME_COLORS['scrollbar_track']};
     border-top: 1px solid {THEME_COLORS['scrollbar_track']};
@@ -205,7 +205,6 @@ QPushButton#openButton:focus {{
 QPushButton#openButton:pressed {{
     background-color: {THEME_COLORS['ui_button_pressed']};
 }}
-QPushButton#toggleAllButton,
 QPushButton#togglePairedButton,
 QPushButton#toggleTextButton {{
     background-color: transparent;
@@ -215,8 +214,6 @@ QPushButton#toggleTextButton {{
     min-height: 0;
     padding: 0;
 }}
-QPushButton#toggleAllButton:hover,
-QPushButton#toggleAllButton:focus,
 QPushButton#togglePairedButton:hover,
 QPushButton#toggleTextButton:hover,
 QPushButton#togglePairedButton:focus,
@@ -224,7 +221,6 @@ QPushButton#toggleTextButton:focus {{
     color: {THEME_COLORS['ui_accent']};
     text-decoration: underline;
 }}
-QPushButton#toggleAllButton:disabled,
 QPushButton#togglePairedButton:disabled,
 QPushButton#toggleTextButton:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
