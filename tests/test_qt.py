@@ -493,6 +493,9 @@ class LogreaderQtTests(unittest.TestCase):
                 previous_list_height = filters._custom_pattern_list.height()
                 previous_controls_height = page.controls_container.height()
                 start = grip.rect().center()
+                if distance == 60:
+                    # The guide line also serves as a drag target.
+                    start.setX(grip.width() // 4)
                 destination = grip.mapToGlobal(start) + QPoint(0, distance)
                 QTest.mousePress(grip, button, pos=start)
                 QTest.mouseMove(grip, grip.mapFromGlobal(destination))
@@ -524,20 +527,13 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(filters._custom_pattern_list.height(), 220)
         self.assertEqual(filters._regex_pattern_list.height(), 220)
 
-    def test_shrinking_search_lists_keeps_upper_controls_stationary(self):
+    def test_resizing_search_lists_keeps_upper_controls_stationary(self):
         self.window.resize(self.window.size().expandedTo(self.window.minimumSizeHint()))
         filters = self.window._document.filter_panel
         filters._tabs.setCurrentIndex(2)
         self.window.show()
         QTest.qWait(20)
         grip = filters._resize_handle
-        start = grip.rect().center()
-        destination = grip.mapToGlobal(start) + QPoint(0, 100)
-        QTest.mousePress(grip, Qt.MouseButton.LeftButton, pos=start)
-        QTest.mouseMove(grip, grip.mapFromGlobal(destination))
-        QTest.qWait(20)
-        QTest.mouseRelease(grip, Qt.MouseButton.LeftButton, pos=grip.mapFromGlobal(destination))
-        self.assertEqual(filters._custom_pattern_list.height(), 260)
 
         anchored = [self.window._analyze_button, filters._context_spin, filters._tabs,
                     filters._custom_heading, filters._regex_heading,
@@ -557,15 +553,19 @@ class LogreaderQtTests(unittest.TestCase):
         for widget in anchored:
             widget.installEventFilter(observer)
         try:
-            start = grip.rect().center()
-            origin = grip.mapToGlobal(start)
-            QTest.mousePress(grip, Qt.MouseButton.LeftButton, pos=start)
-            for distance in range(5, 101, 5):
-                destination = origin - QPoint(0, distance)
-                QTest.mouseMove(grip, grip.mapFromGlobal(destination))
-                QTest.qWait(10)
-            QTest.mouseRelease(grip, Qt.MouseButton.LeftButton, pos=grip.mapFromGlobal(destination))
-            QTest.qWait(20)
+            for direction in (1, -1):
+                start = grip.rect().center()
+                origin = grip.mapToGlobal(start)
+                QTest.mousePress(grip, Qt.MouseButton.LeftButton, pos=start)
+                for distance in range(5, 101, 5):
+                    destination = origin + QPoint(0, direction * distance)
+                    QTest.mouseMove(grip, grip.mapFromGlobal(destination))
+                    QTest.qWait(10)
+                QTest.mouseRelease(grip, Qt.MouseButton.LeftButton, pos=grip.mapFromGlobal(destination))
+                QTest.qWait(20)
+                expected_height = 260 if direction == 1 else 160
+                self.assertEqual(filters._custom_pattern_list.height(), expected_height)
+                self.assertEqual(filters._regex_pattern_list.height(), expected_height)
         finally:
             for widget in anchored:
                 widget.removeEventFilter(observer)

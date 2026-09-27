@@ -414,10 +414,16 @@ class SearchListResizeHandle(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        color = "ui_accent" if self.underMouse() or self._drag_origin else "ui_border_strong"
+        active = self.underMouse() or self._drag_origin is not None
+        center_y = self.height() / 2 + 0.5
+        line_color = QColor(THEME_COLORS["ui_accent" if active else "ui_border"])
+        if active:
+            line_color.setAlpha(140)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(THEME_COLORS[color]))
-        painter.drawRoundedRect(QRectF((self.width() - 35) / 2, 3.5, 35, 3), 1.5, 1.5)
+        painter.setBrush(line_color)
+        painter.drawRect(QRectF(12, center_y - 0.5, self.width() - 24, 2))
+        painter.setBrush(QColor(THEME_COLORS["ui_accent" if active else "ui_border_strong"]))
+        painter.drawRoundedRect(QRectF((self.width() - 64) / 2, center_y - 1.5, 64, 4), 2, 2)
 
 
 class FilterPanel(QGroupBox):
@@ -627,6 +633,16 @@ class FilterPanel(QGroupBox):
         for pattern_list in (self._custom_pattern_list, self._regex_pattern_list):
             pattern_list.setFixedHeight(height)
         self._pages.updateGeometry()
+        # Grow the containing layouts before another frame can paint compressed controls.
+        layouts = []
+        widget = self._pages.currentWidget()
+        while widget is not None:
+            if widget.layout() is not None:
+                widget.layout().invalidate()
+                layouts.append(widget.layout())
+            widget = widget.parentWidget()
+        for layout in reversed(layouts):
+            layout.activate()
 
     def _update_summary(self) -> None:
         for index, keys in enumerate((PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, HTTP_STATUS_PATTERN_KEYS)):
