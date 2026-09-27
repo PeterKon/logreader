@@ -48,6 +48,7 @@ from .app_icon import application_icon, set_windows_app_id
 from .document_page import DocumentPage
 from ..document_session import LoadPhase
 from .theme import THEME_COLORS, configure_action_button
+from .window_frame import apply_title_bar_colors
 from ..workers.work_queue import WorkScheduler
 
 
@@ -516,6 +517,10 @@ class LogreaderWindow(QMainWindow):
         self.setAcceptDrops(True)
         QApplication.instance().installEventFilter(self)
 
+    @Slot()
+    def _update_title_bar(self) -> None:
+        apply_title_bar_colors(self)
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Route file drops over every child control through normal file loading."""
 
@@ -530,6 +535,12 @@ class LogreaderWindow(QMainWindow):
             self._empty_page.setContentsMargins(12, 0, 12, max(0, top))
 
         if watched is self:
+            if event.type() in (
+                QEvent.Type.Show, QEvent.Type.WinIdChange,
+                QEvent.Type.ActivationChange, QEvent.Type.ThemeChange,
+            ):
+                # Apply after Qt has updated activation and native frame styling.
+                QTimer.singleShot(0, self._update_title_bar)
             if event.type() == QEvent.Type.Resize:
                 self._drop_overlay.setGeometry(self.rect())
             elif event.type() == QEvent.Type.Hide:
