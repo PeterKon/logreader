@@ -8,6 +8,7 @@ THEME_COLORS = {
     # Keep the controls area visibly raised above the results well, with its
     # nested islands another step lighter.
     "ui_canvas": "#202b38",
+    "ui_caption": "#1A262E",
     "ui_surface": "#202b38",
     "ui_island": "#2f3e50",
     "ui_field": "#202b38",

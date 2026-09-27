@@ -187,8 +187,10 @@ QPushButton:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
 }}
 QPushButton#openButton {{
-    background-color: {THEME_COLORS['ui_open_tab']};
-    border: 1px solid {THEME_COLORS['ui_border']};
+    background-color: {THEME_COLORS['ui_button']};
+    border: none;
+    border-left: 1px solid {THEME_COLORS['ui_border']};
+    border-bottom: 1px solid {THEME_COLORS['ui_border']};
     border-radius: 0;
     padding: 6px 12px;
 }}

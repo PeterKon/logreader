@@ -66,7 +66,7 @@ def apply_title_bar_colors(window: QWidget) -> None:
     active = window.isActiveWindow()
     colors = (
         (DWMWA_BORDER_COLOR, "ui_border_strong" if active else "ui_border"),
-        (DWMWA_CAPTION_COLOR, "ui_canvas"),
+        (DWMWA_CAPTION_COLOR, "ui_caption"),
         (DWMWA_TEXT_COLOR, "ui_text" if active else "ui_muted"),
     )
     dark_mode = wintypes.BOOL(True)
