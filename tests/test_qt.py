@@ -21,6 +21,7 @@ try:
         QCheckBox,
         QFrame,
         QGroupBox,
+        QGridLayout,
         QLabel,
         QLineEdit,
         QListWidget,
@@ -1251,14 +1252,26 @@ class LogreaderQtTests(unittest.TestCase):
             "pattern_refused": "Refused",
             "pattern_unauthorized": "Unauthorized",
             "pattern_expired": "Expired",
-            "pattern_http_4xx": "4xx",
-            "pattern_http_5xx": "5xx",
+            "pattern_http_4xx": "HTTP 4xx",
+            "pattern_http_5xx": "HTTP 5xx",
+            "pattern_connection_failures": "Connection failures",
+            "pattern_reachability_timeouts": "Reachability / Timeouts",
         }
 
         for object_name, label in expected_labels.items():
             checkbox = self.window.findChild(QCheckBox, object_name)
             self.assertIsNotNone(checkbox)
             self.assertEqual(checkbox.text(), label)
+
+        network = self.window.findChild(QGroupBox, "networkPatternGroup")
+        self.assertEqual(network.accessibleName(), "Network")
+        grid = network.findChild(QGridLayout)
+        for key, position in (
+            ("http_4xx", (0, 0)), ("http_5xx", (1, 0)),
+            ("connection_failures", (2, 0)), ("reachability_timeouts", (0, 1)),
+        ):
+            checkbox = network.findChild(QCheckBox, f"pattern_{key}")
+            self.assertEqual(grid.getItemPosition(grid.indexOf(checkbox))[:2], position)
 
         self.window.findChild(QCheckBox, "pattern_error_colon").setChecked(False)
         self.window.findChild(QCheckBox, "pattern_error").setChecked(False)

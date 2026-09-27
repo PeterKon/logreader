@@ -6,7 +6,13 @@ from dataclasses import dataclass
 
 from . import __version__
 from .core import COMBINED_CATEGORY_KEY, MatchValidator, SearchPattern
-from .matchers import is_http_status_candidate
+from .matchers import (
+    CONNECTION_FAILURE_PATTERN,
+    REACHABILITY_TIMEOUT_PATTERN,
+    is_connection_failure_candidate,
+    is_http_status_candidate,
+    is_reachability_timeout_candidate,
+)
 from .file_loader import DEFAULT_MAX_LINES_SCANNED
 
 
@@ -83,6 +89,20 @@ PATTERN_PRESETS = (
         is_regex=True,
         match_validator=is_http_status_candidate,
     ),
+    PatternPreset(
+        "connection_failures",
+        CONNECTION_FAILURE_PATTERN,
+        "Connection failures",
+        is_regex=True,
+        match_validator=is_connection_failure_candidate,
+    ),
+    PatternPreset(
+        "reachability_timeouts",
+        REACHABILITY_TIMEOUT_PATTERN,
+        "Reachability / Timeouts",
+        is_regex=True,
+        match_validator=is_reachability_timeout_candidate,
+    ),
 )
 
 PATTERN_PRESETS_BY_KEY = {preset.key: preset for preset in PATTERN_PRESETS}
@@ -113,7 +133,8 @@ TEXT_PATTERN_KEYS = (
     "unavailable",
 )
 HTTP_STATUS_PATTERN_KEYS = ("http_4xx", "http_5xx")
-PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + HTTP_STATUS_PATTERN_KEYS
+NETWORK_PATTERN_KEYS = HTTP_STATUS_PATTERN_KEYS + ("connection_failures", "reachability_timeouts")
+PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + NETWORK_PATTERN_KEYS
 DEFAULT_ENABLED_PATTERNS = (
     "error_colon",
     "error",

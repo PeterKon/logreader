@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 from ..config import (
     DEFAULT_CONTEXT,
     DEFAULT_ENABLED_PATTERNS,
-    HTTP_STATUS_PATTERN_KEYS,
+    NETWORK_PATTERN_KEYS,
     PAIRED_PATTERN_KEYS,
     PATTERN_KEYS,
     PATTERN_PRESETS_BY_KEY,
@@ -590,10 +590,11 @@ class FilterPanel(QGroupBox):
         advanced_layout.setSpacing(12)
         advanced_layout.addWidget(
             self._build_pattern_group(
-                "HTTP matches",
-                HTTP_STATUS_PATTERN_KEYS,
-                object_name="httpStatusGroup",
-                columns=1,
+                "Network",
+                NETWORK_PATTERN_KEYS,
+                object_name="networkPatternGroup",
+                columns=2,
+                rows_per_column=3,
             ),
             0,
             Qt.AlignmentFlag.AlignTop,
@@ -645,7 +646,7 @@ class FilterPanel(QGroupBox):
             layout.activate()
 
     def _update_summary(self) -> None:
-        for index, keys in enumerate((PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, HTTP_STATUS_PATTERN_KEYS)):
+        for index, keys in enumerate((PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, NETWORK_PATTERN_KEYS)):
             selected = sum(self._pattern_checkboxes[key].isChecked() for key in keys)
             self._set_tab_count(index, f"({selected}/{len(keys)})", f"{selected} of {len(keys)} selected")
         custom_count = self._custom_pattern_list.count()
@@ -792,6 +793,7 @@ class FilterPanel(QGroupBox):
         object_name: str,
         columns: int,
         toggle_object_name: str | None = None,
+        rows_per_column: int | None = None,
     ) -> QGroupBox:
         group = BorderTitleGroupBox()
         group.setObjectName(object_name)
@@ -840,7 +842,10 @@ class FilterPanel(QGroupBox):
             )
             self._pattern_checkboxes[key] = checkbox
             checkboxes.append(checkbox)
-            row, column = divmod(index, columns)
+            if rows_per_column is None:
+                row, column = divmod(index, columns)
+            else:
+                column, row = divmod(index, rows_per_column)
             layout.addWidget(
                 checkbox,
                 row,
@@ -859,9 +864,11 @@ class FilterPanel(QGroupBox):
         """Return a concise GUI label without changing result headings."""
 
         if key == "http_4xx":
-            return "4xx"
+            return "HTTP 4xx"
         if key == "http_5xx":
-            return "5xx"
+            return "HTTP 5xx"
+        if key == "reachability_timeouts":
+            return PATTERN_PRESETS_BY_KEY[key].label
         return PATTERN_PRESETS_BY_KEY[key].label.capitalize()
 
     def build_config(self) -> LogreaderConfig:

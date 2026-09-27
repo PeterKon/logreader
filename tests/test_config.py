@@ -4,6 +4,7 @@ from logreader.config import (
     COMBINED_CATEGORY_LABEL,
     DEFAULT_ENABLED_PATTERNS,
     HTTP_STATUS_PATTERN_KEYS,
+    NETWORK_PATTERN_KEYS,
     PAIRED_PATTERN_KEYS,
     PATTERN_KEYS,
     TEXT_PATTERN_KEYS,
@@ -136,13 +137,15 @@ class LogreaderConfigTests(unittest.TestCase):
             "unavailable",
             "http_4xx",
             "http_5xx",
+            "connection_failures",
+            "reachability_timeouts",
         )
         config = LogreaderConfig(enabled_patterns=tuple(reversed(PATTERN_KEYS)))
 
         self.assertEqual(PATTERN_KEYS, expected_order)
         self.assertEqual(
             PATTERN_KEYS,
-            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + HTTP_STATUS_PATTERN_KEYS,
+            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + NETWORK_PATTERN_KEYS,
         )
         self.assertEqual(
             DEFAULT_ENABLED_PATTERNS,
@@ -250,6 +253,300 @@ class LogreaderConfigTests(unittest.TestCase):
 
         self.assertEqual(analysis.category("http_4xx").match_count, 6)
         self.assertEqual(analysis.category("http_5xx").match_count, 6)
+
+    def test_connection_failures_recognize_messages_codes_and_network_context(self):
+        patterns = LogreaderConfig(
+            context=0, enabled_patterns=("connection_failures",),
+        ).search_patterns()
+        examples = (
+            "connect ECONNREFUSED 127.0.0.1:8080",
+            "read ECONNRESET",
+            "write WSAECONNABORTED",
+            "socket WSAENETRESET",
+            "listen EADDRINUSE",
+            "bind WSAEADDRNOTAVAIL",
+            "send ENOTCONN",
+            "net::ERR_CONNECTION_CLOSED",
+            "net::ERR_CONNECTION_FAILED",
+            "ConnectionRefusedError: target rejected the request",
+            "ConnectionResetError: peer disconnected",
+            "ConnectionAbortedError: software abort",
+            "java.net.BindException: Cannot bind",
+            "[WinError 10061] target rejected the request",
+            "SocketException (10054): transport stopped",
+            "Winsock error: 10048",
+            "No connection could be made because the target machine actively refused it",
+            "Software caused connection abort",
+            "CONNECTION REFUSED by upstream",
+            "connection was reset by peer",
+            "Connection has been forcibly closed by the remote host",
+            "connection dropped during transfer",
+            "Lost connection to MySQL server during query",
+            "connection closed unexpectedly",
+            "upstream prematurely closed connection",
+            "server closed the connection unexpectedly",
+            "Error: socket hang up",
+            "socket read failed",
+            "socket error: access denied",
+            "failed to connect to server",
+            "Unable to connect to https://example.test",
+            "Failed to establish a connection",
+            "failed to bind to 127.0.0.1:8080",
+            "could not bind to [::1]:8080",
+            "bind() failed for socket",
+            "port 8080 is already in use",
+            "listen: address already in use",
+            "bind: cannot assign requested address",
+            "socket write: broken pipe",
+            "tcp write EPIPE",
+            "BrokenPipeError while writing to connection",
+            "retry succeeded after ECONNRESET",
+        )
+        for line in examples:
+            with self.subTest(line=line):
+                category = analyze_lines([line], patterns).category("connection_failures")
+                self.assertEqual(category.match_count, 1)
+                self.assertTrue(category.excerpts[0].lines[0].match_spans)
+
+    def test_connection_failures_reject_normal_states_and_ambiguous_text(self):
+        patterns = LogreaderConfig(
+            context=0, enabled_patterns=("connection_failures",),
+        ).search_patterns()
+        examples = (
+            "connection closed normally",
+            "socket closed by user",
+            "connection established",
+            "reset connection requested by administrator",
+            "connection reset requested",
+            "connection reset handler registered",
+            "socket error handler installed",
+            "connection reset count=0",
+            "no connection reset detected",
+            "without any connection failure",
+            "connection refused: false",
+            '"ECONNRESET": 0',
+            "connection reset not observed",
+            "retry_on=ECONNRESET",
+            'expected_errors=["ECONNREFUSED"]',
+            "ECONNRESET_count=0",
+            "MY_ECONNREFUSED_ERROR",
+            "WinError 100610",
+            "order=10054; port=10061",
+            "broken pipe while writing stdout",
+            "subprocess write EPIPE",
+            "BrokenPipeError while writing to a FIFO",
+            "email address already in use",
+            "failed to bind configuration property",
+            "could not connect the graph nodes",
+            "socket opened; local pipe write EPIPE",
+            "connection timeout=30",
+            "connection timed out",
+            "host unreachable",
+            "DNS lookup failed",
+            "TLS handshake failed",
+            "WSAEWOULDBLOCK",
+            "EINPROGRESS",
+        )
+        for line in examples:
+            with self.subTest(line=line):
+                result = analyze_lines([line], patterns)
+                self.assertEqual(result.category_match_counts["connection_failures"], 0)
+
+    def test_connection_failure_noise_checks_preserve_other_matches_and_context(self):
+        patterns = LogreaderConfig(
+            context=1, enabled_patterns=("connection_failures", "error_colon"),
+        ).search_patterns()
+        lines = [
+            "no connection reset; ERROR: socket hang up, ECONNRESET",
+            "no connection reset; ERROR: disk full",
+            "retry_on=ECONNRESET; connection refused",
+        ]
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                result = analyze_lines(lines, patterns, combined=combined)
+                self.assertEqual(result.category_match_counts, {
+                    "error_colon": 2, "connection_failures": 2,
+                })
+                category = result.category("combined" if combined else "connection_failures")
+                rendered = category.excerpts[0].lines
+                self.assertEqual([line.text for line in rendered], lines)
+                highlights = [
+                    [line.text[span.start:span.end] for span in line.match_spans]
+                    for line in rendered
+                ]
+                self.assertNotIn("connection reset", highlights[0])
+                self.assertIn("socket hang up", highlights[0])
+                self.assertIn("ECONNRESET", highlights[0])
+                self.assertEqual(highlights[2], ["connection refused"])
+                if not combined:
+                    self.assertEqual(highlights[1], [])
+
+    def test_reachability_timeouts_recognize_network_dns_and_timeout_failures(self):
+        patterns = LogreaderConfig(
+            context=0, enabled_patterns=("reachability_timeouts",),
+        ).search_patterns()
+        examples = (
+            "connect ENETUNREACH 192.0.2.1",
+            "send EHOSTUNREACH",
+            "WSAENETDOWN",
+            "EHOSTDOWN",
+            "connect ETIMEDOUT",
+            "WSAETIMEDOUT",
+            "getaddrinfo EAI_AGAIN example.test",
+            "EAI_NONAME",
+            "EAI_NODATA",
+            "EAI_FAIL",
+            "getaddrinfo ENOTFOUND example.test",
+            "CURLE_COULDNT_RESOLVE_HOST",
+            "CURLE_COULDNT_RESOLVE_PROXY",
+            "CURLE_OPERATION_TIMEDOUT",
+            "WSAHOST_NOT_FOUND",
+            "WSATRY_AGAIN",
+            "WSANO_RECOVERY",
+            "WSANO_DATA",
+            "net::ERR_NAME_NOT_RESOLVED",
+            "net::ERR_ADDRESS_UNREACHABLE",
+            "net::ERR_CONNECTION_TIMED_OUT",
+            "net::ERR_DNS_TIMED_OUT",
+            "net::ERR_TIMED_OUT",
+            "[WinError 10060] peer did not respond",
+            "SocketException (11001): lookup failed",
+            "Winsock error: 10065",
+            "java.net.SocketTimeoutException: Read timed out",
+            "java.net.UnknownHostException: example.test",
+            "java.net.NoRouteToHostException",
+            "requests.exceptions.ConnectTimeout: request failed",
+            "httpx.ReadTimeout",
+            "httpcore.WriteTimeout",
+            "Destination Host Unreachable",
+            "network is unreachable",
+            "gateway not reachable",
+            "No route to host",
+            "network is down",
+            "IP routing failed",
+            "DNS lookup failed",
+            "name resolution failure",
+            "DNS query timed out",
+            "Could not resolve host: example.test",
+            "unable to resolve hostname",
+            "Could not resolve proxy: proxy.example.test",
+            "Temporary failure in name resolution",
+            "Name or service not known",
+            "nodename nor servname provided, or not known",
+            "getaddrinfo failed",
+            "DNS response: NXDOMAIN",
+            "DNS response: SERVFAIL",
+            "connection timed out",
+            "connection attempt timed out",
+            "connect timeout after 30 seconds",
+            "socket timeout during transfer",
+            "request has timed out",
+            "response timeout after 30s",
+            "upstream timed out while reading response header",
+            "504 Gateway Timeout",
+            "timed out waiting for a response",
+            "read timeout while receiving HTTP response",
+            "socket write timed out",
+            "operation timed out for https://example.test",
+            "TimeoutError while connecting socket",
+            "HTTP request: TimeoutException",
+            "dial tcp 192.0.2.1:443: i/o timeout",
+            'Get "https://example.test": context deadline exceeded',
+            "rpc error: deadline exceeded",
+            "curl: (28) Operation timed out after 30000 milliseconds",
+            "retry succeeded after request timed out",
+        )
+        for line in examples:
+            with self.subTest(line=line):
+                category = analyze_lines([line], patterns).category("reachability_timeouts")
+                self.assertEqual(category.match_count, 1)
+                self.assertTrue(category.excerpts[0].lines[0].match_spans)
+
+    def test_reachability_timeouts_reject_settings_and_unrelated_operations(self):
+        patterns = LogreaderConfig(
+            context=0, enabled_patterns=("reachability_timeouts",),
+        ).search_patterns()
+        examples = (
+            "connection timeout=30",
+            "connection timeout=30s",
+            '"connection timeout": 3000',
+            "connect_timeout=30",
+            "request timeout 500ms",
+            "response timeout is 30 seconds",
+            "socket timeout of 1.5s",
+            "default connection timeout",
+            "configured request timeout",
+            "request timeout set to 10s",
+            "request timeout handler registered",
+            "request timeout count=5",
+            "socket timeout disabled",
+            "no connection timeout",
+            "without any DNS lookup failure",
+            "DNS lookup failed: false",
+            '"NXDOMAIN": 0',
+            "DNS lookup failure not observed",
+            "retry_on=EAI_AGAIN",
+            "expected_errors=WSAETIMEDOUT",
+            "MY_EAI_AGAIN_CODE",
+            "ERR_CONNECTION_TIMED_OUT_count=0",
+            "WinError 100600",
+            "order=11001; port=10060",
+            "HTTP status=408",
+            "HTTP status=504",
+            "DNS lookup succeeded",
+            "host is reachable",
+            "request completed in 30s",
+            "unreachable code detected",
+            "route not found for /settings",
+            "failed to resolve dependency",
+            "ENOTFOUND while loading a local resource",
+            "ETIMEDOUT reading a local device",
+            "TimeoutError waiting for a worker",
+            "TimeoutException acquiring a lock",
+            "database query timeout",
+            "job timed out",
+            "read timeout from local disk",
+            "local file read: i/o timeout",
+            "background job: context deadline exceeded",
+            "HTTP request completed; operation timed out waiting for lock",
+            "connection refused",
+            "ECONNRESET",
+            "TLS certificate expired",
+        )
+        for line in examples:
+            with self.subTest(line=line):
+                result = analyze_lines([line], patterns)
+                self.assertEqual(result.category_match_counts["reachability_timeouts"], 0)
+
+    def test_reachability_noise_checks_preserve_other_matches_and_context(self):
+        patterns = LogreaderConfig(
+            context=1,
+            enabled_patterns=("reachability_timeouts", "connection_failures", "error_colon"),
+        ).search_patterns()
+        lines = [
+            "connection timeout=30s; ERROR: request timed out; DNS lookup failed",
+            "no DNS lookup failure; ERROR: connection refused",
+            "retry_on=EAI_AGAIN; network is unreachable",
+        ]
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                result = analyze_lines(lines, patterns, combined=combined)
+                self.assertEqual(result.category_match_counts, {
+                    "error_colon": 2, "connection_failures": 1, "reachability_timeouts": 2,
+                })
+                category = result.category("combined" if combined else "reachability_timeouts")
+                rendered = category.excerpts[0].lines
+                self.assertEqual([line.text for line in rendered], lines)
+                highlights = [
+                    [line.text[span.start:span.end] for span in line.match_spans]
+                    for line in rendered
+                ]
+                self.assertNotIn("connection timeout", highlights[0])
+                self.assertIn("request timed out", highlights[0])
+                self.assertIn("DNS lookup failed", highlights[0])
+                self.assertEqual(highlights[2], ["network is unreachable"])
+                if not combined:
+                    self.assertEqual(highlights[1], [])
 
     def test_new_operational_state_patterns_are_searchable(self):
         keys = (
