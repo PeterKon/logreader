@@ -86,6 +86,7 @@ class FilterPanelTests(unittest.TestCase):
         paired_toggle = self.panel.findChild(QPushButton, "togglePairedButton")
         text_toggle = self.panel.findChild(QPushButton, "toggleTextButton")
         global_toggle = self.panel.findChild(QPushButton, "toggleAllButton")
+        self.assertEqual(global_toggle.toolTip(), "Select all common patterns")
         self.panel.findChild(QCheckBox, "pattern_http_4xx").setChecked(True)
         self.panel._custom_pattern.setText("keep")
         self.panel.add_custom_pattern()
@@ -126,12 +127,14 @@ class FilterPanelTests(unittest.TestCase):
         global_toggle.click()
         self.assertEqual(self.panel.build_config().enabled_patterns, ("http_4xx",))
         self.assertEqual(global_toggle.text(), "Select all patterns")
+        self.assertEqual(global_toggle.toolTip(), "Select all common patterns")
         global_toggle.click()
         self.assertEqual(
             self.panel.build_config().enabled_patterns,
             PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + ("http_4xx",),
         )
         self.assertEqual(global_toggle.text(), "Clear all patterns")
+        self.assertEqual(global_toggle.toolTip(), "Deselect all common patterns")
         self.assertEqual(self.panel.build_config().custom_patterns, ("keep",))
 
     def test_switching_editors_preserves_filters_options_and_drafts(self):
@@ -147,6 +150,8 @@ class FilterPanelTests(unittest.TestCase):
                          ["Common patterns", "Advanced patterns", "Text and Regex"])
         self.assertEqual(self.panel._tab_counts[0].text(), "(9/22)")
         self.assertEqual(self.panel._tab_counts[1].text(), "(0/2)")
+        self.assertEqual(self.panel._custom_heading.text(), "Plain text matches")
+        self.assertEqual(self.panel._regex_heading.text(), "Regex matches")
         self.panel._pattern_checkboxes["unavailable"].setChecked(True)
         self.panel._pattern_checkboxes["http_5xx"].setChecked(True)
         tabs.setCurrentIndex(2)
@@ -189,6 +194,8 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(self.panel._tab_counts[0].text(), "(10/22)")
         self.assertEqual(self.panel._tab_counts[1].text(), "(1/2)")
         self.assertEqual(self.panel._tab_counts[2].text(), "(2)")
+        self.assertEqual(self.panel._custom_heading.text(), "Plain text matches")
+        self.assertEqual(self.panel._regex_heading.text(), "Regex matches")
         analysis = analyze_lines(["service UNAVAILABLE", "HTTP 503", "service available"],
                                  before.search_patterns())
         self.assertEqual(analysis.category_match_counts["unavailable"], 1)

@@ -155,7 +155,9 @@ QLabel#emptyTabLabel, QLabel#emptySubtitle {{
 QGroupBox#filterGroup,
 QGroupBox#pairedPatternGroup,
 QGroupBox#textPatternGroup,
-QGroupBox#httpStatusGroup {{
+QGroupBox#httpStatusGroup,
+QGroupBox#customPatternGroup,
+QGroupBox#regexPatternGroup {{
     background-color: {THEME_COLORS['ui_surface']};
     border: none;
     color: {THEME_COLORS['ui_text']};
@@ -407,9 +409,7 @@ QCheckBox:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
 }}
 QFrame#analysisControlsGroup,
-QFrame#displayControlsGroup,
-QGroupBox#customPatternGroup,
-QGroupBox#regexPatternGroup {{
+QFrame#displayControlsGroup {{
     background-color: {THEME_COLORS['ui_button']};
     border: 1px solid {THEME_COLORS['ui_border']};
     border-radius: 5px;

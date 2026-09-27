@@ -565,9 +565,6 @@ class FilterPanel(QGroupBox):
         self._toggle_all_button = QPushButton("Select all patterns")
         configure_action_button(self._toggle_all_button)
         self._toggle_all_button.setObjectName("toggleAllButton")
-        self._toggle_all_button.setToolTip(
-            "Affects colon / regular and other matches. Keeps HTTP and custom searches unchanged."
-        )
         self._toggle_all_button.clicked.connect(self.toggle_all_patterns)
         self._bulk_buttons.append((self._toggle_all_button, PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS))
         patterns_layout.addWidget(self._toggle_all_button, 0, Qt.AlignmentFlag.AlignLeft)
@@ -631,8 +628,6 @@ class FilterPanel(QGroupBox):
         regex_count = self._regex_pattern_list.count()
         search_count = custom_count + regex_count
         self._set_tab_count(2, f"({search_count})", f"{search_count} searches")
-        self._custom_heading.setText(f"Plain text matches ({custom_count})")
-        self._regex_heading.setText(f"Regex matches ({regex_count})")
         excluded = sum(
             bool(pattern_list.item(index).data(EXCLUDE_ROLE))
             for pattern_list in (self._custom_pattern_list, self._regex_pattern_list)
@@ -644,6 +639,11 @@ class FilterPanel(QGroupBox):
             verb = "Clear" if all(self._pattern_checkboxes[key].isChecked() for key in keys) else "Select"
             scope = " all patterns" if button is self._toggle_all_button else " all"
             button.setText(verb + scope)
+            if button is self._toggle_all_button:
+                button.setToolTip(
+                    "Deselect all common patterns" if verb == "Clear"
+                    else "Select all common patterns"
+                )
 
     def _set_tab_count(self, index: int, text: str, description: str) -> None:
         label = self._tab_counts[index]
@@ -698,7 +698,7 @@ class FilterPanel(QGroupBox):
         list_object_name: str,
         add_handler: Callable[[], None],
     ) -> tuple[QGroupBox, QLineEdit, QListWidget]:
-        group = QGroupBox()
+        group = BorderTitleGroupBox()
         group.setObjectName(group_object_name)
         group.setAccessibleName(title)
         group.setSizePolicy(
@@ -706,13 +706,14 @@ class FilterPanel(QGroupBox):
             QSizePolicy.Policy.Fixed,
         )
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(12, 8, 12, 12)
+        layout.setContentsMargins(12, 2, 12, 12)
         layout.setSpacing(8)
         # Keep controls anchored while a smaller list height propagates to its parents.
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         heading = QLabel(title)
         heading.setObjectName("filterSectionTitle")
-        layout.addWidget(heading)
+        group.set_border_widgets(heading)
+        layout.addWidget(heading, 0, Qt.AlignmentFlag.AlignLeft)
 
         entry_row = QHBoxLayout()
         entry_row.setSpacing(6)
