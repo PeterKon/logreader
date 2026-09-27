@@ -78,6 +78,8 @@ class TabClosingTests(unittest.TestCase):
         self.assertIsNone(self.window._document)
         self.assertEqual(self.window._documents_by_path, {})
         self.assertTrue(self.window._empty_page.isVisible())
+        self.assertTrue(self.window._empty_logo.isVisible())
+        self.assertTrue(self.window._empty_version_label.isVisible())
         self.assertFalse(self.window._analyze_button.isEnabled())
         self.assertEqual(self.window.windowTitle(), "Logreader")
         self.assertFalse(self.window._analyze_button.isVisible())

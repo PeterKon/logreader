@@ -34,7 +34,7 @@ build = ["pyinstaller>=6,<7"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-logreader = ["assets/*.ico"]
+logreader = ["assets/*.ico", "assets/*.png"]
 
 [tool.setuptools.dynamic]
 version = {attr = "logreader.__version__"}

@@ -73,12 +73,19 @@ class TabTests(unittest.TestCase):
         self.assertTrue(self.window._empty_page.isVisible())
         self.assertEqual(self.window._open_button.text(), "&Open file")
         self.assertIs(self.window._open_button.parentWidget(), self.window._tab_controls)
-        self.assertEqual(self.window._empty_heading.text(), "Open or drop log files")
+        self.assertEqual(self.window._empty_heading.text(), "Open or drop log-files")
         self.assertEqual(self.window._empty_subtitle.text(), "Each file opens in its own tab.")
         self.assertFalse(self.window._analyze_button.isVisible())
         self.assertTrue(self.window._empty_tab_label.isVisible())
         self.assertTrue(self.window._empty_version_label.isVisible())
-        self.assertEqual(self.window._empty_version_label.text(), APP_VERSION)
+        self.assertEqual(
+            f"{self.window._empty_name_label.text()} {self.window._empty_version_label.text()}",
+            APP_VERSION,
+        )
+        self.assertIs(self.window._empty_version_label.parentWidget(), self.window._empty_page)
+        self.assertTrue(self.window._empty_logo.isVisible())
+        self.assertFalse(self.window._empty_logo.pixmap().isNull())
+        self.assertEqual(self.window._empty_logo.width(), 150)
         self.assertEqual(self.window.statusBar().currentMessage(), "Ready")
         self.assertEqual(
             self.window._empty_heading.alignment(),
@@ -88,15 +95,15 @@ class TabTests(unittest.TestCase):
         for width, height in ((1080, 760), (900, 640)):
             self.window.resize(width, height)
             self.app.processEvents()
-            center = self.window._empty_page.mapTo(
-                self.window.centralWidget(), self.window._empty_page.contentsRect().center(),
+            center = self.window._empty_heading.mapTo(
+                self.window.centralWidget(), self.window._empty_heading.rect().center(),
             )
             expected = self.window.centralWidget().rect().center()
             self.assertLessEqual(abs(center.x() - expected.x()), 1)
             self.assertLessEqual(abs(center.y() - expected.y()), 1)
         self.assertEqual(
             self.window._empty_heading.font().pointSizeF(),
-            self.window.font().pointSizeF() + 6,
+            self.window.font().pointSizeF() + 2,
         )
         self.assertFalse(self.window._analyze_button.isEnabled())
         self.assertEqual(self.window.windowTitle(), "Logreader")
@@ -110,6 +117,7 @@ class TabTests(unittest.TestCase):
         self.assertFalse(self.window._empty_page.isVisible())
         self.assertFalse(self.window._empty_tab_label.isVisible())
         self.assertFalse(self.window._empty_version_label.isVisible())
+        self.assertFalse(self.window._empty_logo.isVisible())
         self.assertTrue(self.window._analyze_button.isVisible())
         self.assertIs(self.window._analyze_button.parentWidget(), page.filter_panel._base_controls)
         self.assertTrue(self.window._tabs.isVisible())

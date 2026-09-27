@@ -21,7 +21,7 @@ if sys.platform == "win32":
 analysis = Analysis(
     [str(root / "src" / "logreader" / "__main__.py")],
     pathex=[str(root / "src")],
-    datas=[(str(icon), "logreader/assets")],
+    datas=[(str(icon), "logreader/assets"), (str(icon.with_suffix(".png")), "logreader/assets")],
 )
 archive = PYZ(analysis.pure)
 executable = EXE(

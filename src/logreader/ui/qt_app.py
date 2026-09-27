@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QAbstractButton,
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -44,7 +45,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import APP_VERSION, LogreaderConfig
-from .app_icon import application_icon, set_windows_app_id
+from .app_icon import application_icon, application_logo, set_windows_app_id
 from .document_page import DocumentPage
 from ..document_session import LoadPhase
 from .theme import THEME_COLORS, configure_action_button
@@ -150,7 +151,7 @@ QLabel {{
     border: none;
     color: {THEME_COLORS['ui_text']};
 }}
-QLabel#emptyTabLabel, QLabel#emptySubtitle {{
+QLabel#emptyTabLabel, QLabel#emptySubtitle, QLabel#emptyVersionLabel {{
     color: {THEME_COLORS['ui_muted']};
 }}
 QGroupBox#filterGroup,
@@ -528,8 +529,8 @@ class LogreaderWindow(QMainWindow):
         if watched is self._empty_page and event.type() in (
             QEvent.Type.Resize, QEvent.Type.Move, QEvent.Type.Show,
         ):
-            # Balance the space occupied by the file bar above the label so its
-            # text is centered in the full content area above the status bar.
+            # Balance the file bar so the open/drop heading is centered in the
+            # full content area above the status bar.
             top = self._empty_page.mapTo(
                 self.centralWidget(), self._empty_page.rect().topLeft(),
             ).y()
@@ -610,14 +611,7 @@ class LogreaderWindow(QMainWindow):
         self._empty_tab_label.setObjectName("emptyTabLabel")
         self._empty_tab_label.setContentsMargins(12, 0, 0, 0)
         self._empty_tab_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        tab_row.addWidget(self._empty_tab_label)
-        self._empty_version_label = QLabel(APP_VERSION)
-        self._empty_version_label.setObjectName("emptyVersionLabel")
-        self._empty_version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        version_font = self._empty_version_label.font()
-        version_font.setPointSizeF(version_font.pointSizeF() + 1)
-        self._empty_version_label.setFont(version_font)
-        tab_row.addWidget(self._empty_version_label, 1)
+        tab_row.addWidget(self._empty_tab_label, 1)
         tab_row.addWidget(self._tabs, 1)
         self._open_button = QPushButton("&Open file")
         configure_action_button(self._open_button)
@@ -637,22 +631,54 @@ class LogreaderWindow(QMainWindow):
         self._empty_page = QWidget(self._workspace)
         self._empty_page.setObjectName("emptyDocumentPage")
         self._empty_page.setContentsMargins(12, 12, 12, 12)
-        empty_layout = QVBoxLayout(self._empty_page)
+        empty_layout = QGridLayout(self._empty_page)
         empty_layout.setContentsMargins(0, 0, 0, 0)
         empty_layout.setSpacing(8)
-        empty_layout.addStretch(1)
-        self._empty_heading = QLabel("Open or drop log files")
+        empty_layout.setRowStretch(0, 1)
+        empty_layout.setRowStretch(2, 1)
+        branding_layout = QVBoxLayout()
+        branding_layout.setSpacing(8)
+        branding_layout.addStretch(1)
+        empty_layout.addLayout(branding_layout, 0, 0)
+        self._empty_logo = QLabel()
+        self._empty_logo.setObjectName("emptyLogo")
+        self._empty_logo.setAccessibleName("Logreader turtle")
+        logo = application_logo()
+        self._empty_logo.setPixmap(logo)
+        self._empty_logo.setScaledContents(True)
+        if not logo.isNull():
+            self._empty_logo.setFixedSize(150, round(150 * logo.height() / logo.width()))
+        branding_layout.addWidget(self._empty_logo, 0, Qt.AlignmentFlag.AlignHCenter)
+        branding_layout.addSpacing(8)
+        brand_row = QHBoxLayout()
+        brand_row.setSpacing(8)
+        brand_row.addStretch(1)
+        self._empty_name_label = QLabel("Logreader")
+        name_font = self._empty_name_label.font()
+        name_font.setPointSizeF(name_font.pointSizeF() + 8)
+        name_font.setBold(True)
+        self._empty_name_label.setFont(name_font)
+        brand_row.addWidget(self._empty_name_label, 0, Qt.AlignmentFlag.AlignBaseline)
+        self._empty_version_label = QLabel(APP_VERSION.removeprefix("Logreader "))
+        self._empty_version_label.setObjectName("emptyVersionLabel")
+        version_font = self._empty_version_label.font()
+        version_font.setPointSizeF(version_font.pointSizeF() + 1)
+        self._empty_version_label.setFont(version_font)
+        brand_row.addWidget(self._empty_version_label, 0, Qt.AlignmentFlag.AlignBaseline)
+        brand_row.addStretch(1)
+        branding_layout.addLayout(brand_row)
+        branding_layout.addSpacing(16)
+        self._empty_heading = QLabel("Open or drop log-files")
         self._empty_heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_font = self._empty_heading.font()
-        empty_font.setPointSizeF(empty_font.pointSizeF() + 6)
+        empty_font.setPointSizeF(empty_font.pointSizeF() + 2)
         empty_font.setBold(True)
         self._empty_heading.setFont(empty_font)
-        empty_layout.addWidget(self._empty_heading)
+        empty_layout.addWidget(self._empty_heading, 1, 0)
         self._empty_subtitle = QLabel("Each file opens in its own tab.")
         self._empty_subtitle.setObjectName("emptySubtitle")
         self._empty_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_layout.addWidget(self._empty_subtitle)
-        empty_layout.addStretch(1)
+        empty_layout.addWidget(self._empty_subtitle, 2, 0, Qt.AlignmentFlag.AlignTop)
         self._workspace.addWidget(self._empty_page)
         self._pages = QStackedWidget(self._workspace)
         self._pages.setObjectName("documentPages")
