@@ -439,7 +439,7 @@ class FilterPanel(QGroupBox):
     def _build_interface(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(0)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._base_controls = QWidget(self)
@@ -505,6 +505,7 @@ class FilterPanel(QGroupBox):
         top_layout.addWidget(display_controls)
 
         layout.addWidget(self._base_controls)
+        layout.addSpacing(8)
 
         filter_header = QWidget(self)
         filter_header.setObjectName("filterHeader")
@@ -531,6 +532,7 @@ class FilterPanel(QGroupBox):
         self._exclusions_label.setObjectName("filterExclusions")
         header_layout.addWidget(self._exclusions_label)
         layout.addWidget(filter_header)
+        layout.addSpacing(3)
 
         self._pages = FilterPages(self)
         self._pages.setObjectName("filterPages")
