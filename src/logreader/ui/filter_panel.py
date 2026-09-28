@@ -574,6 +574,8 @@ class FilterPanel(QGroupBox):
                 columns=2,
                 toggle_object_name="togglePairedButton",
             ),
+            0,
+            Qt.AlignmentFlag.AlignTop,
         )
         pattern_groups.addStretch(1)
         patterns_layout.addLayout(pattern_groups)
@@ -589,8 +591,7 @@ class FilterPanel(QGroupBox):
                 ("connection_failures", "tls_certificates", "reachability_timeouts",
                  "http_4xx", "http_5xx"),
                 object_name="networkPatternGroup",
-                columns=2,
-                rows_per_column=3,
+                columns=1,
             ),
             0,
             Qt.AlignmentFlag.AlignTop,
