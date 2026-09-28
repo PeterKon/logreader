@@ -422,7 +422,8 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(button.text(), "Add preset")
         actions = button.menu().actions()
         self.assertEqual([action.text() for action in actions],
-                         ["Email addresses", "IPv4 addresses", "IPv6 addresses", "URLs"])
+                         ["Email addresses", "IPv4 addresses", "IPv6 addresses", "URLs",
+                          "UUIDs", "Windows paths", "Unix paths"])
 
         actions[0].trigger()
         expressions = self.panel.build_config().regex_patterns
@@ -449,14 +450,16 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(re.findall(expressions[1], "first@example.org;second@example.net"),
                          ["first@example.org", "second@example.net"])
 
-    def test_network_presets_add_their_respective_expressions(self):
+    def test_presets_add_their_respective_expressions(self):
         actions = self.panel.findChild(QPushButton, "regexPresetButton").menu().actions()
-        samples = ["192.168.1.42", "fe80::1%eth0", "https://[::1]:8080/api?q=1#result"]
+        samples = ["192.168.1.42", "fe80::1%eth0", "https://[::1]:8080/api?q=1#result",
+                   "550e8400-e29b-41d4-a716-446655440000", r"C:\Logs\app.log", "/var/log/app.log"]
+        self.assertEqual(len(actions) - 1, len(samples))
         for action, sample in zip(actions[1:], samples):
             action.trigger()
             self.assertEqual(re.findall(self.panel.build_config().regex_patterns[-1], sample),
                              [sample])
-        self.assertEqual(self.panel._tab_counts[2].text(), "(3)")
+        self.assertEqual(self.panel._tab_counts[2].text(), "(6)")
 
 
 if __name__ == "__main__":

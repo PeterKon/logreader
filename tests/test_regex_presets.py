@@ -80,6 +80,91 @@ class RegexPresetTests(unittest.TestCase):
                             ["https://[::1]:8080/", "https://example.org/a?x=1"])
         self.assert_matches("URLs", "example.org user@www.example.org www. https:// ERROR:thing", [])
 
+    def test_uuid_case_versions_wrappers_and_boundaries(self):
+        for version in "0123456789abcdef":
+            uuid = f"550e8400-e29b-{version}1d4-a716-446655440000"
+            for value in (uuid, uuid.upper()):
+                self.assert_matches("UUIDs", f"id={{{value}}}; urn:uuid:{value}", [value, value])
+        for value in ("00000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"):
+            self.assert_matches("UUIDs", value, [value])
+        uuid = "550e8400-e29b-41d4-a716-446655440000"
+        for value in ("x" + uuid, uuid + "0", uuid + "-1234", uuid[:-1], uuid.replace("-", ""),
+                      uuid.replace("e29b", "g29b")):
+            self.assert_matches("UUIDs", value, [])
+
+    def test_windows_path_forms_and_log_boundaries(self):
+        paths = [r"C:\Logs\app.log", "d:/logs/app.log", "C:\\", r"C:logs\app.log",
+                 r"\\server\share", r"\\server\share\logs\app.log", r"\\?\C:\Logs\app.log",
+                 r"\\?\UNC\server\share\app.log", r"\\.\pipe\app", r".\app.log",
+                 r"..\logs\app.log", "./app.log", "../logs/app.log",
+                 r"\Windows\app.log", r"C:\logs\..", r"C:\logs\.",
+                 r"\\?\Volume{550e8400-e29b-41d4-a716-446655440000}\app.log"]
+        for path in paths:
+            self.assert_matches("Windows paths", f'path="{path}"', [path])
+            self.assert_matches("Windows paths", f"path={path}; next", [path])
+        self.assert_matches("Windows paths", r"Failed (C:\Logs\app.log).", [r"C:\Logs\app.log"])
+        self.assert_matches("Windows paths", "app.log logs/app.log logs\\app.log https://example.org/C:/logs",
+                            [])
+
+    def test_quoted_windows_paths_preserve_spaces_and_punctuation(self):
+        for path in (r"C:\Program Files (x86)\app\app.log", r"\\server\Shared Files\app.log",
+                     r"\\?\C:\Long Folder\app.log", r"..\My Files\data,old.txt"):
+            for quote in ('"', "'"):
+                self.assert_matches("Windows paths", f"path={quote}{path}{quote}, next", [path])
+        path = r"C:\Users\O'Connor\report.txt"
+        self.assert_matches("Windows paths", f'"{path}"', [path])
+        self.assert_matches("Windows paths", '"C:\\broken\npath.txt"', [])
+
+    def test_unix_path_forms_and_log_boundaries(self):
+        paths = ["/var/log/app.log", "/tmp/", "./app.log", "../logs/app.log",
+                 "../../app.log", "~/logs/app.log", "~alex/logs/app.log", "/tmp/.hidden",
+                 "/tmp/..", "/tmp/.", "/var//log/app.log", "//server/share/app.log",
+                 "/tmp/日志.txt", "/saswork/session/#LN00024", "/data/&batch./input"]
+        for path in paths:
+            self.assert_matches("Unix paths", f"file={path}; next", [path])
+        self.assert_matches("Unix paths", "Failed (/var/log/app.log).", ["/var/log/app.log"])
+        self.assert_matches("Unix paths", "app.log logs/app.log https://example.org/a/b "
+                            "http://[::1]/var/log file:///var/log C:/logs/app.log 1/2 2026/09/28", [])
+
+    def test_quoted_unix_paths_preserve_spaces_and_punctuation(self):
+        for path in ("/home/alex/My Files/report (old).txt", "../My Files/report.txt",
+                     "~/My Files/[draft];report.txt", "/tmp/file."):
+            for quote in ('"', "'"):
+                self.assert_matches("Unix paths", f"file={quote}{path}{quote}, next", [path])
+        self.assert_matches("Unix paths", '''"/tmp/O'Connor.txt"''', ["/tmp/O'Connor.txt"])
+        self.assert_matches("Unix paths", ''''/tmp/say "hello".txt' ''', ['/tmp/say "hello".txt'])
+        self.assert_matches("Unix paths", '"/tmp/broken\npath.txt"', [])
+
+    def test_path_presets_reject_separators_comments_and_escaped_punctuation(self):
+        noise = ["/", "//", "./", "../", "~/", "../../", "\\", ".\\", "..\\",
+                 "/* Generate the process id for job */", "/*---------------------",
+                 "/**", "/****************************************************************************",
+                 "/*==========================================================================*",
+                 "/*Compliance Analytics*/", "value / count", "value /2*3", "/tmp/*.sas",
+                 r"EC|EU|Europe|FCDO \(UK\) Sanctions List - Asset Freeze",
+                 r"\(UK\)", r"\[value\]", r"\.*", "/ID.CF0009%(WorkTable%)"]
+        for name in ("Windows paths", "Unix paths"):
+            for line in noise:
+                with self.subTest(name=name, line=line):
+                    self.assert_matches(name, line, [])
+            for token in ("/", "//", "/*", "/**/", "/*comment*/", "\\", "\\(\\)"):
+                self.assert_matches(name, f'"{token}"', [])
+
+    def test_unix_paths_in_sas_style_logs_keep_real_paths(self):
+        cases = [
+            ("NOTE: AUTOEXEC processing beginning; file is /opt/app/BatchServer/autoexec.sas.",
+             ["/opt/app/BatchServer/autoexec.sas"]),
+            ("SYMBOLGEN: Macro variable ROOT resolves to /opt", ["/opt"]),
+            ('144 +%inc "/opt/app/custom/config/autoexec.sas";', ["/opt/app/custom/config/autoexec.sas"]),
+            ('288 +/* options SETUP="/opt/app/config";*/', ["/opt/app/config"]),
+            ("232 +%let macro_path=/opt/app/macros; /* configuration */", ["/opt/app/macros"]),
+            ("Filename=/work/session/#LN00024,", ["/work/session/#LN00024"]),
+            ("file=/data/&batch./input;", ["/data/&batch./input"]),
+            ("file=/data/My%20Files/report.txt;", ["/data/My%20Files/report.txt"]),
+        ]
+        for line, expected in cases:
+            self.assert_matches("Unix paths", line, expected)
+
 
 if __name__ == "__main__":
     unittest.main()
