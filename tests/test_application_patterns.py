@@ -400,5 +400,140 @@ class DataParsingPatternTests(PatternAssertions, unittest.TestCase):
                     ])
 
 
+class ServicesJobsPatternTests(PatternAssertions, unittest.TestCase):
+    def setUp(self):
+        self.patterns = LogreaderConfig(
+            context=0, enabled_patterns=("services_jobs",),
+        ).search_patterns()
+
+    def test_failed_jobs_tasks_and_workers(self):
+        self.assert_lines_match((
+            "background job failed", "scheduled task has failed", "batch job 'billing' failed",
+            "job 123 execution failed", "Task app.send_mail[abc-123] raised unexpected: ValueError()",
+            "Task handler raised error: WorkerLostError()", "worker 'consumer-1' failed",
+            "job export timed out", "Failed to execute the scheduled task", "Unable to run background job",
+            "Could not process event", "failed jobs=2", "JobExecutionException",
+            "TaskFailedException", "billiard.exceptions.WorkerLostError", "SoftTimeLimitExceeded",
+            "TimeLimitExceeded for Celery task", "job failed queue=orders",
+        ), True)
+
+    def test_message_processing_delivery_and_dead_letters(self):
+        self.assert_lines_match((
+            "failed to process message", "Unable to publish the message", "Cannot send message",
+            "Could not deliver a message", "Failed to acknowledge message", "unable to consume message",
+            "message delivery failed", "message 'order-42' processing failed", "message publishing failure",
+            "MessageDeliveryException", "MessageHandlingException", "AmqpRejectAndDontRequeueException",
+            "message 123 was dead-lettered", "message has been dead lettered", "dead-lettered messages=2",
+            "delivery acknowledgement timed out", "consumer acknowledgment timeout",
+            "publisher confirm failed", "publisher confirmation timed out",
+        ), True)
+
+    def test_unavailable_dependencies_and_failed_health_checks(self):
+        self.assert_lines_match((
+            "service unavailable", "upstream is unavailable", "backend 'payments' temporarily unavailable",
+            "dependency redis is not responding", "downstream inventory not available",
+            "service api unhealthy", "no healthy upstream", "no healthy backends",
+            "no healthy service instances", "ServiceUnavailableException",
+            "health check failed", "healthcheck 'redis' has failed", "health-check timed out",
+            "Health check sql with status Unhealthy completed after 10ms",
+            "health check status=Unhealthy", "health check is unhealthy",
+            "Liveness probe failed: HTTP probe failed with statuscode: 500",
+            "readiness probe failed", "startup probe failed", "health check failed; later recovered",
+        ), True)
+
+    def test_exhausted_retries_and_open_circuits(self):
+        self.assert_lines_match((
+            "retries exhausted", "retry attempts are exhausted", "retry limit exceeded",
+            "retry budget has been exhausted", "maximum retries reached", "max retries exceeded with url /api",
+            "maximum retry attempts exceeded", "exhausted all retries", "MaxRetriesExceededError",
+            "RetriesExhaustedException", "RetryExhaustedException", "urllib3.exceptions.MaxRetryError",
+            "request giving up after 3 attempts", "job giving up after 2 retries",
+            "CallNotPermittedException", "Polly.CircuitBreaker.BrokenCircuitException",
+            "CircuitBreakerOpenException", "CircuitBreakerOpenError",
+            "circuit breaker is open", "CircuitBreaker 'backendA' is OPEN and does not permit further calls",
+            "circuit breaker opened", "circuit breaker billing tripped", "circuit breaker state=OPEN",
+            "circuit breaker 'billing' changed from CLOSED to OPEN",
+            "circuit breaker transitioned from HALF_OPEN to OPEN",
+            "circuit breaker opened; retry later succeeded",
+        ), True)
+
+    def test_throttling_and_request_limits(self):
+        self.assert_lines_match((
+            "ThrottlingException", "ThrottledException", "TooManyRequestsException",
+            "RequestLimitExceeded", "ProvisionedThroughputExceededException", "RateLimitExceededException",
+            "rate limit exceeded", "rate-limit reached", "Too many requests",
+            "request throttled", "API calls rate-limited", "throttling detected for service billing",
+            "HTTP 429", "HTTP/1.1 429 Too Many Requests", "HTTP/2 429",
+        ), True)
+
+    def test_normal_activity_settings_counters_and_negations(self):
+        self.assert_lines_match((
+            "job completed successfully", "Task app.send_mail[abc-123] succeeded in 0.02s",
+            "Task app.send_mail[abc-123] retry: Retry in 30s", "retry attempt 3 of 3",
+            "max_retries=3", "retry limit=5", "retry budget remaining=0", "retry scheduled",
+            "health check succeeded", "Health check sql with status Healthy completed",
+            "readiness probe configured", "service stopped normally", "worker shutdown requested",
+            "job cancelled by user", "message acknowledged", "queue declared", "dead-letter queue created",
+            "dead-letter exchange configured", "basic.nack requeue=false", "rate limit=100",
+            "rate limiting enabled", "circuit breaker is closed", "circuit breaker is half-open",
+            "circuit breaker transitioned from OPEN to CLOSED", "circuit breaker OPEN -> HALF_OPEN",
+            "circuit breaker state=OPEN -> CLOSED", "job not failed", "service not unavailable",
+            "circuit breaker not open", "service redis is not unavailable", "no failed jobs",
+            "no new health check failures", "zero retries exhausted", "no throttling detected",
+            "failed jobs=0", "job failures count=0", "dead-lettered messages=0",
+            '"CallNotPermittedException": false', '"service unavailable": false',
+            "retry limit exceeded=false", "request throttled=false", "consumer acknowledgement timeout=30000",
+            "delivery acknowledgment timeout of 30 seconds", "job failed handler registered",
+            "health check failure threshold=3", "circuit breaker open duration=30",
+        ), False)
+
+    def test_ambiguous_other_domains_and_diagnostic_mentions(self):
+        self.assert_lines_match((
+            "unavailable", "failed", "throttled", "TimeLimitExceeded", "giving up after 3 attempts",
+            "429", "port=429", "HTTP 4290", "/orders/429", "CPU throttled", "API worker CPU throttled",
+            "GPU throttled", "package dependency unavailable", "npm dependency 'module' unavailable",
+            "missing dependency", "configuration initialization failed", "invalid credentials",
+            "optional dependency metrics unavailable", "parser job complete; throttled",
+            "expected task failed", "simulated health check failed", "when service unavailable",
+            "registering handler for MaxRetriesExceededError", "except CallNotPermittedException:",
+            "catch (BrokenCircuitException ex)", "caught ThrottlingException: too many requests",
+            "class JobExecutionException(Exception):", "JobExecutionException.java:42",
+            'retry_on=["ThrottlingException", "ServiceUnavailableException"]',
+            "RequestLimitExceededSetting", "MY_JOB_FAILED_SETTING", "job_failed_count=0",
+            "job failed was not observed", "BrokenCircuitException not raised",
+        ), False)
+
+    def test_local_noise_checks_preserve_other_failures_and_context(self):
+        patterns = LogreaderConfig(
+            context=1, enabled_patterns=("services_jobs", "data_parsing", "configuration_startup", "error_colon"),
+        ).search_patterns()
+        lines = (
+            "no failed jobs; ERROR: message delivery failed",
+            "consumer acknowledgement timeout=30000; startup failed",
+            'retry_on=["ThrottlingException"]; retries exhausted',
+            '"service unavailable": false, health check failed',
+            "circuit breaker OPEN -> CLOSED; job billing failed",
+            "job failures count=0; invalid JSON",
+            "request throttled; later retry succeeded",
+            "context after the final match",
+        )
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                result = analyze_lines(lines, patterns, combined=combined)
+                self.assertEqual(result.category_match_counts, {
+                    "error_colon": 1, "configuration_startup": 1, "data_parsing": 1, "services_jobs": 5,
+                })
+                category = result.category("combined" if combined else "services_jobs")
+                rendered = category.excerpts[0].lines
+                self.assertEqual([line.text for line in rendered], list(lines))
+                if not combined:
+                    highlights = [[line.text[span.start:span.end] for span in line.match_spans]
+                                  for line in rendered]
+                    self.assertEqual(highlights, [
+                        ["message delivery failed"], [], ["retries exhausted"], ["health check failed"],
+                        ["job billing failed"], [], ["throttled"], [],
+                    ])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -309,3 +309,104 @@ def is_data_parsing_candidate(line: str, start: int, end: int) -> bool:
     if _DATA_OTHER_CONTEXT.search(context):
         return False
     return _DATA_CONTEXT.search(context) is not None
+
+
+_WORK_NAME = (
+    r"(?:\s+(?:[\"'][^\"';|\r\n]{1,80}[\"']|\[[^\];|\r\n]{1,80}\]"
+    r"|(?!not\b|never\b|no\b|without\b)[\w./:@-]{1,80}(?:\[[^\];|\r\n]{1,80}\])?))?"
+)
+_WORK_SUBJECT = r"(?:(?:background|scheduled|batch)\s+)?(?:job|task|worker)"
+_HEALTH_SUBJECT = r"(?:health[- ]?check|(?:liveness|readiness|startup)\s+probe)"
+_CIRCUIT_SUBJECT = rf"circuit\s*breaker{_WORK_NAME}"
+_SERVICE_SPECIFIC_SIGNALS = rf"""
+    {_WORK_SUBJECT}{_WORK_NAME}\s+(?:(?:has\s+|was\s+)?failed|failures?|timed\s+out
+        |execution\s+failed|raised\s+(?:unexpected|error))
+    | failed\s+(?:(?:background|scheduled|batch)\s+)?(?:jobs?|tasks?)
+    | (?:failed\s+to|unable\s+to|could\s+not|cannot)\s+(?:execute|run|process)\s+
+      (?:(?:a|the)\s+)?(?:{_WORK_SUBJECT}|message|event)
+    | JobExecutionException|TaskFailedException|WorkerLostError|SoftTimeLimitExceeded
+    | (?:failed\s+to|unable\s+to|could\s+not|cannot)\s+(?:publish|send|deliver|consume|acknowledge)\s+
+      (?:(?:a|the)\s+)?message
+    | message{_WORK_NAME}\s+(?:(?:processing|delivery|publishing)\s+)?(?:failed|failure)
+    | message{_WORK_NAME}\s+(?:(?:was|has\s+been)\s+)?dead[- ]lettered
+    | dead[- ]lettered\s+messages?
+    | (?:delivery|consumer)\s+acknowledg(?:e)?ment\s+(?:timed\s+out|timeout)
+    | publisher\s+confirm(?:ation)?\s+(?:failed|failure|timed\s+out)
+    | MessageDeliveryException|MessageHandlingException|AmqpRejectAndDontRequeueException
+    | (?:upstream|downstream|backend|dependency|service){_WORK_NAME}\s+
+      (?:(?:is|was|temporarily|currently)\s+){{0,2}}(?:unavailable|not\s+available|not\s+responding|unhealthy)
+    | no\s+healthy\s+(?:upstreams?|backends?|service\s+instances)
+    | ServiceUnavailableException
+    | {_HEALTH_SUBJECT}{_WORK_NAME}\s+(?:(?:has\s+|was\s+)?failed|failures?|timed\s+out)
+    | {_HEALTH_SUBJECT}{_WORK_NAME}\s+(?:with\s+status\s+|status\s*[:=]\s*|is\s+)unhealthy
+    | (?:retries|retry\s+(?:attempts|limit|budget))\s+(?:(?:are|was|has\s+been)\s+)?(?:exhausted|exceeded|reached)
+    | (?:max(?:imum)?\s+retries|maximum\s+retry\s+attempts)\s+(?:exceeded|reached)
+    | exhausted\s+(?:all\s+)?retries
+    | MaxRetriesExceededError|RetriesExhaustedException|RetryExhaustedException|MaxRetryError
+    | CallNotPermittedException|BrokenCircuitException|CircuitBreakerOpenException|CircuitBreakerOpenError
+    | {_CIRCUIT_SUBJECT}\s+(?:(?:is|was|has)\s+)?(?:open(?:ed)?|tripped)
+    | {_CIRCUIT_SUBJECT}\s+state\s*[:=]\s*["']?OPEN
+    | {_CIRCUIT_SUBJECT}\s+(?:transitioned|changed)\s+from\s+(?:CLOSED|HALF_OPEN)\s+to\s+OPEN
+    | ThrottlingException|ThrottledException|TooManyRequestsException|RequestLimitExceeded
+    | ProvisionedThroughputExceededException|RateLimitExceeded(?:Exception)?
+    | rate[- ]limit\s+(?:exceeded|reached)|too\s+many\s+requests
+    | HTTP(?:/[0-9](?:\.[0-9])?)?\s+429
+"""
+_SERVICE_SCOPED_SIGNALS = r"""
+    throttled|rate[- ]limited|throttling\s+detected
+    | TimeLimitExceeded|giving\s+up\s+after\s+[1-9][0-9]*\s+(?:retries|attempts)
+"""
+SERVICES_JOBS_PATTERN = rf"""(?ix)\b(?:{_SERVICE_SPECIFIC_SIGNALS}|{_SERVICE_SCOPED_SIGNALS})\b"""
+_SERVICE_SPECIFIC = re.compile(_SERVICE_SPECIFIC_SIGNALS, re.IGNORECASE | re.VERBOSE)
+_SERVICE_CONTEXT = re.compile(
+    r"\b(?:job|task|worker|Celery|billiard|Hangfire|Quartz|scheduler|message|consumer|publisher"
+    r"|queue|broker|delivery|request|API|service|upstream|downstream|backend|AWS|SDK)\b",
+    re.IGNORECASE,
+)
+_SERVICE_NON_EVENT_PREFIX = re.compile(
+    r"\b(?:if|when|unless|on|example|documented|simulate|simulating|optional)\s+(?:(?:an?|the)\s+)?[\"']?(?:\w+\.)*$"
+    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?|catching)\s+(?:an?\s+)?(?:handler\s+for\s+)?[\"']?(?:\w+\.)*$"
+    r"|\b(?:class|def)\s+(?:\w+\.)*$"
+    r"|\b(?:caught|handled|expected|simulated)\s+[\w.]+(?:Error|Exception):\s*$",
+    re.IGNORECASE,
+)
+_SERVICE_NON_EVENT_SUFFIX = re.compile(
+    r"s?[\"']?\s+(?:metrics?|examples?|simulation|reporting|recovery|interval)\b"
+    r"|\s+(?:(?:is|was|were)\s+)?(?:not\s+(?:raised|observed|detected|reported)|handled|caught)\b"
+    r"|\.(?:java|py|cs):\d+\b",
+    re.IGNORECASE,
+)
+_SERVICE_TIMEOUT_SETTING = re.compile(r"\s*[:=]\s*\d|\s+(?:of|is|set\s+to)\s+\d", re.IGNORECASE)
+_SERVICE_SETTING_PREFIX = re.compile(r"\b(?:set|setting|configure|configured)\s+$", re.IGNORECASE)
+_CIRCUIT_RECOVERY_SUFFIX = re.compile(
+    r"[\"']?\s*(?:->|to)\s*(?:CLOSED|HALF[-_ ]OPEN)\b", re.IGNORECASE,
+)
+_PACKAGE_DEPENDENCY_CONTEXT = re.compile(
+    r"\b(?:package|module|library|build|installation|pip|npm|NuGet|Maven|artifact)\b", re.IGNORECASE,
+)
+_HARDWARE_THROTTLE_CONTEXT = re.compile(r"\b(?:CPU|GPU|thermal|disk|processor)\b", re.IGNORECASE)
+
+
+def is_services_jobs_candidate(line: str, start: int, end: int) -> bool:
+    """Match reported operational failures rather than retry and health-check setup."""
+
+    before = re.split(r"[;|\r\n]", line[max(0, start - 180):start])[-1]
+    after = re.split(r"[;|\r\n]", line[end:end + 180])[0]
+    if (_NON_EVENT_PREFIX.search(before) or _NON_EVENT_SUFFIX.match(after)
+            or _SERVICE_NON_EVENT_PREFIX.search(before) or _SERVICE_NON_EVENT_SUFFIX.match(after)):
+        return False
+    candidate = line[start:end]
+    folded = candidate.casefold()
+    if folded.endswith("timeout") and (
+        _SERVICE_TIMEOUT_SETTING.match(after) or _SERVICE_SETTING_PREFIX.search(before)
+    ):
+        return False
+    if folded.startswith("circuit") and _CIRCUIT_RECOVERY_SUFFIX.match(after):
+        return False
+    context = before + " " + after
+    if folded.startswith("dependency") and _PACKAGE_DEPENDENCY_CONTEXT.search(context):
+        return False
+    if _SERVICE_SPECIFIC.fullmatch(candidate):
+        return True
+    return (_SERVICE_CONTEXT.search(context) is not None
+            and _HARDWARE_THROTTLE_CONTEXT.search(context) is None)

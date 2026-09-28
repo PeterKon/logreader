@@ -9,9 +9,11 @@ from .application_matchers import (
     ACCESS_CREDENTIALS_PATTERN,
     CONFIGURATION_STARTUP_PATTERN,
     DATA_PARSING_PATTERN,
+    SERVICES_JOBS_PATTERN,
     is_access_credentials_candidate,
     is_configuration_startup_candidate,
     is_data_parsing_candidate,
+    is_services_jobs_candidate,
 )
 from .core import COMBINED_CATEGORY_KEY, MatchValidator, SearchPattern
 from .database_matchers import (
@@ -158,6 +160,13 @@ PATTERN_PRESETS = (
         match_validator=is_data_parsing_candidate,
     ),
     PatternPreset(
+        "services_jobs",
+        SERVICES_JOBS_PATTERN,
+        "Services / Jobs",
+        is_regex=True,
+        match_validator=is_services_jobs_candidate,
+    ),
+    PatternPreset(
         "database_connections",
         DATABASE_CONNECTION_PATTERN,
         "Connections / Pools",
@@ -232,7 +241,7 @@ HTTP_STATUS_PATTERN_KEYS = ("http_4xx", "http_5xx")
 NETWORK_PATTERN_KEYS = HTTP_STATUS_PATTERN_KEYS + (
     "connection_failures", "reachability_timeouts", "tls_certificates",
 )
-APPLICATION_PATTERN_KEYS = ("access_credentials", "configuration_startup", "data_parsing")
+APPLICATION_PATTERN_KEYS = ("access_credentials", "configuration_startup", "data_parsing", "services_jobs")
 DATABASE_PATTERN_KEYS = ("database_connections", "database_queries", "database_transactions")
 SYSTEM_RUNTIME_PATTERN_KEYS = ("files_storage", "memory_resources", "crashes_hangs")
 ADVANCED_PATTERN_KEYS = (

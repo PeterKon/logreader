@@ -146,6 +146,7 @@ class LogreaderConfigTests(unittest.TestCase):
             "access_credentials",
             "configuration_startup",
             "data_parsing",
+            "services_jobs",
             "database_connections",
             "database_queries",
             "database_transactions",
