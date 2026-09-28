@@ -187,10 +187,10 @@ class LogreaderConfigTests(unittest.TestCase):
             [
                 "HTTP/1.1 400 Bad Request",
                 "HTTP/1.1 404 Not Found",
-                "status=499",
-                "HTTP404 and upstream 503",
-                "server returned 500",
-                "retry failed with [599]",
+                "http_status=499",
+                "HTTP404 and upstream responded with HTTP 503",
+                "server returned HTTP 500",
+                "retry failed with HTTP 599",
                 "ignore 1404, 5000, 399, 600, 4xx, and 5xx",
             ],
             config.search_patterns(),
@@ -246,7 +246,7 @@ class LogreaderConfigTests(unittest.TestCase):
             ("500",),
         )
 
-    def test_http_status_patterns_keep_liberal_status_exceptions(self):
+    def test_http_status_patterns_reject_ambiguous_status_values(self):
         config = LogreaderConfig(enabled_patterns=HTTP_STATUS_PATTERN_KEYS)
         analysis = analyze_lines(
             [
@@ -266,8 +266,8 @@ class LogreaderConfigTests(unittest.TestCase):
             config.search_patterns(),
         )
 
-        self.assertEqual(analysis.category("http_4xx").match_count, 6)
-        self.assertEqual(analysis.category("http_5xx").match_count, 6)
+        self.assertEqual(analysis.category("http_4xx").match_count, 0)
+        self.assertEqual(analysis.category("http_5xx").match_count, 0)
 
     def test_connection_failures_recognize_messages_codes_and_network_context(self):
         patterns = LogreaderConfig(

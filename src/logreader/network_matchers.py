@@ -250,152 +250,136 @@ def is_tls_certificate_candidate(line: str, start: int, end: int) -> bool:
     return True
 
 
-_STATUS_CONTEXT_MARKERS = (
-    "http",
-    "status",
-    "response",
-    "error",
-    "result",
-    "return",
-    "server",
-    "upstream",
-    "downstream",
-    "fail",
+_HTTP_QUOTED = r'"(?:[^"\\\r\n]|\\.)*"'
+# Only the status column counts in common/combined access logs. Referrers,
+# user agents and byte counts can also contain HTTP-looking numbers.
+_HTTP_ACCESS_RECORD = re.compile(
+    rf'(?<!\S)\S+\s+\S+\s+\S+\s+\[[^\]\r\n]+\]\s+'
+    rf'{_HTTP_QUOTED}\s+(?P<status>[0-9]{{3}})\s+(?:[0-9]+|-)'
+    rf'(?:\s+{_HTTP_QUOTED}\s+{_HTTP_QUOTED})?\s*$'
 )
-_SHORT_STATUS_CONTEXTS = {"code", "err", "rc", "sc"}
-_STATUS_REASON_SUFFIXES = (
-    "badrequest",
-    "unauthorized",
-    "paymentrequired",
-    "forbidden",
-    "notfound",
-    "methodnotallowed",
-    "notacceptable",
-    "requesttimeout",
-    "conflict",
-    "gone",
-    "unprocessablecontent",
-    "toomanyrequests",
-    "clienterror",
-    "internalservererror",
-    "notimplemented",
-    "badgateway",
-    "serviceunavailable",
-    "gatewaytimeout",
-    "servererror",
-    "error",
+_HTTP_REQUEST = re.compile(r'"[A-Z]+\s+[^"\r\n]+\s+HTTP/[0-9]+(?:\.[0-9]+)?"')
+_HTTP_REQUEST_STATUS = re.compile(r"\s+(?P<status>[0-9]{3})(?=\s|$)")
+_HTTP_URL_OR_PATH = re.compile(r"(?:[a-z][a-z0-9+.-]*://|[/\\?&])[^\s\"'<>]*", re.IGNORECASE)
+_HTTP_RESPONSE_PREFIX = re.compile(
+    r"(?<![\w./?&=-])(?:"
+    r"HTTP(?:/[0-9]+(?:\.[0-9]+)?)?\s*(?:(?:response\s+)?(?:status(?:\s*code)?|error)\s*)?"
+    r"|response\s+status(?:\s+code)?(?:\s+does\s+not\s+indicate\s+success)?\s*"
+    r"|(?:the\s+)?server\s+responded\s+with\s+(?:a\s+)?status(?:\s+code)?(?:\s+of)?\s*"
+    r")[=:]?\s*$",
+    re.IGNORECASE,
+)
+_HTTP_FIELD_PREFIX = re.compile(
+    r"(?<![\w./?&-])[\"']?(?P<key>[a-z_][a-z0-9_.-]*)[\"']?\s*[:=]\s*(?P<quote>[\"']?)$",
+    re.IGNORECASE,
+)
+_HTTP_EXPLICIT_FIELDS = {
+    "httpstatus", "httpstatuscode", "httpresponsestatus", "httpresponsestatuscode",
+    "actualhttpstatus", "actualhttpstatuscode",
+}
+_HTTP_CONTEXTUAL_FIELDS = {
+    "status", "statuscode", "responsestatus", "responsestatuscode", "responsecode",
+    "resstatus", "resstatuscode", "code", "rc", "result", "scstatus",
+}
+_HTTP_RECORD_CONTEXT = re.compile(
+    r"\bHTTP(?:/[0-9]+(?:\.[0-9]+)?)?\s+(?:response|request\s+(?:completed|finished|returned))\b"
+    r"|\b(?:HttpRequestException|HttpResponseMessage|HTTPError)\b"
+    r"|(?<![\w.-])[\"']?http[._]request[._]method[\"']?\s*[:=]",
+    re.IGNORECASE,
+)
+_HTTP_METHOD_FIELD = re.compile(
+    r"(?<![\w.-])[\"']?(?:method|request_method)[\"']?\s*[:=]\s*[\"']?"
+    r"(?:GET|HEAD|POST|PUT|DELETE|CONNECT|OPTIONS|TRACE|PATCH)\b",
+    re.IGNORECASE,
+)
+_HTTP_TARGET_FIELD = re.compile(
+    r"(?<![\w.-])[\"']?(?:url|path|uri|route|request_uri)[\"']?\s*[:=]",
+    re.IGNORECASE,
+)
+_HTTP_NON_EVENT_PREFIX = re.compile(
+    r"\b(?:no|without|zero|0)\s+(?:(?:new|further|reported|any)\s+){0,2}$"
+    r"|\b(?:expected|configured|default|simulate[d]?|example)\s+$"
+    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?)\s+(?:a\s+)?$",
+    re.IGNORECASE,
+)
+_HTTP_OBSERVED_PREFIX = re.compile(
+    r"\b(?:received|returned|observed|got)\s+(?:an?\s+)?expected\s+$",
+    re.IGNORECASE,
+)
+_HTTP_NON_EVENT_VALUE = re.compile(
+    r"(?<![\w.-])[\"']?(?:retry[_ -]on(?:[_ -](?:status|codes?))?"
+    r"|retryable[_ -](?:status(?:es)?|codes?)|expected(?:[_ -](?:http[_ -])?status(?:es)?)?"
+    r"|ignored?[_ -](?:status(?:es)?|codes?)|settings|configuration)"
+    r"[\"']?\s*[:=]\s*(?:[\[{][^\]}\r\n]*)?[\"']?\s*$",
+    re.IGNORECASE,
+)
+_HTTP_NON_EVENT_SUFFIX = re.compile(
+    r"[\"']?\s+(?:(?:errors?|responses?|events?)\s+)?"
+    r"(?:count|counter|handler|handling|policy|setting|configuration|threshold"
+    r"|enabled|disabled|monitoring)\b"
+    r"|[\"']?\s+(?:errors?|responses?|events?)\s*[:=]\s*(?:0|false|none|null)\b"
+    r"|\s+(?:(?:errors?|responses?)\s+)?(?:(?:was|is|were)\s+)?not\s+(?:observed|detected|reported)\b",
+    re.IGNORECASE,
 )
 
 
 def is_http_status_candidate(line: str, start: int, end: int) -> bool:
-    """Reject identifier/URL numbers while retaining common status formats."""
+    """Require response evidence and reject noise at the matched field/phrase."""
 
-    prefix = _joined_text_before(line, start)
-    has_semantic_prefix = _has_status_context(prefix)
-    assignment_key = _assignment_key_before(line, start)
-    has_semantic_assignment = (
-        assignment_key is not None and _has_status_context(assignment_key)
-    )
+    access = _HTTP_ACCESS_RECORD.search(line)
+    if access is not None:
+        return access.span("status") == (start, end) and _is_http_response_event(
+            line[max(0, access.start() - 300):access.start()], line[end:end + 180],
+        )
+    for request in _HTTP_REQUEST.finditer(line):
+        if request.start() <= start < request.end():
+            return False
+        status = _HTTP_REQUEST_STATUS.match(line, request.end())
+        if status is not None and status.span("status") == (start, end):
+            return _is_http_response_event(
+                line[max(0, request.start() - 300):request.start()], line[end:end + 180],
+            )
 
-    # An equals assignment is only status-like when its key says so. This
-    # removes query offsets and unrelated values such as start=458 or port=500.
-    if assignment_key is not None and not has_semantic_assignment:
+    # Reject URLs even when a query parameter is named like an HTTP status.
+    if any(value.start() <= start < value.end() for value in _HTTP_URL_OR_PATH.finditer(line)):
+        return False
+    if end < len(line) and line[end] not in " \t\r\n,;|)}]\"'":
+        # Permit sentence punctuation, but not decimal values or identifiers.
+        if line[end] not in ".:" or (end + 1 < len(line) and not line[end + 1].isspace()):
+            return False
+
+    before = re.split(r"[;|\r\n]", line[max(0, start - 300):start])[-1]
+    after = re.split(r"[;|\r\n]", line[end:end + 180])[0]
+    expression = _HTTP_RESPONSE_PREFIX.search(before)
+    field = _HTTP_FIELD_PREFIX.search(before)
+    if expression is not None:
+        event_start = expression.start()
+    elif field is not None:
+        if field.group("quote") and not after.startswith(field.group("quote")):
+            return False
+        key = re.sub(r"[._-]", "", field.group("key")).casefold()
+        if key not in _HTTP_EXPLICIT_FIELDS:
+            if key not in _HTTP_CONTEXTUAL_FIELDS:
+                return False
+            # Generic fields need HTTP evidence in their own clause/object.
+            context = re.split(r"[{}]", before)[-1] + " " + re.split(r"[{}]", after)[0]
+            if not (_HTTP_RECORD_CONTEXT.search(context) or (
+                _HTTP_METHOD_FIELD.search(context) and _HTTP_TARGET_FIELD.search(context)
+            )):
+                return False
+        event_start = field.start()
+    else:
         return False
 
-    left = line[start - 1] if start else ""
-    if _is_identifier_join_on_left(left, prefix) and not has_semantic_prefix:
+    return _is_http_response_event(before[:event_start], after)
+
+
+def _is_http_response_event(before: str, after: str) -> bool:
+    before = re.split(r"[;|\r\n]", before)[-1]
+    after = re.split(r"[;|\r\n]", after)[0]
+    if _HTTP_NON_EVENT_VALUE.search(before):
         return False
-
-    suffix = _joined_text_after(line, end)
-    right = line[end] if end < len(line) else ""
-    if (
-        _is_identifier_join_on_right(right, suffix)
-        and not has_semantic_prefix
-        and not _has_status_reason_suffix(suffix)
-    ):
+    if (_HTTP_NON_EVENT_PREFIX.search(before)
+            and not _HTTP_OBSERVED_PREFIX.search(before)):
         return False
-
-    # Response codes normally occur outside the requested URL in access and
-    # browser logs. A semantic key remains an exception, such as ?status=404.
-    token = _containing_token(line, start, end)
-    if (
-        any(marker in token for marker in ("/", "\\", "?", "&"))
-        and not has_semantic_prefix
-        and not has_semantic_assignment
-    ):
-        return False
-
-    return True
-
-
-def _joined_text_before(line: str, position: int) -> str:
-    cursor = position - 1
-    while cursor >= 0 and (
-        line[cursor].isascii()
-        and (line[cursor].isalnum() or line[cursor] in "._-")
-    ):
-        cursor -= 1
-    return line[cursor + 1 : position].strip("._-")
-
-
-def _joined_text_after(line: str, position: int) -> str:
-    cursor = position
-    while cursor < len(line) and (
-        line[cursor].isascii()
-        and (line[cursor].isalnum() or line[cursor] in "._-")
-    ):
-        cursor += 1
-    return line[position:cursor].strip("._-")
-
-
-def _assignment_key_before(line: str, position: int) -> str | None:
-    cursor = position - 1
-    while cursor >= 0 and line[cursor].isspace():
-        cursor -= 1
-    if cursor < 0 or line[cursor] != "=":
-        return None
-
-    cursor -= 1
-    while cursor >= 0 and line[cursor].isspace():
-        cursor -= 1
-    key_end = cursor + 1
-    while cursor >= 0 and (
-        line[cursor].isascii()
-        and (line[cursor].isalnum() or line[cursor] in "._-")
-    ):
-        cursor -= 1
-    return line[cursor + 1 : key_end]
-
-
-def _has_status_context(value: str) -> bool:
-    normalized = "".join(
-        character for character in value.casefold() if character.isalnum()
-    )
-    return normalized in _SHORT_STATUS_CONTEXTS or any(
-        marker in normalized for marker in _STATUS_CONTEXT_MARKERS
-    )
-
-
-def _has_status_reason_suffix(value: str) -> bool:
-    normalized = "".join(
-        character for character in value.casefold() if character.isalnum()
-    )
-    return any(normalized.startswith(suffix) for suffix in _STATUS_REASON_SUFFIXES)
-
-
-def _is_identifier_join_on_left(character: str, prefix: str) -> bool:
-    return bool(prefix) and (character.isalnum() or character in "._-")
-
-
-def _is_identifier_join_on_right(character: str, suffix: str) -> bool:
-    return bool(suffix) and (character.isalnum() or character in "._-")
-
-
-def _containing_token(line: str, start: int, end: int) -> str:
-    token_start = start
-    while token_start > 0 and not line[token_start - 1].isspace():
-        token_start -= 1
-    token_end = end
-    while token_end < len(line) and not line[token_end].isspace():
-        token_end += 1
-    return line[token_start:token_end]
+    return _HTTP_NON_EVENT_SUFFIX.match(after) is None
