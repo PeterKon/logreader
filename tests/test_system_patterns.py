@@ -262,5 +262,111 @@ class MemoryResourcesPatternTests(_PatternAssertions, unittest.TestCase):
                     self.assertEqual(highlights[1], [])
 
 
+class CrashesHangsPatternTests(_PatternAssertions, unittest.TestCase):
+    def setUp(self):
+        self.patterns = LogreaderConfig(
+            context=0, enabled_patterns=("crashes_hangs",),
+        ).search_patterns()
+
+    def test_unhandled_exceptions_assertions_and_stack_overflows(self):
+        self.assert_lines_match((
+            "Unhandled exception: System.InvalidOperationException",
+            "Uncaught TypeError: undefined is not a function",
+            "UnhandledPromiseRejectionWarning: rejected",
+            "unhandled promise rejection", 'Exception in thread "main" java.lang.Exception',
+            "terminate called after throwing an instance of 'std::runtime_error'",
+            "terminate called without an active exception", "Fatal Python error: Aborted",
+            "AssertionError: expected a value", "System.Diagnostics.AssertionException",
+            "ERR_ASSERTION", "Assertion failed: count > 0",
+            "app: worker.c:42: Assertion `count > 0' failed.",
+            "java.lang.StackOverflowError", "System.StackOverflowException",
+            "RangeError: Maximum call stack size exceeded", "fatal error: stack overflow",
+        ), True)
+
+    def test_native_faults_and_fatal_signals(self):
+        self.assert_lines_match((
+            "Segmentation fault (core dumped)", "app[123]: segfault at 0 ip 0000",
+            "Bus error", "Illegal instruction", "EXCEPTION_ACCESS_VIOLATION",
+            "STATUS_STACK_OVERFLOW", "STATUS_STACK_BUFFER_OVERRUN",
+            "STATUS_ILLEGAL_INSTRUCTION", "STATUS_ASSERTION_FAILURE",
+            "Exception code: 0xc0000005", '"exception code": "0xc00000fd"',
+            "process received SIGSEGV", "worker terminated by SIGABRT",
+            "SIGSEGV (0xb) at pc=0x000000001234, pid=123",
+            "fatal signal SIGBUS", "kernel panic", "panic: runtime error: invalid address",
+            'thread \'main\' panicked at src/main.rs:42',
+        ), True)
+
+    def test_reported_exits_deadlocks_and_hangs(self):
+        self.assert_lines_match((
+            "process crashed", "application has crashed", "worker 123 exited unexpectedly",
+            'process "my app" terminated abnormally', "service unexpectedly died",
+            "unexpected process exit", "CrashLoopBackOff",
+            "application is not responding", "process 123 is unresponsive",
+            "event loop stopped responding", "worker hung", "STATUS_APPLICATION_HANG",
+            "Found one Java-level deadlock:", "Found 2 Java-level deadlocks:",
+            "thread deadlock detected", "mutex deadlock found", "JVM threads deadlocked",
+            "watchdog: BUG: soft lockup - CPU#0 stuck for 22s!",
+            "watchdog: hard lockup detected on cpu 0",
+            "INFO: task app:123 blocked for more than 120 seconds.",
+        ), True)
+
+    def test_settings_handlers_counters_and_negated_reports_do_not_match(self):
+        self.assert_lines_match((
+            "no unhandled exceptions", "without any assertion failures",
+            "no process crashed", "process not crashed", "process never crashed",
+            "stack overflow protection enabled", "unhandled exception handler registered",
+            "registering handler for SIGSEGV", "SIGSEGV: handler=0x123 sa_flags=0",
+            "process received SIGSEGV handler configuration", "unhandled exception count=0",
+            '"CrashLoopBackOff": false', "segmentation fault not observed",
+            "caught AssertionError", "AssertionError was handled", "except AssertionError:",
+            "catch (StackOverflowException ex)", "at java.lang.AssertionError.java:42",
+            "first-chance exception: STATUS_ACCESS_VIOLATION",
+            'expected_errors=["AssertionError", "StackOverflowError"]',
+            "simulated process crashed", "configured stack overflow",
+            "deadlock detected=false thread=main", "kernel panic=0",
+            "MY_ASSERTIONERROR_SETTING", "STATUS_STACK_OVERFLOW_EXTRA",
+        ), False)
+
+    def test_ambiguous_and_unrelated_reports_do_not_match(self):
+        self.assert_lines_match((
+            "Exception: bad input", "Traceback (most recent call last):",
+            "at worker.run(worker.py:42)", "process exited with code 0",
+            "process exited with code 1", "process received SIGTERM", "SIGKILL",
+            "SIGSEGV", "status=0xc0000005", "HTTP request timed out",
+            "connection hung up", "process waiting for work", "thread blocked on mutex",
+            "deadlock detected", "database deadlock detected", "SQLSTATE 40P01 deadlock detected",
+            "worker transaction deadlock detected", "thread ready; deadlock detected",
+            "SAML assertion failed", "authentication assertion failure",
+            "soft lockup detection enabled", "memory exhausted", "file lock conflict",
+        ), False)
+
+    def test_local_exclusions_preserve_real_failures_and_other_categories(self):
+        patterns = LogreaderConfig(
+            context=1, enabled_patterns=("crashes_hangs", "memory_resources", "error_colon"),
+        ).search_patterns()
+        lines = (
+            "no unhandled exceptions; ERROR: process crashed",
+            "unhandled exception handler registered; ERROR: ENOMEM",
+            'expected_errors=["AssertionError"]; segmentation fault',
+            '"CrashLoopBackOff": false, worker hung',
+            "Segmentation fault (core dumped)",
+        )
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                result = analyze_lines(lines, patterns, combined=combined)
+                self.assertEqual(result.category_match_counts,
+                                 {"error_colon": 2, "memory_resources": 1, "crashes_hangs": 4})
+                category = result.category("combined" if combined else "crashes_hangs")
+                rendered = category.excerpts[0].lines
+                highlights = [[line.text[span.start:span.end] for span in line.match_spans]
+                              for line in rendered]
+                self.assertNotIn("unhandled exceptions", highlights[0])
+                self.assertIn("process crashed", highlights[0])
+                self.assertEqual(highlights[2], ["segmentation fault"])
+                self.assertEqual(highlights[3], ["worker hung"])
+                if not combined:
+                    self.assertEqual(highlights[1], [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -25,8 +25,10 @@ from .network_matchers import (
 )
 from .file_loader import DEFAULT_MAX_LINES_SCANNED
 from .system_matchers import (
+    CRASHES_HANGS_PATTERN,
     FILES_STORAGE_PATTERN,
     MEMORY_RESOURCES_PATTERN,
+    is_crashes_hangs_candidate,
     is_files_storage_candidate,
     is_memory_resources_candidate,
 )
@@ -161,6 +163,13 @@ PATTERN_PRESETS = (
         is_regex=True,
         match_validator=is_memory_resources_candidate,
     ),
+    PatternPreset(
+        "crashes_hangs",
+        CRASHES_HANGS_PATTERN,
+        "Crashes / Hangs",
+        is_regex=True,
+        match_validator=is_crashes_hangs_candidate,
+    ),
 )
 
 PATTERN_PRESETS_BY_KEY = {preset.key: preset for preset in PATTERN_PRESETS}
@@ -195,7 +204,7 @@ NETWORK_PATTERN_KEYS = HTTP_STATUS_PATTERN_KEYS + (
     "connection_failures", "reachability_timeouts", "tls_certificates",
 )
 DATABASE_PATTERN_KEYS = ("database_connections", "database_queries", "database_transactions")
-SYSTEM_RUNTIME_PATTERN_KEYS = ("files_storage", "memory_resources")
+SYSTEM_RUNTIME_PATTERN_KEYS = ("files_storage", "memory_resources", "crashes_hangs")
 ADVANCED_PATTERN_KEYS = NETWORK_PATTERN_KEYS + DATABASE_PATTERN_KEYS + SYSTEM_RUNTIME_PATTERN_KEYS
 PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + ADVANCED_PATTERN_KEYS
 DEFAULT_ENABLED_PATTERNS = (

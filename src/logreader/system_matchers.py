@@ -210,3 +210,92 @@ def is_memory_resources_candidate(line: str, start: int, end: int) -> bool:
     if candidate.casefold() in ("eagain", "resource temporarily unavailable"):
         return _THREAD_CREATION_CONTEXT.search(context) is not None
     return _RESOURCE_CONTEXT.search(context) is not None
+
+
+_RUNTIME_SUBJECT = r"(?:process|application|app|service|worker|thread|event\s+loop|JVM)"
+_CRASH_SPECIFIC_SIGNALS = rf"""
+    (?:unhandled|uncaught)\s+(?:exceptions?|errors?|(?:promise\s+)?rejections?)
+    | uncaught\s+(?:TypeError|ReferenceError|RangeError|SyntaxError)
+    | UnhandledPromiseRejection(?:Warning|Error)
+    | exception\s+in\s+thread\s+["'][^"'\r\n]{{1,80}}["']
+    | terminate\s+called\s+(?:after\s+throwing|without\s+an\s+active\s+exception)
+    | Fatal\s+Python\s+error
+    | Assertion(?:Error|Exception)|ERR_ASSERTION
+    | assertion\s+(?:failed|failures?)
+    | assertion\s+[`"'][^;|\r\n]{{1,160}}?[`"']\s+failed
+    | StackOverflow(?:Error|Exception)|maximum\s+call\s+stack\s+size\s+exceeded
+    | stack\s+overflow
+    | segmentation\s+fault|segfault\s+at\s+(?:0x)?[0-9a-f]+|bus\s+error
+    | illegal\s+instruction|core\s+dumped
+    | (?:STATUS|EXCEPTION)_(?:ACCESS_VIOLATION|STACK_OVERFLOW|STACK_BUFFER_OVERRUN
+        |ILLEGAL_INSTRUCTION|ASSERTION_FAILURE|APPLICATION_HANG)
+    | (?:exception|fault)\s+code["']?\s*[:=]\s*["']?0xc000(?:0005|00fd|0409|001d)
+    | {_RUNTIME_SUBJECT}(?:\s+(?:["'][^"'\r\n]{{1,64}}["']|(?!not\b|never\b)[\w.-]{{1,64}}))?\s+
+      (?:(?:is|was|has|has\s+been)\s+)?(?:crashed|hung|unresponsive|not\s+responding
+        |stopped\s+responding|(?:exited|terminated|died)\s+(?:unexpectedly|abnormally)
+        |unexpectedly\s+(?:exited|terminated|died))
+    | unexpected\s+(?:process|application|service|worker)\s+(?:exit|termination)
+    | CrashLoopBackOff
+    | found\s+(?:one|[1-9][0-9]*)\s+Java[-\s]level\s+deadlocks?
+    | task\s+[^;|\r\n]{{1,80}}?\s+blocked\s+for\s+more\s+than\s+[1-9][0-9]*\s+seconds
+    | kernel\s+panic|panic:\s+runtime\s+error
+    | thread\s+["'][^"'\r\n]{{1,80}}["']\s+panicked\s+at
+"""
+_CRASH_SCOPED_SIGNALS = r"""
+    SIGSEGV|SIGBUS|SIGILL|SIGABRT|SIGFPE
+    | deadlocks?\s+(?:detected|found)|deadlocked
+    | (?:soft|hard)\s+lockup
+"""
+CRASHES_HANGS_PATTERN = rf"""(?ix)\b(?:
+    {_CRASH_SPECIFIC_SIGNALS}|{_CRASH_SCOPED_SIGNALS}
+)(?=$|\W)"""
+_CRASH_SPECIFIC = re.compile(_CRASH_SPECIFIC_SIGNALS, re.IGNORECASE | re.VERBOSE)
+_CRASH_NON_EVENT_PREFIX = re.compile(
+    r"\b(?:caught|handled|handling|catching|not|simulate|simulating)\s+(?:an?\s+)?$"
+    r"|\bfirst[-\s]chance\s+(?:exception\s*[:=]?\s*)?$"
+    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?|enabl(?:e|ed|ing)|disabl(?:e|ed|ing))"
+    r"\s+(?:(?:an?|the)\s+)?(?:handler\s+for\s+)?[\"']?$",
+    re.IGNORECASE,
+)
+_CRASH_NON_EVENT_SUFFIX = re.compile(
+    r"s?\s+(?:detector|prevention|protection|reporting|recovery|listener)\b"
+    r"|\s+(?:(?:was|is)\s+)?(?:caught|handled)\b",
+    re.IGNORECASE,
+)
+_RUNTIME_CONTEXT = re.compile(rf"\b{_RUNTIME_SUBJECT}\b|\b(?:runtime|mutex|Java)\b", re.IGNORECASE)
+_DATABASE_LOCK_CONTEXT = re.compile(
+    r"\b(?:database|SQL|SQLSTATE|PostgreSQL|MySQL|MariaDB|Oracle|SQLite|transaction|row|table)\b",
+    re.IGNORECASE,
+)
+_SIGNAL_EVENT_CONTEXT = re.compile(
+    r"\b(?:fatal|crashed|received|killed|terminated|exited)\b|\bat\s+pc\s*=", re.IGNORECASE,
+)
+_SIGNAL_SETUP = re.compile(
+    r"\b(?:handler|sigaction|sa_mask|sa_flags|register(?:ed|ing)?|install(?:ed|ing)?|ignore|trap)\b",
+    re.IGNORECASE,
+)
+_ASSERTION_AUTH_CONTEXT = re.compile(r"\b(?:SAML|JWT|OAuth|authentication)\b", re.IGNORECASE)
+
+
+def is_crashes_hangs_candidate(line: str, start: int, end: int) -> bool:
+    """Recognize reported runtime failures, not lifecycle or diagnostic setup."""
+
+    before = re.split(r"[;|\r\n]", line[max(0, start - 180):start])[-1]
+    after = re.split(r"[;|\r\n]", line[end:end + 180])[0]
+    if (_NON_EVENT_PREFIX.search(before) or _NON_EVENT_SUFFIX.match(after)
+            or _SETTING_PREFIX.search(before) or _CRASH_NON_EVENT_PREFIX.search(before)
+            or _CRASH_NON_EVENT_SUFFIX.match(after)):
+        return False
+    candidate = line[start:end]
+    context = before + " " + after
+    if candidate.casefold().startswith("assertion ") and _ASSERTION_AUTH_CONTEXT.search(context):
+        return False
+    if _CRASH_SPECIFIC.fullmatch(candidate):
+        return True
+    if candidate.upper().startswith("SIG"):
+        return (_SIGNAL_EVENT_CONTEXT.search(context) is not None
+                and _SIGNAL_SETUP.search(context) is None)
+    if "deadlock" in candidate.casefold():
+        return (_RUNTIME_CONTEXT.search(context) is not None
+                and _DATABASE_LOCK_CONTEXT.search(context) is None)
+    return re.search(r"\b(?:BUG|detected)\b", context, re.IGNORECASE) is not None
