@@ -10,6 +10,7 @@ try:
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
+        QGroupBox,
         QLineEdit,
         QListWidget,
         QPushButton,
@@ -150,7 +151,7 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual([tabs.tabText(index) for index in range(tabs.count())],
                          ["Common patterns", "Advanced patterns", "Text and Regex"])
         self.assertEqual(self.panel._tab_counts[0].text(), "(9/22)")
-        self.assertEqual(self.panel._tab_counts[1].text(), "(0/8)")
+        self.assertEqual(self.panel._tab_counts[1].text(), "(0/9)")
         self.assertEqual(self.panel._custom_heading.text(), "Plain text matches")
         self.assertEqual(self.panel._regex_heading.text(), "Regex matches")
         self.panel._pattern_checkboxes["unavailable"].setChecked(True)
@@ -161,6 +162,7 @@ class FilterPanelTests(unittest.TestCase):
         self.panel._pattern_checkboxes["database_connections"].setChecked(True)
         self.panel._pattern_checkboxes["database_queries"].setChecked(True)
         self.panel._pattern_checkboxes["database_transactions"].setChecked(True)
+        self.panel._pattern_checkboxes["files_storage"].setChecked(True)
         tabs.setCurrentIndex(2)
         self.app.processEvents()
         self.panel._custom_pattern.setText("CaseSensitive")
@@ -196,6 +198,7 @@ class FilterPanelTests(unittest.TestCase):
             self.assertEqual(self.panel._pattern_checkboxes["database_connections"].isVisible(), index == 1)
             self.assertEqual(self.panel._pattern_checkboxes["database_queries"].isVisible(), index == 1)
             self.assertEqual(self.panel._pattern_checkboxes["database_transactions"].isVisible(), index == 1)
+            self.assertEqual(self.panel._pattern_checkboxes["files_storage"].isVisible(), index == 1)
             self.assertTrue(self.panel._context_spin.isVisible())
             self.assertTrue(self.panel._limit_spin.isVisible())
             self.assertTrue(self.panel._separate_entries.isVisible())
@@ -204,13 +207,14 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(before.custom_pattern_match_case, (True,))
         self.assertEqual(before.custom_pattern_exclude, (True,))
         self.assertEqual(self.panel._tab_counts[0].text(), "(10/22)")
-        self.assertEqual(self.panel._tab_counts[1].text(), "(7/8)")
+        self.assertEqual(self.panel._tab_counts[1].text(), "(8/9)")
         self.assertEqual(self.panel._tab_counts[2].text(), "(2)")
         self.assertEqual(self.panel._custom_heading.text(), "Plain text matches")
         self.assertEqual(self.panel._regex_heading.text(), "Regex matches")
         analysis = analyze_lines(["service UNAVAILABLE", "HTTP 503",
                                   "socket hang up; DNS lookup failed; TLS handshake failed",
-                                  "database connection pool exhausted", "SQLSTATE[23505]", "SQLSTATE[40P01]"],
+                                  "database connection pool exhausted", "SQLSTATE[23505]", "SQLSTATE[40P01]",
+                                  "No space left on device"],
                                  before.search_patterns())
         self.assertEqual(analysis.category_match_counts["unavailable"], 1)
         self.assertEqual(analysis.category_match_counts["http_5xx"], 1)
@@ -220,11 +224,29 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(analysis.category_match_counts["database_connections"], 1)
         self.assertEqual(analysis.category_match_counts["database_queries"], 1)
         self.assertEqual(analysis.category_match_counts["database_transactions"], 1)
+        self.assertEqual(analysis.category_match_counts["files_storage"], 1)
         self.assertEqual(self.panel._exclusions_label.text(), "1 exclusion")
         self.assertTrue(self.panel._exclusions_label.isVisible())
         self.panel.findChild(QPushButton, "customPatternRemoveButton").click()
         self.assertEqual(self.panel._tab_counts[2].text(), "(1)")
         self.assertFalse(self.panel._exclusions_label.isVisible())
+
+    def test_system_runtime_island_follows_database_and_fits_its_control(self):
+        self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
+        self.panel._tabs.setCurrentIndex(1)
+        self.panel.resize(1000, 500)
+        self.panel.show()
+        self.app.processEvents()
+        database = self.panel.findChild(QGroupBox, "databasePatternGroup")
+        system = self.panel.findChild(QGroupBox, "systemRuntimePatternGroup")
+        checkbox = self.panel._pattern_checkboxes["files_storage"]
+        self.assertEqual(system.accessibleName(), "System & Runtime")
+        self.assertEqual(checkbox.text(), "Files / Storage")
+        self.assertFalse(checkbox.isChecked())
+        self.assertGreater(system.x(), database.geometry().right())
+        self.assertEqual(system.y(), database.y())
+        self.assertTrue(system.rect().contains(checkbox.geometry()))
+        self.assertGreaterEqual(checkbox.width(), checkbox.sizeHint().width())
 
     def test_each_colon_and_regular_pattern_remains_independent(self):
         for colon, regular in zip(PAIRED_PATTERN_KEYS[::2], PAIRED_PATTERN_KEYS[1::2]):

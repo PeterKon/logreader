@@ -8,6 +8,7 @@ from logreader.config import (
     NETWORK_PATTERN_KEYS,
     PAIRED_PATTERN_KEYS,
     PATTERN_KEYS,
+    SYSTEM_RUNTIME_PATTERN_KEYS,
     TEXT_PATTERN_KEYS,
     LogreaderConfig,
 )
@@ -144,13 +145,15 @@ class LogreaderConfigTests(unittest.TestCase):
             "database_connections",
             "database_queries",
             "database_transactions",
+            "files_storage",
         )
         config = LogreaderConfig(enabled_patterns=tuple(reversed(PATTERN_KEYS)))
 
         self.assertEqual(PATTERN_KEYS, expected_order)
         self.assertEqual(
             PATTERN_KEYS,
-            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + NETWORK_PATTERN_KEYS + DATABASE_PATTERN_KEYS,
+            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + NETWORK_PATTERN_KEYS
+            + DATABASE_PATTERN_KEYS + SYSTEM_RUNTIME_PATTERN_KEYS,
         )
         self.assertEqual(
             DEFAULT_ENABLED_PATTERNS,

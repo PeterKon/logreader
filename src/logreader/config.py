@@ -24,6 +24,7 @@ from .network_matchers import (
     is_tls_certificate_candidate,
 )
 from .file_loader import DEFAULT_MAX_LINES_SCANNED
+from .system_matchers import FILES_STORAGE_PATTERN, is_files_storage_candidate
 
 
 APP_VERSION = f"Logreader v{__version__}"
@@ -141,6 +142,13 @@ PATTERN_PRESETS = (
         is_regex=True,
         match_validator=is_database_transaction_candidate,
     ),
+    PatternPreset(
+        "files_storage",
+        FILES_STORAGE_PATTERN,
+        "Files / Storage",
+        is_regex=True,
+        match_validator=is_files_storage_candidate,
+    ),
 )
 
 PATTERN_PRESETS_BY_KEY = {preset.key: preset for preset in PATTERN_PRESETS}
@@ -175,7 +183,8 @@ NETWORK_PATTERN_KEYS = HTTP_STATUS_PATTERN_KEYS + (
     "connection_failures", "reachability_timeouts", "tls_certificates",
 )
 DATABASE_PATTERN_KEYS = ("database_connections", "database_queries", "database_transactions")
-ADVANCED_PATTERN_KEYS = NETWORK_PATTERN_KEYS + DATABASE_PATTERN_KEYS
+SYSTEM_RUNTIME_PATTERN_KEYS = ("files_storage",)
+ADVANCED_PATTERN_KEYS = NETWORK_PATTERN_KEYS + DATABASE_PATTERN_KEYS + SYSTEM_RUNTIME_PATTERN_KEYS
 PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + ADVANCED_PATTERN_KEYS
 DEFAULT_ENABLED_PATTERNS = (
     "error_colon",

@@ -36,6 +36,7 @@ from ..config import (
     PAIRED_PATTERN_KEYS,
     PATTERN_KEYS,
     PATTERN_PRESETS_BY_KEY,
+    SYSTEM_RUNTIME_PATTERN_KEYS,
     TEXT_PATTERN_KEYS,
     LogreaderConfig,
 )
@@ -606,6 +607,16 @@ class FilterPanel(QGroupBox):
             0,
             Qt.AlignmentFlag.AlignTop,
         )
+        advanced_layout.addWidget(
+            self._build_pattern_group(
+                "System & Runtime",
+                SYSTEM_RUNTIME_PATTERN_KEYS,
+                object_name="systemRuntimePatternGroup",
+                columns=1,
+            ),
+            0,
+            Qt.AlignmentFlag.AlignTop,
+        )
         advanced_layout.addStretch(1)
         self._pages.addWidget(advanced)
         searches = QWidget()
@@ -873,7 +884,7 @@ class FilterPanel(QGroupBox):
             return "HTTP 4xx"
         if key == "http_5xx":
             return "HTTP 5xx"
-        if key in ("reachability_timeouts", "tls_certificates") or key in DATABASE_PATTERN_KEYS:
+        if key in ADVANCED_PATTERN_KEYS:
             return PATTERN_PRESETS_BY_KEY[key].label
         return PATTERN_PRESETS_BY_KEY[key].label.capitalize()
 
