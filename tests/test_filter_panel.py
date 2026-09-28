@@ -151,7 +151,7 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual([tabs.tabText(index) for index in range(tabs.count())],
                          ["Common patterns", "Advanced patterns", "Text and Regex"])
         self.assertEqual(self.panel._tab_counts[0].text(), "(9/22)")
-        self.assertEqual(self.panel._tab_counts[1].text(), "(0/11)")
+        self.assertEqual(self.panel._tab_counts[1].text(), "(0/12)")
         self.assertEqual(self.panel._custom_heading.text(), "Plain text matches")
         self.assertEqual(self.panel._regex_heading.text(), "Regex matches")
         self.panel._pattern_checkboxes["unavailable"].setChecked(True)
@@ -165,6 +165,7 @@ class FilterPanelTests(unittest.TestCase):
         self.panel._pattern_checkboxes["files_storage"].setChecked(True)
         self.panel._pattern_checkboxes["memory_resources"].setChecked(True)
         self.panel._pattern_checkboxes["crashes_hangs"].setChecked(True)
+        self.panel._pattern_checkboxes["access_credentials"].setChecked(True)
         tabs.setCurrentIndex(2)
         self.app.processEvents()
         self.panel._custom_pattern.setText("CaseSensitive")
@@ -203,6 +204,7 @@ class FilterPanelTests(unittest.TestCase):
             self.assertEqual(self.panel._pattern_checkboxes["files_storage"].isVisible(), index == 1)
             self.assertEqual(self.panel._pattern_checkboxes["memory_resources"].isVisible(), index == 1)
             self.assertEqual(self.panel._pattern_checkboxes["crashes_hangs"].isVisible(), index == 1)
+            self.assertEqual(self.panel._pattern_checkboxes["access_credentials"].isVisible(), index == 1)
             self.assertTrue(self.panel._context_spin.isVisible())
             self.assertTrue(self.panel._limit_spin.isVisible())
             self.assertTrue(self.panel._separate_entries.isVisible())
@@ -211,14 +213,15 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(before.custom_pattern_match_case, (True,))
         self.assertEqual(before.custom_pattern_exclude, (True,))
         self.assertEqual(self.panel._tab_counts[0].text(), "(10/22)")
-        self.assertEqual(self.panel._tab_counts[1].text(), "(10/11)")
+        self.assertEqual(self.panel._tab_counts[1].text(), "(11/12)")
         self.assertEqual(self.panel._tab_counts[2].text(), "(2)")
         self.assertEqual(self.panel._custom_heading.text(), "Plain text matches")
         self.assertEqual(self.panel._regex_heading.text(), "Regex matches")
         analysis = analyze_lines(["service UNAVAILABLE", "HTTP 503",
                                   "socket hang up; DNS lookup failed; TLS handshake failed",
                                   "database connection pool exhausted", "SQLSTATE[23505]", "SQLSTATE[40P01]",
-                                  "No space left on device", "OutOfMemoryError", "Unhandled exception"],
+                                  "No space left on device", "OutOfMemoryError", "Unhandled exception",
+                                  "Invalid credentials"],
                                  before.search_patterns())
         self.assertEqual(analysis.category_match_counts["unavailable"], 1)
         self.assertEqual(analysis.category_match_counts["http_5xx"], 1)
@@ -231,6 +234,7 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(analysis.category_match_counts["files_storage"], 1)
         self.assertEqual(analysis.category_match_counts["memory_resources"], 1)
         self.assertEqual(analysis.category_match_counts["crashes_hangs"], 1)
+        self.assertEqual(analysis.category_match_counts["access_credentials"], 1)
         self.assertEqual(self.panel._exclusions_label.text(), "1 exclusion")
         self.assertTrue(self.panel._exclusions_label.isVisible())
         self.panel.findChild(QPushButton, "customPatternRemoveButton").click()
@@ -244,6 +248,15 @@ class FilterPanelTests(unittest.TestCase):
         self.panel.show()
         self.app.processEvents()
         database = self.panel.findChild(QGroupBox, "databasePatternGroup")
+        network = self.panel.findChild(QGroupBox, "networkPatternGroup")
+        application = self.panel.findChild(QGroupBox, "applicationPatternGroup")
+        self.assertGreater(application.x(), network.geometry().right())
+        self.assertGreater(database.x(), application.geometry().right())
+        checkbox = self.panel._pattern_checkboxes["access_credentials"]
+        self.assertEqual(checkbox.text(), "Access / Credentials")
+        self.assertTrue(checkbox.isEnabled())
+        self.assertFalse(checkbox.isChecked())
+        self.assertTrue(application.rect().contains(checkbox.geometry()))
         system = self.panel.findChild(QGroupBox, "systemRuntimePatternGroup")
         self.assertEqual(system.accessibleName(), "System & Runtime")
         self.assertGreater(system.x(), database.geometry().right())

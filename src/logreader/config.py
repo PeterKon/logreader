@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import __version__
+from .application_matchers import ACCESS_CREDENTIALS_PATTERN, is_access_credentials_candidate
 from .core import COMBINED_CATEGORY_KEY, MatchValidator, SearchPattern
 from .database_matchers import (
     DATABASE_CONNECTION_PATTERN,
@@ -129,6 +130,13 @@ PATTERN_PRESETS = (
         match_validator=is_tls_certificate_candidate,
     ),
     PatternPreset(
+        "access_credentials",
+        ACCESS_CREDENTIALS_PATTERN,
+        "Access / Credentials",
+        is_regex=True,
+        match_validator=is_access_credentials_candidate,
+    ),
+    PatternPreset(
         "database_connections",
         DATABASE_CONNECTION_PATTERN,
         "Connections / Pools",
@@ -203,9 +211,12 @@ HTTP_STATUS_PATTERN_KEYS = ("http_4xx", "http_5xx")
 NETWORK_PATTERN_KEYS = HTTP_STATUS_PATTERN_KEYS + (
     "connection_failures", "reachability_timeouts", "tls_certificates",
 )
+APPLICATION_PATTERN_KEYS = ("access_credentials",)
 DATABASE_PATTERN_KEYS = ("database_connections", "database_queries", "database_transactions")
 SYSTEM_RUNTIME_PATTERN_KEYS = ("files_storage", "memory_resources", "crashes_hangs")
-ADVANCED_PATTERN_KEYS = NETWORK_PATTERN_KEYS + DATABASE_PATTERN_KEYS + SYSTEM_RUNTIME_PATTERN_KEYS
+ADVANCED_PATTERN_KEYS = (
+    NETWORK_PATTERN_KEYS + APPLICATION_PATTERN_KEYS + DATABASE_PATTERN_KEYS + SYSTEM_RUNTIME_PATTERN_KEYS
+)
 PATTERN_KEYS = PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS + ADVANCED_PATTERN_KEYS
 DEFAULT_ENABLED_PATTERNS = (
     "error_colon",

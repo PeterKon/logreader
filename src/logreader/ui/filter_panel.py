@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from ..config import (
     ADVANCED_PATTERN_KEYS,
+    APPLICATION_PATTERN_KEYS,
     DATABASE_PATTERN_KEYS,
     DEFAULT_CONTEXT,
     DEFAULT_ENABLED_PATTERNS,
@@ -592,6 +593,16 @@ class FilterPanel(QGroupBox):
                 ("connection_failures", "tls_certificates", "reachability_timeouts",
                  "http_4xx", "http_5xx"),
                 object_name="networkPatternGroup",
+                columns=1,
+            ),
+            0,
+            Qt.AlignmentFlag.AlignTop,
+        )
+        advanced_layout.addWidget(
+            self._build_pattern_group(
+                "Application",
+                APPLICATION_PATTERN_KEYS,
+                object_name="applicationPatternGroup",
                 columns=1,
             ),
             0,
