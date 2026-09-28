@@ -146,6 +146,7 @@ class LogreaderConfigTests(unittest.TestCase):
             "database_queries",
             "database_transactions",
             "files_storage",
+            "memory_resources",
         )
         config = LogreaderConfig(enabled_patterns=tuple(reversed(PATTERN_KEYS)))
 

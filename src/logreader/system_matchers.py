@@ -1,4 +1,4 @@
-"""File and storage failure signals with candidate-local noise checks."""
+"""System and runtime failure signals with candidate-local noise checks."""
 
 from __future__ import annotations
 
@@ -122,3 +122,91 @@ def is_files_storage_candidate(line: str, start: int, end: int) -> bool:
         any("://" not in token and _PATH.search(token) for token in context.split())
         or bool(_FILE_OPERATION.search(context) and _RELATIVE_FILE.search(context))
     )
+
+
+_RESOURCE_SPECIFIC_SIGNALS = r"""
+    ENOMEM|EMFILE|ENFILE|E_OUTOFMEMORY
+    | ERROR_(?:NOT_ENOUGH_MEMORY|OUTOFMEMORY|TOO_MANY_OPEN_FILES|NO_SYSTEM_RESOURCES
+        |NONPAGED_SYSTEM_RESOURCES|PAGED_SYSTEM_RESOURCES|WORKING_SET_QUOTA
+        |PAGEFILE_QUOTA|COMMITMENT_LIMIT)
+    | ERR_(?:MEMORY_ALLOCATION_FAILED|WORKER_OUT_OF_MEMORY)
+    | OutOfMemory(?:Error|Exception)|InsufficientMemoryException|MemoryError|std::bad_alloc
+    | OOMKilled
+    | out[-\s]of[-\s]memory
+    | (?:cannot|can't|could\s+not|unable\s+to|failed\s+to)\s+allocate\s+(?:enough\s+)?memory
+    | (?:insufficient|not\s+enough)\s+(?:(?:native|physical|virtual)\s+)?memory
+    | memory\s+allocation\s+(?:failed|failures?)
+    | memory\s+allocation\s+of\s+\d+\s+bytes\s+failed
+    | (?:malloc|calloc|realloc)\s*(?:\(\))?\s*:?\s*failed
+    | (?:unable\s+to|failed\s+to|cannot)\s+allocate\s+\d+(?:\.\d+)?\s*(?:[KMGT]i?B|bytes?)
+    | GC\s+overhead\s+limit\s+exceeded
+    | (?:memory|heap|metaspace|file\s+descriptors?|file\s+handles?)\s+(?:(?:is|was)\s+)?exhausted
+    | (?:memory|heap|thread|process|PID|file\s+descriptor|file\s+handle)\s+
+      (?:limit|quota)\s+(?:(?:was|is|has\s+been)\s+)?(?:reached|exceeded|exhausted)
+    | too\s+many\s+open\s+files
+    | (?:file\s+descriptor|file\s+handle|handle)\s+(?:table\s+)?exhaustion
+    | (?:thread|worker)\s+pool\s+(?:(?:is|was)\s+)?exhausted
+    | (?:unable\s+to|cannot|can't|could\s+not)\s+(?:create|start)\s+(?:a\s+)?(?:new\s+)?(?:native\s+)?thread
+    | insufficient\s+(?:system\s+)?resources\s+to\s+create\s+(?:another|a\s+new)\s+(?:thread|process)
+    | insufficient\s+system\s+resources
+    | not\s+enough\s+storage\s+is\s+available\s+to\s+(?:process\s+this\s+command|complete\s+this\s+operation)
+    | (?:the\s+)?paging\s+file\s+is\s+too\s+small\s+for\s+this\s+operation
+    | (?:WinError|Win32\s+error|Windows\s+error)\s*[\[(:=]?\s*(?:4|8|14|145[0-5])
+"""
+_RESOURCE_SCOPED_SIGNALS = r"""
+    allocation\s+failed
+    | EAGAIN|resource\s+temporarily\s+unavailable
+    | resources?[-_\s]+exhaust(?:ed|ion)
+"""
+MEMORY_RESOURCES_PATTERN = rf"""(?ix)\b(?:
+    {_RESOURCE_SPECIFIC_SIGNALS}|{_RESOURCE_SCOPED_SIGNALS}
+)\b"""
+_RESOURCE_SPECIFIC = re.compile(_RESOURCE_SPECIFIC_SIGNALS, re.IGNORECASE | re.VERBOSE)
+_MEMORY_CONTEXT = re.compile(
+    r"\b(?:memory|heap|buffer|bytes|malloc|calloc|realloc|mmap|VirtualAlloc)\b", re.IGNORECASE,
+)
+_THREAD_CREATION_CONTEXT = re.compile(
+    r"\b(?:pthread_create|fork|vfork|clone|CreateThread|CreateProcess)\b"
+    r"|\b(?:creat(?:e|ing)|start(?:ing)?|spawn(?:ing)?)\s+"
+    r"(?:(?:a|new|native)\s+){0,3}(?:thread|process)\b",
+    re.IGNORECASE,
+)
+_RESOURCE_CONTEXT = re.compile(
+    r"\b(?:memory|heap|system|threads?|process(?:es)?|file\s+(?:handles?|descriptors?))\b",
+    re.IGNORECASE,
+)
+_RESOURCE_NON_EVENT_SUFFIX = re.compile(
+    r"\s+(?:errors?|events?|conditions?|killer)\s+(?:count|counter|handler|handling|policy"
+    r"|setting|configuration|monitor(?:ing)?|threshold|check|detection|enabled|disabled)\b"
+    r"|\s+(?:errors?|events?)\s*[:=]\s*(?:0|false|none|null)\b",
+    re.IGNORECASE,
+)
+_RESOURCE_NEGATION = re.compile(r"\bnot\s+$", re.IGNORECASE)
+_THREAD_NON_RESOURCE_REASON = re.compile(
+    r"\s*[:(,-]\s*(?:EPERM|EACCES|permission\s+denied|access\s+(?:is\s+)?denied"
+    r"|invalid\s+(?:argument|parameter|settings?))\b",
+    re.IGNORECASE,
+)
+
+
+def is_memory_resources_candidate(line: str, start: int, end: int) -> bool:
+    """Keep exhaustion events, excluding settings and ambiguous retry signals."""
+
+    before = re.split(r"[;|\r\n]", line[max(0, start - 180):start])[-1]
+    after = re.split(r"[;|\r\n]", line[end:end + 180])[0]
+    if (_NON_EVENT_PREFIX.search(before) or _NON_EVENT_SUFFIX.match(after)
+            or _SETTING_PREFIX.search(before) or _RESOURCE_NON_EVENT_SUFFIX.match(after)
+            or _RESOURCE_NEGATION.search(before)):
+        return False
+    candidate = line[start:end]
+    if (candidate.casefold().endswith("thread")
+            and _THREAD_NON_RESOURCE_REASON.match(after)):
+        return False
+    if _RESOURCE_SPECIFIC.fullmatch(candidate):
+        return True
+    context = before + " " + after
+    if candidate.casefold() == "allocation failed":
+        return _MEMORY_CONTEXT.search(context) is not None
+    if candidate.casefold() in ("eagain", "resource temporarily unavailable"):
+        return _THREAD_CREATION_CONTEXT.search(context) is not None
+    return _RESOURCE_CONTEXT.search(context) is not None
