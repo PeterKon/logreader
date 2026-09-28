@@ -19,8 +19,12 @@ try:
     )
 
     from logreader.config import (
+        APPLICATION_PATTERN_KEYS,
+        DATABASE_PATTERN_KEYS,
         DEFAULT_ENABLED_PATTERNS,
+        NETWORK_PATTERN_KEYS,
         PAIRED_PATTERN_KEYS,
+        SYSTEM_RUNTIME_PATTERN_KEYS,
         TEXT_PATTERN_KEYS,
     )
     from logreader.ui.filter_panel import FilterPanel
@@ -138,6 +142,45 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(paired_toggle.text(), "Clear all")
         self.assertEqual(text_toggle.text(), "Clear all")
         self.assertEqual(self.panel.build_config().custom_patterns, ("keep",))
+
+    def test_advanced_category_toggles_are_scoped_and_follow_selection(self):
+        self.panel._custom_pattern.setText("keep")
+        self.panel.add_custom_pattern()
+        for name, keys in (
+            ("toggleNetworkButton", NETWORK_PATTERN_KEYS),
+            ("toggleApplicationButton", APPLICATION_PATTERN_KEYS),
+            ("toggleDatabaseButton", DATABASE_PATTERN_KEYS),
+            ("toggleSystemButton", SYSTEM_RUNTIME_PATTERN_KEYS),
+        ):
+            with self.subTest(category=name):
+                button = self.panel.findChild(QPushButton, name)
+                self.assertIsNotNone(button)
+                outside = {
+                    key: checkbox.isChecked()
+                    for key, checkbox in self.panel._pattern_checkboxes.items()
+                    if key not in keys
+                }
+                self.assertEqual(button.text(), "Select all")
+                button.click()
+                self.assertTrue(all(self.panel._pattern_checkboxes[key].isChecked() for key in keys))
+                self.assertEqual(button.text(), "Clear all")
+                self.assertEqual(
+                    {key: self.panel._pattern_checkboxes[key].isChecked() for key in outside},
+                    outside,
+                )
+                self.panel._pattern_checkboxes[keys[0]].setChecked(False)
+                self.assertEqual(button.text(), "Select all")
+                button.click()
+                self.assertTrue(all(self.panel._pattern_checkboxes[key].isChecked() for key in keys))
+                self.assertEqual(button.text(), "Clear all")
+                button.click()
+                self.assertFalse(any(self.panel._pattern_checkboxes[key].isChecked() for key in keys))
+                self.assertEqual(button.text(), "Select all")
+                self.assertEqual(
+                    {key: self.panel._pattern_checkboxes[key].isChecked() for key in outside},
+                    outside,
+                )
+                self.assertEqual(self.panel.build_config().custom_patterns, ("keep",))
 
     def test_switching_editors_preserves_filters_options_and_drafts(self):
         tabs = self.panel.findChild(QTabBar, "filterTabs")
@@ -272,7 +315,7 @@ class FilterPanelTests(unittest.TestCase):
             self.assertTrue(application.rect().contains(checkbox.geometry()))
             self.assertGreaterEqual(checkbox.width(), checkbox.sizeHint().width())
         system = self.panel.findChild(QGroupBox, "systemRuntimePatternGroup")
-        self.assertEqual(system.accessibleName(), "System & Runtime")
+        self.assertEqual(system.accessibleName(), "System")
         self.assertGreater(system.x(), database.geometry().right())
         self.assertEqual(system.y(), database.y())
         previous = None

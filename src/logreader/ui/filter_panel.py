@@ -594,6 +594,7 @@ class FilterPanel(QGroupBox):
                  "http_4xx", "http_5xx"),
                 object_name="networkPatternGroup",
                 columns=1,
+                toggle_object_name="toggleNetworkButton",
             ),
             0,
             Qt.AlignmentFlag.AlignTop,
@@ -604,6 +605,7 @@ class FilterPanel(QGroupBox):
                 APPLICATION_PATTERN_KEYS,
                 object_name="applicationPatternGroup",
                 columns=1,
+                toggle_object_name="toggleApplicationButton",
             ),
             0,
             Qt.AlignmentFlag.AlignTop,
@@ -614,16 +616,18 @@ class FilterPanel(QGroupBox):
                 DATABASE_PATTERN_KEYS,
                 object_name="databasePatternGroup",
                 columns=1,
+                toggle_object_name="toggleDatabaseButton",
             ),
             0,
             Qt.AlignmentFlag.AlignTop,
         )
         advanced_layout.addWidget(
             self._build_pattern_group(
-                "System & Runtime",
+                "System",
                 SYSTEM_RUNTIME_PATTERN_KEYS,
                 object_name="systemRuntimePatternGroup",
                 columns=1,
+                toggle_object_name="toggleSystemButton",
             ),
             0,
             Qt.AlignmentFlag.AlignTop,
@@ -840,6 +844,7 @@ class FilterPanel(QGroupBox):
             toggle_button = QPushButton("Select all")
             configure_action_button(toggle_button)
             toggle_button.setObjectName(toggle_object_name)
+            toggle_button.setProperty("patternGroupToggle", True)
             toggle_button.clicked.connect(
                 lambda _checked=False, keys=pattern_keys: self.toggle_patterns(keys)
             )

@@ -208,8 +208,7 @@ QPushButton#openButton:focus {{
 QPushButton#openButton:pressed {{
     background-color: {THEME_COLORS['ui_button_pressed']};
 }}
-QPushButton#togglePairedButton,
-QPushButton#toggleTextButton {{
+QPushButton[patternGroupToggle="true"] {{
     background-color: transparent;
     border: none;
     border-radius: 0;
@@ -217,15 +216,12 @@ QPushButton#toggleTextButton {{
     min-height: 0;
     padding: 0;
 }}
-QPushButton#togglePairedButton:hover,
-QPushButton#toggleTextButton:hover,
-QPushButton#togglePairedButton:focus,
-QPushButton#toggleTextButton:focus {{
+QPushButton[patternGroupToggle="true"]:hover,
+QPushButton[patternGroupToggle="true"]:focus {{
     color: {THEME_COLORS['ui_accent']};
     text-decoration: underline;
 }}
-QPushButton#togglePairedButton:disabled,
-QPushButton#toggleTextButton:disabled {{
+QPushButton[patternGroupToggle="true"]:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
 }}
 QPushButton#customPatternAddButton,
