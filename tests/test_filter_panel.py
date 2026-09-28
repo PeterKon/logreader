@@ -423,7 +423,7 @@ class FilterPanelTests(unittest.TestCase):
         actions = button.menu().actions()
         self.assertEqual([action.text() for action in actions],
                          ["Email addresses", "IPv4 addresses", "IPv6 addresses", "URLs",
-                          "UUIDs", "Windows paths", "Unix paths"])
+                          "UUIDs", "Windows paths", "Unix paths", "MAC addresses", "ISO timestamps"])
 
         actions[0].trigger()
         expressions = self.panel.build_config().regex_patterns
@@ -453,13 +453,14 @@ class FilterPanelTests(unittest.TestCase):
     def test_presets_add_their_respective_expressions(self):
         actions = self.panel.findChild(QPushButton, "regexPresetButton").menu().actions()
         samples = ["192.168.1.42", "fe80::1%eth0", "https://[::1]:8080/api?q=1#result",
-                   "550e8400-e29b-41d4-a716-446655440000", r"C:\Logs\app.log", "/var/log/app.log"]
+                   "550e8400-e29b-41d4-a716-446655440000", r"C:\Logs\app.log", "/var/log/app.log",
+                   "00:1A:2B:3C:4D:5E", "2026-09-28T14:32:08.123+02:00"]
         self.assertEqual(len(actions) - 1, len(samples))
         for action, sample in zip(actions[1:], samples):
             action.trigger()
             self.assertEqual(re.findall(self.panel.build_config().regex_patterns[-1], sample),
                              [sample])
-        self.assertEqual(self.panel._tab_counts[2].text(), "(6)")
+        self.assertEqual(self.panel._tab_counts[2].text(), "(8)")
 
 
 if __name__ == "__main__":

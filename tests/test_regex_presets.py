@@ -92,6 +92,28 @@ class RegexPresetTests(unittest.TestCase):
                       uuid.replace("e29b", "g29b")):
             self.assert_matches("UUIDs", value, [])
 
+    def test_mac_addresses_formats_case_and_address_types(self):
+        for digits in ("001A2b3C4d5E", "000000000000", "FFFFFFFFFFFF", "020000000001", "01005E000001"):
+            for address in (":".join(digits[i:i + 2] for i in range(0, 12, 2)),
+                            "-".join(digits[i:i + 2] for i in range(0, 12, 2)),
+                            ".".join(digits[i:i + 4] for i in range(0, 12, 4))):
+                for value in (address, address.lower(), address.upper()):
+                    with self.subTest(address=value):
+                        self.assert_matches("MAC addresses", f'src="{value}", dst=[{value}].', [value, value])
+        self.assert_matches("MAC addresses", "00:1a:2b:3c:4d:5e;00-1A-2B-3C-4D-5E;001a.2b3c.4d5e",
+                            ["00:1a:2b:3c:4d:5e", "00-1A-2B-3C-4D-5E", "001a.2b3c.4d5e"])
+
+    def test_mac_addresses_reject_malformed_and_embedded_fragments(self):
+        invalid = ["00:1a:2b:3c:4d", "00:1a:2b:3c:4d:5e:6f", "00:1a:2b:3c:4d:5e:6f:70",
+                   "00-1a-2b-3c-4d-5e-6f-70", "001a.2b3c.4d5e.6f70", "00:1a-2b:3c:4d:5e",
+                   "00-1a:2b-3c-4d-5e", "00:1a:2b:3c:4d:5g", "0:1a:2b:3c:4d:5e",
+                   "000:1a:2b:3c:4d:5e", "001a.2b3c.4d5", "001a.2b3c.4d5e0", "001a2b3c4d5e",
+                   "x00:1a:2b:3c:4d:5e", "00:1a:2b:3c:4d:5ex", "name-001a.2b3c.4d5e",
+                   "2001:db8:00:1a:2b:3c:4d:5e", "550e8400-e29b-41d4-a716-446655440000"]
+        for value in invalid:
+            with self.subTest(value=value):
+                self.assert_matches("MAC addresses", value, [])
+
     def test_windows_path_forms_and_log_boundaries(self):
         paths = [r"C:\Logs\app.log", "d:/logs/app.log", "C:\\", r"C:logs\app.log",
                  r"\\server\share", r"\\server\share\logs\app.log", r"\\?\C:\Logs\app.log",
@@ -105,6 +127,43 @@ class RegexPresetTests(unittest.TestCase):
         self.assert_matches("Windows paths", r"Failed (C:\Logs\app.log).", [r"C:\Logs\app.log"])
         self.assert_matches("Windows paths", "app.log logs/app.log logs\\app.log https://example.org/C:/logs",
                             [])
+
+    def test_iso_timestamps_separators_precision_and_offsets(self):
+        for separator in ("T", "t", " "):
+            for fraction in ("", ".1", ".123", ".123456", ".123456789", ",123"):
+                for zone in ("", "Z", "z", "+02:00", "-05:30", "+0545", "-0330", "+02", "-00:00"):
+                    value = f"2026-09-28{separator}14:32:08{fraction}{zone}"
+                    with self.subTest(value=value):
+                        self.assert_matches("ISO timestamps", f'time="{value}"', [value])
+        self.assert_matches("ISO timestamps", "1990-12-31T23:59:60Z", ["1990-12-31T23:59:60Z"])
+
+    def test_iso_timestamps_in_log_entries(self):
+        cases = [
+            ('{"log":"Started","stream":"stdout","time":"2019-01-01T11:11:11.111111111Z"}',
+             ["2019-01-01T11:11:11.111111111Z"]),
+            ("2026-09-28T14:32:08.123+02:00 INFO 1234 --- [main] Server started",
+             ["2026-09-28T14:32:08.123+02:00"]),
+            ("2026-09-28 12:32:08,123 INFO worker: Started", ["2026-09-28 12:32:08,123"]),
+            ("2026-09-28 12:32:08.123 UTC [1234] LOG: checkpoint complete", ["2026-09-28 12:32:08.123"]),
+            ("start=[2026-09-28T12:32:08Z], end=2026-09-28T12:33:08.5Z.",
+             ["2026-09-28T12:32:08Z", "2026-09-28T12:33:08.5Z"]),
+        ]
+        for line, expected in cases:
+            self.assert_matches("ISO timestamps", line, expected)
+
+    def test_iso_timestamps_reject_invalid_fields_and_partial_tokens(self):
+        invalid = ["2026-00-28T12:32:08Z", "2026-13-28T12:32:08Z", "2026-09-00T12:32:08Z",
+                   "2026-09-32T12:32:08Z", "2026-09-28T25:32:08Z", "2026-09-28T12:60:08Z",
+                   "2026-09-28T12:32:61Z", "2026-09-28T12:32:08+25:00", "2026-09-28T12:32:08+02:60",
+                   "2026-09-28T12:32:08+020", "2026-09-28T12:32:08+2:00", "2026-09-28T12:32:08+",
+                   "2026-09-28T12:32:08.Z", "2026-09-28T12:32:08.123x", "2026-09-28T12:32:08.1.2Z",
+                   "2026-09-28T12:32:08Z+02:00", "2026-09-28T12:32:080Z", "12026-09-28T12:32:08Z",
+                   "id2026-09-28T12:32:08Z", "2026-09-28T12:32:08Zsuffix", "2026-09-28", "12:32:08",
+                   "2026-9-28T12:32:08Z", "2026-W40-1T12:32:08Z", "20260928T123208Z",
+                   "2026-09-28\n12:32:08Z", "2026-09-28  12:32:08Z"]
+        for value in invalid:
+            with self.subTest(value=value):
+                self.assert_matches("ISO timestamps", value, [])
 
     def test_quoted_windows_paths_preserve_spaces_and_punctuation(self):
         for path in (r"C:\Program Files (x86)\app\app.log", r"\\server\Shared Files\app.log",
