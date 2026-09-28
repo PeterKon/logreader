@@ -38,6 +38,10 @@ class HttpPatternTests(PatternAssertions, unittest.TestCase):
                 f"httpStatusCode = {code}",
                 f'{{"http.response.status_code":{code}}}',
                 f'{{"http.status_code":"{code}"}}',
+                f'{{"http":{{"response":{{"status_code":{code}}}}}}}',
+                f'{{"http":{{"status_code":"{code}"}}}}',
+                f'INFO {{"http":{{"request":{{"method":"GET"}},"response":{{"status_code":{code}}}}}}}',
+                f'{{"event":{{"http":{{"response":{{"headers":{{}},"status_code":{code}}}}}}}}}',
                 f'{{"url":"https://example.org/", "http.response.status_code":{code}}}',
                 f"HTTP response status={code}",
                 f"HTTP request completed response_code={code}",
@@ -67,6 +71,11 @@ class HttpPatternTests(PatternAssertions, unittest.TestCase):
                 f"HTTP request completed; result={code}",
                 f"HTTP request parameter code={code}",
                 f'{{"http.request.method":"GET","other":{{"code":{code}}}}}',
+                f'{{"http":{{"response":{{"status_code":200}}}},"other":{{"status_code":{code}}}}}',
+                f'{{"http":{{"request":{{"status_code":{code}}}}}}}',
+                f'{{"http":{{"response":{{"metadata":{{"status_code":{code}}}}}}}}}',
+                f'{{"http":{{"response":{{"status_code":{code}.5}}}}}}',
+                f'{{"http":{{"response":{{"status_code":"{code} ms"}}}}}}',
                 f"GET /?status={code} HTTP/1.1",
                 f"https://example.org/?http_status={code}",
                 f"/errors/HTTP{code}",
@@ -96,6 +105,8 @@ class HttpPatternTests(PatternAssertions, unittest.TestCase):
                 f"retry_on_status=[HTTP {code}]",
                 f'{{"expected":{{"http.status_code":{code}}}}}',
                 f'{{"settings":{{"httpStatus":{code}}}}}',
+                f'{{"expected":{{"http":{{"response":{{"status_code":{code}}}}}}}}}',
+                f'{{"settings":{{"metadata":{{}},"http":{{"response":{{"status_code":{code}}}}}}}}}',
             ), False)
 
     def test_access_logs_only_highlight_status_not_sizes_requests_or_headers(self):
@@ -122,11 +133,40 @@ class HttpPatternTests(PatternAssertions, unittest.TestCase):
             ("No HTTP 500 errors; HTTP 404 received", {"http_4xx": ["404"]}),
             ("HTTP 404 handler registered; received HTTP 503", {"http_5xx": ["503"]}),
             ('{"expected":{"httpStatus":404},"httpStatus":503}', {"http_5xx": ["503"]}),
+            ('{"expected":{"http":{"response":{"status_code":404}}},'
+             '"http":{"response":{"status_code":503}}}', {"http_5xx": ["503"]}),
             ("HTTP 404 followed by HTTP 503", {"http_4xx": ["404"], "http_5xx": ["503"]}),
         )
         for line, expected in examples:
             with self.subTest(line=line):
                 self.assert_statuses(line, expected)
+
+    def test_rate_limit_matches_share_http_response_validation(self):
+        patterns = LogreaderConfig(
+            context=0, enabled_patterns=("http_4xx", "services_jobs"),
+        ).search_patterns()
+        prefix = '127.0.0.1 - - [28/Sep/2026:12:00:00 +0200] '
+        for line, expected in (
+            ("HTTP429", True),
+            ("HTTP/2 429", True),
+            ("http_status=429", True),
+            ('{"http":{"response":{"status_code":429}}}', True),
+            ("Received expected HTTP 429; retry succeeded", True),
+            (prefix + '"GET / HTTP/1.1" 429 200 "-" "Agent"', True),
+            ("retry_on_status=[HTTP 429]", False),
+            ("expected_http_status=429 actual_http_status=200", False),
+            ("HTTP 429 handler registered", False),
+            ("HTTP 429 errors: 0", False),
+            ('{"expected":{"http":{"response":{"status_code":429}}}}', False),
+            (prefix + '"GET / HTTP/1.1" 200 429 "-" "HTTP 429"', False),
+            ("https://example.org/HTTP429", False),
+            ("HTTP 429.5", False),
+        ):
+            with self.subTest(line=line):
+                result = analyze_lines([line], patterns)
+                self.assertEqual(result.category_match_counts, {
+                    "http_4xx": int(expected), "services_jobs": int(expected),
+                })
 
     def test_internal_noise_checks_preserve_other_patterns_and_context(self):
         patterns = LogreaderConfig(

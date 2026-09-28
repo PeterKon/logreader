@@ -29,6 +29,7 @@ CONNECTION_FAILURE_PATTERN = r"""(?ix)
             | (?:read|write|send|receive|connect)\s+(?:error|failed))
         | (?:failed|unable)\s+to\s+(?:connect|bind)
         | failed\s+to\s+establish\s+(?:a\s+)?connection
+        | connection\s+(?:could\s+not|cannot|couldn't|can't)\s+be\s+established
         | could\s+not\s+(?:connect|bind)
         | bind\s*(?:\(\))?\s*(?::\s*)?failed
         | (?:address|port(?:\s+[0-9]{1,5})?)\s+(?:is\s+)?already\s+in\s+use
@@ -52,9 +53,12 @@ _AMBIGUOUS_CONNECTION_FAILURE = re.compile(
     re.IGNORECASE,
 )
 _NETWORK_NON_EVENT_PREFIX = re.compile(
-    r"\b(?:no|without|zero|0)\s+(?:(?:new|further|reported|any)\s+){0,2}$"
-    r"|\b(?:retry[_ -]on|ignore[d]?[_ -](?:errors?|codes?)"
-    r"|expected[_ -](?:errors?|codes?))\s*[=:]\s*[\[\"']*\s*$",
+    r"\b(?:no|without|zero|0)\s+(?:(?:new|further|reported|any)\s+){0,2}$",
+    re.IGNORECASE,
+)
+_NETWORK_POLICY_PREFIX = re.compile(
+    r"\b(?:retry[_ -]on|retryable[_ -](?:errors?|codes?)|ignore[d]?[_ -](?:errors?|codes?)"
+    r"|expected[_ -](?:errors?|codes?))[\"']?\s*[:=]\s*(?:\[[^\]\r\n]*)?[\"']?\s*$",
     re.IGNORECASE,
 )
 _NETWORK_NON_EVENT_SUFFIX = re.compile(
@@ -77,7 +81,8 @@ def is_connection_failure_candidate(line: str, start: int, end: int) -> bool:
     """Keep explicit failures, validating ambiguous phrases near each match."""
 
     before, after = _network_candidate_context(line, start, end)
-    if (_NETWORK_NON_EVENT_PREFIX.search(before)
+    if (_NETWORK_POLICY_PREFIX.search(line[:start])
+            or _NETWORK_NON_EVENT_PREFIX.search(before)
             or _NETWORK_NON_EVENT_SUFFIX.match(after)):
         return False
     candidate = line[start:end]
@@ -151,7 +156,8 @@ def is_reachability_timeout_candidate(line: str, start: int, end: int) -> bool:
     """Reject timeout settings and require context for ambiguous error names."""
 
     before, after = _network_candidate_context(line, start, end)
-    if (_NETWORK_NON_EVENT_PREFIX.search(before)
+    if (_NETWORK_POLICY_PREFIX.search(line[:start])
+            or _NETWORK_NON_EVENT_PREFIX.search(before)
             or _NETWORK_NON_EVENT_SUFFIX.match(after)):
         return False
     candidate = line[start:end]
@@ -236,7 +242,8 @@ def is_tls_certificate_candidate(line: str, start: int, end: int) -> bool:
     """Separate TLS/certificate failures from routine state and generic errors."""
 
     before, after = _network_candidate_context(line, start, end)
-    if (_NETWORK_NON_EVENT_PREFIX.search(before)
+    if (_NETWORK_POLICY_PREFIX.search(line[:start])
+            or _NETWORK_NON_EVENT_PREFIX.search(before)
             or _NETWORK_NON_EVENT_SUFFIX.match(after)):
         return False
     candidate = line[start:end]
@@ -251,6 +258,9 @@ def is_tls_certificate_candidate(line: str, start: int, end: int) -> bool:
 
 
 _HTTP_QUOTED = r'"(?:[^"\\\r\n]|\\.)*"'
+_HTTP_OBJECT_TOKEN = re.compile(
+    rf'(?P<key>{_HTTP_QUOTED})\s*:|{_HTTP_QUOTED}|[{{}}\[\],]|[^\s{{}}\[\],"]+'
+)
 # Only the status column counts in common/combined access logs. Referrers,
 # user agents and byte counts can also contain HTTP-looking numbers.
 _HTTP_ACCESS_RECORD = re.compile(
@@ -358,7 +368,15 @@ def is_http_status_candidate(line: str, start: int, end: int) -> bool:
         if field.group("quote") and not after.startswith(field.group("quote")):
             return False
         key = re.sub(r"[._-]", "", field.group("key")).casefold()
-        if key not in _HTTP_EXPLICIT_FIELDS:
+        parents = _http_object_keys(line[:start])
+        if any(_HTTP_NON_EVENT_VALUE.fullmatch(parent + "=") for parent in parents):
+            return False
+        nested_keys = [re.sub(r"[._-]", "", parent).casefold() for parent in parents]
+        nested_http_field = any(
+            "".join(nested_keys[-depth:]) + key in _HTTP_EXPLICIT_FIELDS
+            for depth in (1, 2)
+        )
+        if key not in _HTTP_EXPLICIT_FIELDS and not nested_http_field:
             if key not in _HTTP_CONTEXTUAL_FIELDS:
                 return False
             # Generic fields need HTTP evidence in their own clause/object.
@@ -372,6 +390,28 @@ def is_http_status_candidate(line: str, start: int, end: int) -> bool:
         return False
 
     return _is_http_response_event(before[:event_start], after)
+
+
+def _http_object_keys(prefix: str) -> tuple[str, ...]:
+    """Track enclosing JSON keys without borrowing context from sibling objects."""
+
+    scopes: list[tuple[str, str]] = []
+    pending_key = ""
+    for token in _HTTP_OBJECT_TOKEN.finditer(prefix):
+        key = token.group("key")
+        value = token.group()
+        if key is not None:
+            pending_key = key[1:-1]
+            continue
+        if value in ("{", "["):
+            scopes.append(("}" if value == "{" else "]", pending_key))
+        elif value in ("}", "]"):
+            if scopes and scopes[-1][0] == value:
+                scopes.pop()
+            else:
+                scopes.clear()
+        pending_key = ""
+    return tuple(key for _, key in scopes)
 
 
 def _is_http_response_event(before: str, after: str) -> bool:

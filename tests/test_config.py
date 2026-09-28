@@ -306,6 +306,8 @@ class LogreaderConfigTests(unittest.TestCase):
             "failed to connect to server",
             "Unable to connect to https://example.test",
             "Failed to establish a connection",
+            "connection could not be established", "connection cannot be established",
+            "connection couldn't be established",
             "failed to bind to 127.0.0.1:8080",
             "could not bind to [::1]:8080",
             "bind() failed for socket",
@@ -395,6 +397,29 @@ class LogreaderConfigTests(unittest.TestCase):
                 self.assertEqual(highlights[2], ["connection refused"])
                 if not combined:
                     self.assertEqual(highlights[1], [])
+
+    def test_network_policy_lists_exclude_every_entry_but_keep_later_failures(self):
+        for key, codes in (
+            ("connection_failures", ("ECONNREFUSED", "ECONNRESET")),
+            ("reachability_timeouts", ("ENETUNREACH", "ERR_NAME_NOT_RESOLVED")),
+            ("tls_certificates", ("CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID")),
+        ):
+            patterns = LogreaderConfig(context=0, enabled_patterns=(key,)).search_patterns()
+            for policy in (
+                f"retry_on=[{', '.join(codes)}]",
+                f'"expected_errors": ["{codes[0]}", "{codes[1]}"]',
+                'retryable_codes=[' + '"unused", ' * 25 + f'"{codes[0]}", "{codes[1]}"]',
+            ):
+                for suffix, expected in (
+                    ("", []), (f", observed={codes[1]}", [codes[1]]), (f"; {codes[0]}", [codes[0]]),
+                ):
+                    with self.subTest(key=key, policy=policy, suffix=suffix):
+                        result = analyze_lines([policy + suffix], patterns).category(key)
+                        self.assertEqual(result.match_count, int(bool(suffix)))
+                        highlights = [row.text[span.start:span.end]
+                                      for excerpt in result.excerpts for row in excerpt.lines
+                                      for span in row.match_spans]
+                        self.assertEqual(highlights, expected)
 
     def test_reachability_timeouts_recognize_network_dns_and_timeout_failures(self):
         patterns = LogreaderConfig(

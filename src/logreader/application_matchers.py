@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from .network_matchers import is_http_status_candidate
+
 
 _CREDENTIAL = r"(?:credentials?|password|API\s+key|client\s+secret)"
 _AUTH_TOKEN = r"(?:(?:access|refresh|bearer|security|ID|JWT)\s+token|JWT)"
@@ -73,8 +75,9 @@ _OTHER_PERMISSION_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 _NON_EVENT_PREFIX = re.compile(
-    r"\b(?:no|not|without|zero|0)\s+(?:(?:new|further|reported|any)\s+){0,2}[\"']?(?:\w+\.)*$"
-    r"|\b(?:expected|simulated|configured|configure|handling|handled|caught)\s+[\"']?(?:\w+\.)*$"
+    r"\b(?:no|not|without|zero|0)\s+(?:(?:new|further|reported|any)\s+){0,2}"
+    r"(?:(?:caught|handled|handling)\s+)?[\"']?(?:\w+\.)*$"
+    r"|\b(?:expected|simulated|configured|configure)\s+[\"']?(?:\w+\.)*$"
     r"|\b(?:retry[_ -]on|retryable[_ -](?:errors?|codes?)|ignore[d]?[_ -](?:errors?|codes?)"
     r"|expected[_ -](?:errors?|codes?))[\"']?\s*[:=]\s*(?:\[[^\]\r\n]*)?[\"']?\s*$"
     r"|\b(?:except|catch)\b\s*\(?\s*(?:[\w]+\.)*$",
@@ -166,7 +169,7 @@ _CONFIG_SIGNALS = rf"""
 CONFIGURATION_STARTUP_PATTERN = rf"""(?ix)(?<![\w])(?:{_CONFIG_SIGNALS})(?=$|\W)"""
 _CONFIG_NON_EVENT_PREFIX = re.compile(
     r"\b(?:optional|expected|simulated|simulate|simulating|example|documented)\s+[\"']?(?:\w+\.)*$"
-    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?|handling|catching)\s+(?:an?\s+)?"
+    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?)\s+(?:an?\s+)?"
     r"(?:handler\s+for\s+)?[\"']?(?:\w+\.)*$"
     r"|\b(?:if|when|unless|on)\s+(?:(?:an?|the)\s+)?[\"']?(?:\w+\.)*$",
     re.IGNORECASE,
@@ -175,7 +178,7 @@ _CONFIG_NON_EVENT_SUFFIX = re.compile(
     r"s?[\"']?\s+(?:handler|handling|policy|counter|count|metric|monitor|detection|recovery|simulation|example)s?\b"
     r"|s?[\"']?\s*[:=]\s*(?:0(?:\.0+)?|false|none|null)\b"
     r"|s?\s+(?:errors?|failures?)\s*(?:[:=]\s*(?:0|false|none|null)\b|count\b)"
-    r"|\s+(?:(?:is|was|were)\s+)?(?:not\s+(?:observed|detected|reported|raised)|handled|caught)\b"
+    r"|\s+(?:(?:is|was|were)\s+)?not\s+(?:observed|detected|reported|raised)\b"
     r"|\.(?:java|py|cs):\d+\b",
     re.IGNORECASE,
 )
@@ -184,8 +187,8 @@ _CONFIG_OPTIONAL_PREFIX = re.compile(
     r"(?:\s+[\"'][^\"';|\r\n]{1,80}[\"'])?\s*:\s*(?:[\w.]+(?:Error|Exception):\s*)?$",
     re.IGNORECASE,
 )
-_CONFIG_CAUGHT_EXCEPTION_PREFIX = re.compile(
-    r"\b(?:caught|handled|expected|simulated)\s+[\w.]+(?:Error|Exception):\s*$",
+_CONFIG_NON_EVENT_EXCEPTION_PREFIX = re.compile(
+    r"\b(?:expected|simulated)\s+[\w.]+(?:Error|Exception):\s*$",
     re.IGNORECASE,
 )
 _CONFIG_DEFAULT_SUFFIX = re.compile(
@@ -202,7 +205,7 @@ def is_configuration_startup_candidate(line: str, start: int, end: int) -> bool:
     after = re.split(r"[;|\r\n]", line[end:end + 180])[0]
     if (_NON_EVENT_PREFIX.search(before) or _NON_EVENT_SUFFIX.match(after)
             or _CONFIG_NON_EVENT_PREFIX.search(before) or _CONFIG_NON_EVENT_SUFFIX.match(after)
-            or _CONFIG_OPTIONAL_PREFIX.search(before) or _CONFIG_CAUGHT_EXCEPTION_PREFIX.search(before)):
+            or _CONFIG_OPTIONAL_PREFIX.search(before) or _CONFIG_NON_EVENT_EXCEPTION_PREFIX.search(before)):
         return False
     # A missing setting with an explicit default is different from an invalid
     # configuration or a startup failure followed by a recovery attempt.
@@ -279,14 +282,14 @@ _DATA_TRANSACTION_CONTEXT = re.compile(
 )
 _DATA_NON_EVENT_PREFIX = re.compile(
     r"\b(?:if|when|unless|on|example|documented|simulate|simulating)\s+(?:(?:an?|the)\s+)?[\"']?(?:\w+\.)*$"
-    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?|catching)\s+(?:an?\s+)?(?:handler\s+for\s+)?[\"']?(?:\w+\.)*$"
+    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?)\s+(?:an?\s+)?(?:handler\s+for\s+)?[\"']?(?:\w+\.)*$"
     r"|\b(?:class|def)\s+(?:\w+\.)*$"
-    r"|\b(?:caught|handled|expected|simulated)\s+[\w.]+(?:Error|Exception):\s*$",
+    r"|\b(?:expected|simulated)\s+[\w.]+(?:Error|Exception):\s*$",
     re.IGNORECASE,
 )
 _DATA_NON_EVENT_SUFFIX = re.compile(
     r"s?[\"']?\s+(?:metrics?|examples?|simulation|reporting|recovery)\b"
-    r"|\s+(?:(?:is|was|were)\s+)?(?:not\s+(?:raised|observed|detected|reported)|handled|caught)\b"
+    r"|\s+(?:(?:is|was|were)\s+)?not\s+(?:raised|observed|detected|reported)\b"
     r"|\.(?:java|py|cs):\d+\b",
     re.IGNORECASE,
 )
@@ -318,6 +321,7 @@ _WORK_NAME = (
 _WORK_SUBJECT = r"(?:(?:background|scheduled|batch)\s+)?(?:job|task|worker)"
 _HEALTH_SUBJECT = r"(?:health[- ]?check|(?:liveness|readiness|startup)\s+probe)"
 _CIRCUIT_SUBJECT = rf"circuit\s*breaker{_WORK_NAME}"
+_HTTP_RATE_LIMIT = r"(?:HTTP(?:/[0-9]+(?:\.[0-9]+)?)?\s*)?429"
 _SERVICE_SPECIFIC_SIGNALS = rf"""
     {_WORK_SUBJECT}{_WORK_NAME}\s+(?:(?:has\s+|was\s+)?failed|failures?|timed\s+out
         |execution\s+failed|raised\s+(?:unexpected|error))
@@ -350,7 +354,14 @@ _SERVICE_SPECIFIC_SIGNALS = rf"""
     | ThrottlingException|ThrottledException|TooManyRequestsException|RequestLimitExceeded
     | ProvisionedThroughputExceededException|RateLimitExceeded(?:Exception)?
     | rate[- ]limit\s+(?:exceeded|reached)|too\s+many\s+requests
-    | HTTP(?:/[0-9](?:\.[0-9])?)?\s+429
+    | {_HTTP_RATE_LIMIT}
+    | replication\s+(?:(?:has|was)\s+)?(?:failed|failures?|errors?)
+    | (?:failed\s+to|unable\s+to|could\s+not|cannot)\s+replicate
+    | quorum\s+(?:(?:is|was|has\s+been)\s+)?(?:lost|loss|unavailable|not\s+(?:available|reached))
+    | (?:lost|loss\s+of)\s+(?:the\s+)?quorum
+    | (?:failed\s+to|unable\s+to|could\s+not|cannot)\s+(?:reach|establish|maintain)\s+(?:a\s+|the\s+)?quorum
+    | leader[-\s]+election\s+(?:(?:has|was)\s+)?(?:failed|failures?|timed\s+out)
+    | (?:failed\s+to|unable\s+to|could\s+not|cannot)\s+elect\s+(?:a\s+|the\s+)?leader
 """
 _SERVICE_SCOPED_SIGNALS = r"""
     throttled|rate[- ]limited|throttling\s+detected
@@ -365,14 +376,14 @@ _SERVICE_CONTEXT = re.compile(
 )
 _SERVICE_NON_EVENT_PREFIX = re.compile(
     r"\b(?:if|when|unless|on|example|documented|simulate|simulating|optional)\s+(?:(?:an?|the)\s+)?[\"']?(?:\w+\.)*$"
-    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?|catching)\s+(?:an?\s+)?(?:handler\s+for\s+)?[\"']?(?:\w+\.)*$"
+    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?)\s+(?:an?\s+)?(?:handler\s+for\s+)?[\"']?(?:\w+\.)*$"
     r"|\b(?:class|def)\s+(?:\w+\.)*$"
-    r"|\b(?:caught|handled|expected|simulated)\s+[\w.]+(?:Error|Exception):\s*$",
+    r"|\b(?:expected|simulated)\s+[\w.]+(?:Error|Exception):\s*$",
     re.IGNORECASE,
 )
 _SERVICE_NON_EVENT_SUFFIX = re.compile(
     r"s?[\"']?\s+(?:metrics?|examples?|simulation|reporting|recovery|interval)\b"
-    r"|\s+(?:(?:is|was|were)\s+)?(?:not\s+(?:raised|observed|detected|reported)|handled|caught)\b"
+    r"|\s+(?:(?:is|was|were)\s+)?not\s+(?:raised|observed|detected|reported)\b"
     r"|\.(?:java|py|cs):\d+\b",
     re.IGNORECASE,
 )
@@ -390,12 +401,14 @@ _HARDWARE_THROTTLE_CONTEXT = re.compile(r"\b(?:CPU|GPU|thermal|disk|processor)\b
 def is_services_jobs_candidate(line: str, start: int, end: int) -> bool:
     """Match reported operational failures rather than retry and health-check setup."""
 
+    candidate = line[start:end]
+    if re.fullmatch(_HTTP_RATE_LIMIT, candidate, re.IGNORECASE):
+        return is_http_status_candidate(line, end - 3, end)
     before = re.split(r"[;|\r\n]", line[max(0, start - 180):start])[-1]
     after = re.split(r"[;|\r\n]", line[end:end + 180])[0]
     if (_NON_EVENT_PREFIX.search(before) or _NON_EVENT_SUFFIX.match(after)
             or _SERVICE_NON_EVENT_PREFIX.search(before) or _SERVICE_NON_EVENT_SUFFIX.match(after)):
         return False
-    candidate = line[start:end]
     folded = candidate.casefold()
     if folded.endswith("timeout") and (
         _SERVICE_TIMEOUT_SETTING.match(after) or _SERVICE_SETTING_PREFIX.search(before)

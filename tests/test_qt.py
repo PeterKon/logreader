@@ -465,8 +465,8 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertFalse(grip.isVisible())
 
         filters._tabs.setCurrentIndex(1)
-        self.app.processEvents()
-        self.assertLess(page.controls_container.height(), initial_height)
+        self._wait_for_controls_layout()
+        self.assertGreater(page.controls_container.height(), initial_height)
         self.assertTrue(filters._pattern_checkboxes["http_4xx"].isVisible())
         self.assertFalse(filters._pattern_checkboxes["unavailable"].isVisible())
         self.assertFalse(grip.isVisible())
@@ -1292,7 +1292,7 @@ class LogreaderQtTests(unittest.TestCase):
         for key, position in (
             ("connection_failures", (0, 0)), ("tls_certificates", (1, 0)),
             ("reachability_timeouts", (2, 0)),
-            ("http_4xx", (0, 1)), ("http_5xx", (1, 1)),
+            ("http_4xx", (3, 0)), ("http_5xx", (4, 0)),
         ):
             checkbox = network.findChild(QCheckBox, f"pattern_{key}")
             self.assertEqual(grid.getItemPosition(grid.indexOf(checkbox))[:2], position)

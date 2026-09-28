@@ -26,6 +26,8 @@ class AccessCredentialsPatternTests(PatternAssertions, unittest.TestCase):
             "CredentialsExpiredException", "AuthenticationCredentialsNotFoundException",
             "AADSTS50126", "AADSTS7000215: Invalid client secret provided",
             "AADSTS7000222", "UnrecognizedClientException",
+            "ERROR handled invalid credentials for user alice",
+            "caught BadCredentialsException: Bad credentials",
         ), True)
 
     def test_invalid_expired_and_revoked_authentication_tokens(self):
@@ -165,6 +167,9 @@ class ConfigurationStartupPatternTests(PatternAssertions, unittest.TestCase):
             "DLL load failed while importing client", "error while loading shared libraries: libssl.so",
             "missing dependency client", "unresolved dependencies", "unmet dependencies",
             "dependency resolution failed", "UnsatisfiedDependencyException",
+            "caught ImportError: cannot import name client",
+            "handled ModuleNotFoundError: No module named client", "ModuleNotFoundError was caught",
+            "ERROR caught ImportError while starting application",
         ), True)
 
     def test_incompatible_versions_and_failed_initialization(self):
@@ -210,13 +215,12 @@ class ConfigurationStartupPatternTests(PatternAssertions, unittest.TestCase):
     def test_handlers_counters_flags_and_identifier_boundaries(self):
         self.assert_lines_match((
             "except ModuleNotFoundError:", "catch (TypeInitializationException ex)",
-            "caught ImportError: cannot import name client",
-            "handled ModuleNotFoundError: No module named client", "ModuleNotFoundError not raised",
+            "ModuleNotFoundError not raised", "no caught ImportError",
             "registering handler for ImportError", "startup failure handler registered",
             "initialization failure policy=retry", "startup failures count=0",
             "deployment failures=0", '"CreateContainerConfigError": false',
             "MODULE_NOT_FOUND=0", "configuration validation failures=0",
-            "startup failure was not observed", "ModuleNotFoundError was caught",
+            "startup failure was not observed",
             "at org.example.ConfigurationException.java:42", "ImportError.py:20",
             "MY_MODULE_NOT_FOUND_SETTING", "ModuleNotFoundErrorHandler", "startup_failure_count=0",
         ), False)
@@ -283,6 +287,8 @@ class DataParsingPatternTests(PatternAssertions, unittest.TestCase):
             "SyntaxError: Unexpected token '<' in JSON at position 0",
             "Unexpected end of JSON input", "unexpected end of input in JSON document",
             "invalid token in XML document", "parse failure in CSV parser",
+            "caught JsonException: invalid JSON", "JsonException was handled",
+            "ERROR caught JSONDecodeError while decoding request body",
         ), True)
 
     def test_validation_requires_data_or_library_context(self):
@@ -312,6 +318,7 @@ class DataParsingPatternTests(PatternAssertions, unittest.TestCase):
             "Could not deserialize instance of User", "object is not JSON serializable",
             "TypeError: Object of type datetime is not JSON serializable",
             "value is not serialisable", "SQL client: cannot deserialize JSON response",
+            "handled UnicodeDecodeError: invalid UTF-8",
         ), True)
 
     def test_checksums_compressed_data_and_integrity(self):
@@ -345,7 +352,7 @@ class DataParsingPatternTests(PatternAssertions, unittest.TestCase):
     def test_handlers_and_identifiers_do_not_become_events(self):
         self.assert_lines_match((
             "except json.decoder.JSONDecodeError:", "catch (JsonException ex)",
-            "caught JsonException: invalid JSON", "handled UnicodeDecodeError: invalid UTF-8",
+            "no caught JSONDecodeError", "expected JsonException: invalid JSON",
             "registering handler for XMLSyntaxError", "class JSONDecodeError(ValueError):",
             "at com.example.JsonParseException.java:42", "JSONDecodeError.py:12",
             "MY_JSONDecodeError_SETTING", "JsonExceptionHandler", "invalid_json_allowed=true",
@@ -464,7 +471,27 @@ class ServicesJobsPatternTests(PatternAssertions, unittest.TestCase):
             "rate limit exceeded", "rate-limit reached", "Too many requests",
             "request throttled", "API calls rate-limited", "throttling detected for service billing",
             "HTTP 429", "HTTP/1.1 429 Too Many Requests", "HTTP/2 429",
+            "caught ThrottlingException: too many requests", "ThrottlingException was handled",
+            "ERROR caught ThrottlingException while delivering message",
         ), True)
+
+    def test_replication_quorum_and_leader_election_failures(self):
+        self.assert_lines_match((
+            "replication failed", "database replication failed", "replication has failed",
+            "replication error: unable to apply changes", "failed to replicate records",
+            "quorum lost", "lost quorum", "loss of quorum", "quorum has been lost",
+            "quorum unavailable", "quorum not reached", "unable to reach a quorum",
+            "leader election failed", "leader-election timed out", "could not elect a leader",
+            "replication failed; retry succeeded", "quorum lost; quorum restored",
+        ), True)
+        self.assert_lines_match((
+            "replication completed", "replication lag=0", "quorum restored", "quorum reached",
+            "leader election completed", "electing a leader", "replication has not failed",
+            "quorum was not lost", "no replication failures", "no leader election failures",
+            "replication failures=0", "quorum lost=false", '"replication failed": false',
+            "quorum loss detection enabled", "replication failure handler registered",
+            "leader election failure policy=retry", "expected replication failure",
+        ), False)
 
     def test_normal_activity_settings_counters_and_negations(self):
         self.assert_lines_match((
@@ -496,7 +523,7 @@ class ServicesJobsPatternTests(PatternAssertions, unittest.TestCase):
             "optional dependency metrics unavailable", "parser job complete; throttled",
             "expected task failed", "simulated health check failed", "when service unavailable",
             "registering handler for MaxRetriesExceededError", "except CallNotPermittedException:",
-            "catch (BrokenCircuitException ex)", "caught ThrottlingException: too many requests",
+            "catch (BrokenCircuitException ex)", "no caught ThrottlingException",
             "class JobExecutionException(Exception):", "JobExecutionException.java:42",
             'retry_on=["ThrottlingException", "ServiceUnavailableException"]',
             "RequestLimitExceededSetting", "MY_JOB_FAILED_SETTING", "job_failed_count=0",
@@ -515,13 +542,15 @@ class ServicesJobsPatternTests(PatternAssertions, unittest.TestCase):
             "circuit breaker OPEN -> CLOSED; job billing failed",
             "job failures count=0; invalid JSON",
             "request throttled; later retry succeeded",
+            "no replication failures; database replication failed",
+            "quorum lost; leader election failed",
             "context after the final match",
         )
         for combined in (False, True):
             with self.subTest(combined=combined):
                 result = analyze_lines(lines, patterns, combined=combined)
                 self.assertEqual(result.category_match_counts, {
-                    "error_colon": 1, "configuration_startup": 1, "data_parsing": 1, "services_jobs": 5,
+                    "error_colon": 1, "configuration_startup": 1, "data_parsing": 1, "services_jobs": 7,
                 })
                 category = result.category("combined" if combined else "services_jobs")
                 rendered = category.excerpts[0].lines
@@ -531,7 +560,8 @@ class ServicesJobsPatternTests(PatternAssertions, unittest.TestCase):
                                   for line in rendered]
                     self.assertEqual(highlights, [
                         ["message delivery failed"], [], ["retries exhausted"], ["health check failed"],
-                        ["job billing failed"], [], ["throttled"], [],
+                        ["job billing failed"], [], ["throttled"], ["replication failed"],
+                        ["quorum lost", "leader election failed"], [],
                     ])
 
 
