@@ -224,6 +224,25 @@ QPushButton[patternGroupToggle="true"]:focus {{
 QPushButton[patternGroupToggle="true"]:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
 }}
+QPushButton#regexPresetButton {{
+    padding-right: 14px;
+}}
+QPushButton#regexPresetButton::menu-indicator {{
+    subcontrol-origin: padding;
+    subcontrol-position: right center;
+}}
+QMenu#regexPresetMenu {{
+    background-color: {THEME_COLORS['ui_button']};
+    color: {THEME_COLORS['ui_text']};
+    border: 1px solid {THEME_COLORS['ui_border_strong']};
+    menu-scrollable: 1;
+}}
+QMenu#regexPresetMenu::item {{
+    padding: 6px 16px;
+}}
+QMenu#regexPresetMenu::item:selected {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+}}
 QPushButton#customPatternAddButton,
 QPushButton#regexPatternAddButton {{
     background-color: {THEME_COLORS['ui_island']};

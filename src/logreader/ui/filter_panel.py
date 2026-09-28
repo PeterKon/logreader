@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -43,6 +44,7 @@ from ..config import (
 )
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button
 from ..file_loader import DEFAULT_MAX_LINES_SCANNED
+from ..regex_presets import REGEX_PRESETS
 from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
 
 
@@ -736,6 +738,7 @@ class FilterPanel(QGroupBox):
             add_button_object_name="regexPatternAddButton",
             list_object_name="regexPatternList",
             add_handler=self.add_regex_pattern,
+            presets=REGEX_PRESETS,
         )
         self._regex_heading = group.findChild(QLabel, "filterSectionTitle")
         return group
@@ -749,6 +752,7 @@ class FilterPanel(QGroupBox):
         add_button_object_name: str,
         list_object_name: str,
         add_handler: Callable[[], None],
+        presets: tuple[tuple[str, str], ...] = (),
     ) -> tuple[QGroupBox, QLineEdit, QListWidget]:
         group = BorderTitleGroupBox()
         group.setObjectName(group_object_name)
@@ -765,7 +769,25 @@ class FilterPanel(QGroupBox):
         heading = QLabel(title)
         heading.setObjectName("filterSectionTitle")
         group.set_border_widgets(heading)
-        layout.addWidget(heading, 0, Qt.AlignmentFlag.AlignLeft)
+        header = QHBoxLayout()
+        header.addWidget(heading, 0, Qt.AlignmentFlag.AlignVCenter)
+        header.addStretch(1)
+        if presets:
+            preset_button = QPushButton("Add preset")
+            configure_action_button(preset_button)
+            preset_button.setObjectName("regexPresetButton")
+            preset_button.setProperty("patternGroupToggle", True)
+            menu = QMenu(preset_button)
+            menu.setObjectName("regexPresetMenu")
+            for label, expression in presets:
+                action = menu.addAction(label)
+                action.triggered.connect(
+                    lambda _checked=False, pattern=expression: self._add_regex_preset(pattern)
+                )
+            preset_button.setMenu(menu)
+            header.addWidget(preset_button, 0, Qt.AlignmentFlag.AlignVCenter)
+            group.set_border_widgets(heading, preset_button)
+        layout.addLayout(header)
 
         entry_row = QHBoxLayout()
         entry_row.setSpacing(6)
@@ -969,8 +991,12 @@ class FilterPanel(QGroupBox):
         pattern_list: QListWidget,
         remove_button_object_name: str,
         remove_handler: Callable[[QListWidgetItem], None],
+        *,
+        pattern: str | None = None,
     ) -> None:
-        pattern = input_box.text().strip()
+        from_draft = pattern is None
+        if from_draft:
+            pattern = input_box.text().strip()
         if not pattern:
             return
 
@@ -1021,9 +1047,21 @@ class FilterPanel(QGroupBox):
         item_layout.addWidget(remove_button)
         pattern_list.setItemWidget(item, item_row)
 
-        input_box.clear()
+        if from_draft:
+            input_box.clear()
         input_box.setFocus()
         self._update_summary()
+
+    def _add_regex_preset(self, pattern: str) -> None:
+        if pattern in self._list_values(self._regex_pattern_list):
+            return
+        self._add_search_list_item(
+            self._regex_pattern,
+            self._regex_pattern_list,
+            "regexPatternRemoveButton",
+            self.remove_regex_pattern,
+            pattern=pattern,
+        )
 
     def remove_custom_pattern(self, item: QListWidgetItem) -> None:
         """Remove one committed custom pattern from the filter list."""

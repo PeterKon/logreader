@@ -1,4 +1,5 @@
 import os
+import re
 import unittest
 
 
@@ -412,6 +413,50 @@ class FilterPanelTests(unittest.TestCase):
             self.panel.build_config().regex_patterns,
             (r"^WARN\b",),
         )
+
+    def test_email_preset_appends_once_and_preserves_draft(self):
+        self.panel._regex_pattern.setText(r"code=\d+")
+        self.panel.add_regex_pattern()
+        self.panel._regex_pattern.setText("unfinished [")
+        button = self.panel.findChild(QPushButton, "regexPresetButton")
+        self.assertEqual(button.text(), "Add preset")
+        actions = button.menu().actions()
+        self.assertEqual([action.text() for action in actions],
+                         ["Email addresses", "IPv4 addresses", "IPv6 addresses", "URLs"])
+
+        actions[0].trigger()
+        expressions = self.panel.build_config().regex_patterns
+        self.assertEqual(len(expressions), 2)
+        self.assertEqual(expressions[0], r"code=\d+")
+        self.assertEqual(self.panel._regex_pattern.text(), "unfinished [")
+        self.assertEqual(self.panel._tab_counts[2].text(), "(2)")
+        actions[0].trigger()
+        self.assertEqual(self.panel.build_config().regex_patterns, expressions)
+
+        item = self.panel._regex_pattern_list.item(1)
+        self.assertEqual(item.data(Qt.ItemDataRole.UserRole), expressions[1])
+        self.panel.remove_regex_pattern(item)
+        actions[0].trigger()
+        self.assertEqual(self.panel.build_config().regex_patterns, expressions)
+
+        addresses = [
+            "alex@example.com", "FIRST.Last+alerts@sub.example.technology",
+            "o'connor@example.org", "user!tag%route@example.org",
+            "用户@例子.公司", "word@something.something", "a@b.c", "a..b@-host.123",
+        ]
+        line = ", ".join(addresses)
+        self.assertEqual(re.findall(expressions[1], line), addresses)
+        self.assertEqual(re.findall(expressions[1], "first@example.org;second@example.net"),
+                         ["first@example.org", "second@example.net"])
+
+    def test_network_presets_add_their_respective_expressions(self):
+        actions = self.panel.findChild(QPushButton, "regexPresetButton").menu().actions()
+        samples = ["192.168.1.42", "fe80::1%eth0", "https://[::1]:8080/api?q=1#result"]
+        for action, sample in zip(actions[1:], samples):
+            action.trigger()
+            self.assertEqual(re.findall(self.panel.build_config().regex_patterns[-1], sample),
+                             [sample])
+        self.assertEqual(self.panel._tab_counts[2].text(), "(3)")
 
 
 if __name__ == "__main__":
