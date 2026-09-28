@@ -144,6 +144,8 @@ class LogreaderConfigTests(unittest.TestCase):
             "reachability_timeouts",
             "tls_certificates",
             "access_credentials",
+            "configuration_startup",
+            "data_parsing",
             "database_connections",
             "database_queries",
             "database_transactions",

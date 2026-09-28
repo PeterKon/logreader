@@ -115,3 +115,197 @@ def is_access_credentials_candidate(line: str, start: int, end: int) -> bool:
         return bool((_ACCESS_CONTEXT.search(context) or _AWS_OPERATION.match(after))
                     and not _OTHER_PERMISSION_CONTEXT.search(context))
     return _AUTH_CONTEXT.search(context) is not None
+
+
+_CONFIG_SUBJECT = (
+    r"(?:(?:configuration|config)(?:\s+(?:file|key|property|option|value|section))?"
+    r"|settings?|environment\s+variable|env\s+var|(?:required|mandatory)\s+(?:setting|property|option|parameter))"
+)
+_CONFIG_NAME = r"(?:\s+(?:[\"'][^\"';|\r\n]{1,100}[\"']|[A-Za-z_][\w.-]{0,79}))?"
+_LOAD_TARGET = r"(?:module|package|library|shared\s+library|assembly|dependency|plugin)"
+_START_TARGET = r"(?:application|app|service|server|host|container|[\w@.-]+\.service)"
+_CONFIG_SIGNALS = rf"""
+    (?:missing|invalid|unknown|unrecogni[sz]ed|unsupported|malformed)\s+(?:required\s+)?{_CONFIG_SUBJECT}
+    | {_CONFIG_SUBJECT}{_CONFIG_NAME}\s+(?:(?:is|are|was|were)\s+)?
+      (?:missing|invalid|malformed|undefined|not\s+(?:found|set|defined|configured)
+        |(?:has|have)\s+not\s+been\s+(?:set|defined|configured))
+    | (?:failed\s+to|unable\s+to|could\s+not|cannot)\s+(?:load|read|parse|validate|bind)\s+
+      (?:the\s+)?(?:configuration|config)\b
+    | (?:configuration|config)\s+(?:validation|parsing|loading)\s+(?:failed|failure|error)
+    | failed\s+to\s+bind\s+(?:configuration\s+)?propert(?:y|ies)
+    | could\s+not\s+resolve\s+placeholder\s+["'][^"';|\r\n]{{1,100}}["']\s+in\s+value
+    | (?:ModuleNotFoundError|ImportError|NoClassDefFoundError|ClassNotFoundException
+        |UnsatisfiedLinkError|UnsupportedClassVersionError|ExceptionInInitializerError
+        |ConfigurationErrorsException|ConfigurationException|OptionsValidationException
+        |TypeInitializationException|DllNotFoundException|BadImageFormatException
+        |BeanCreationException|BeanDefinitionStoreException|UnsatisfiedDependencyException
+        |ConfigDataLocationNotFoundException|ConfigurationPropertiesBindException)
+    | ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_DLOPEN_FAILED|ERR_PACKAGE_PATH_NOT_EXPORTED
+    | ERR_INVALID_PACKAGE_CONFIG|ERR_REQUIRE_ESM
+    | no\s+module\s+named\s+["']?[\w.-]+
+    | (?:cannot|can't|could\s+not)\s+find\s+(?:module|package)\b
+    | (?:failed\s+to|unable\s+to|could\s+not|cannot)\s+load\s+(?:the\s+)?{_LOAD_TARGET}\b
+    | could\s+not\s+load\s+file\s+or\s+assembly
+    | cannot\s+import\s+name\b|DLL\s+load\s+failed|error\s+while\s+loading\s+shared\s+libraries
+    | (?:missing|unresolved|unmet)\s+(?:required\s+)?dependenc(?:y|ies)
+    | dependenc(?:y|ies)\s+(?:resolution\s+)?(?:failed|failure|conflict)
+    | (?:incompatible|unsupported)\s+(?:runtime|module|library|dependency|package|Java|Python|Node(?:\.js)?|\.NET)\s+version
+    | (?:runtime|module|library|dependency|package|Java|Python|Node(?:\.js)?|\.NET)\s+version\s+
+      (?:mismatch|incompatible|not\s+supported)
+    | (?:ABI|binary)\s+(?:version\s+)?(?:mismatch|incompatibility)
+    | (?:startup|start-up|initiali[sz]ation|deployment|rollout|bootstrap)\s+
+      (?:(?:has\s+|was\s+)?failed|failures?|error)
+    | {_START_TARGET}{_CONFIG_NAME}\s+failed\s+to\s+(?:start|initiali[sz]e)
+    | (?:failed\s+to|unable\s+to|could\s+not|cannot)\s+start\s+(?:the\s+)?{_START_TARGET}\b
+    | (?:failed\s+to|unable\s+to|could\s+not|cannot)\s+initiali[sz]e\b
+    | application\s+run\s+failed|error\s+creating\s+bean\s+with\s+name
+    | (?:failed\s+to|unable\s+to|could\s+not)\s+deploy\b
+    | deployment{_CONFIG_NAME}\s+exceeded\s+its\s+progress\s+deadline
+    | CreateContainerConfigError|CreateContainerError|ErrImagePull|ImagePullBackOff|ProgressDeadlineExceeded
+"""
+CONFIGURATION_STARTUP_PATTERN = rf"""(?ix)(?<![\w])(?:{_CONFIG_SIGNALS})(?=$|\W)"""
+_CONFIG_NON_EVENT_PREFIX = re.compile(
+    r"\b(?:optional|expected|simulated|simulate|simulating|example|documented)\s+[\"']?(?:\w+\.)*$"
+    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?|handling|catching)\s+(?:an?\s+)?"
+    r"(?:handler\s+for\s+)?[\"']?(?:\w+\.)*$"
+    r"|\b(?:if|when|unless|on)\s+(?:(?:an?|the)\s+)?[\"']?(?:\w+\.)*$",
+    re.IGNORECASE,
+)
+_CONFIG_NON_EVENT_SUFFIX = re.compile(
+    r"s?[\"']?\s+(?:handler|handling|policy|counter|count|metric|monitor|detection|recovery|simulation|example)s?\b"
+    r"|s?[\"']?\s*[:=]\s*(?:0(?:\.0+)?|false|none|null)\b"
+    r"|s?\s+(?:errors?|failures?)\s*(?:[:=]\s*(?:0|false|none|null)\b|count\b)"
+    r"|\s+(?:(?:is|was|were)\s+)?(?:not\s+(?:observed|detected|reported|raised)|handled|caught)\b"
+    r"|\.(?:java|py|cs):\d+\b",
+    re.IGNORECASE,
+)
+_CONFIG_OPTIONAL_PREFIX = re.compile(
+    r"\boptional\s+(?:configuration|config|module|package|dependency|plugin)"
+    r"(?:\s+[\"'][^\"';|\r\n]{1,80}[\"'])?\s*:\s*(?:[\w.]+(?:Error|Exception):\s*)?$",
+    re.IGNORECASE,
+)
+_CONFIG_CAUGHT_EXCEPTION_PREFIX = re.compile(
+    r"\b(?:caught|handled|expected|simulated)\s+[\w.]+(?:Error|Exception):\s*$",
+    re.IGNORECASE,
+)
+_CONFIG_DEFAULT_SUFFIX = re.compile(
+    r"^[\"']?(?:\s+[\"']?[\w./\\:-]+[\"']?)?\s*[,:(-]?\s*"
+    r"(?:using\s+(?:the\s+)?defaults?|falling\s+back\s+to\s+(?:the\s+)?defaults?|optional\b)",
+    re.IGNORECASE,
+)
+
+
+def is_configuration_startup_candidate(line: str, start: int, end: int) -> bool:
+    """Keep configuration/load/startup failures without suppressing other candidates."""
+
+    before = re.split(r"[;|\r\n]", line[max(0, start - 180):start])[-1]
+    after = re.split(r"[;|\r\n]", line[end:end + 180])[0]
+    if (_NON_EVENT_PREFIX.search(before) or _NON_EVENT_SUFFIX.match(after)
+            or _CONFIG_NON_EVENT_PREFIX.search(before) or _CONFIG_NON_EVENT_SUFFIX.match(after)
+            or _CONFIG_OPTIONAL_PREFIX.search(before) or _CONFIG_CAUGHT_EXCEPTION_PREFIX.search(before)):
+        return False
+    # A missing setting with an explicit default is different from an invalid
+    # configuration or a startup failure followed by a recovery attempt.
+    candidate = line[start:end]
+    if re.search(r"\b(?:missing|not\s+(?:found|set|defined|configured))\b", candidate, re.IGNORECASE):
+        return _CONFIG_DEFAULT_SUFFIX.match(after) is None
+    return True
+
+
+_DATA_FORMAT = r"(?:JSON|XML|YAML|CSV|TOML|Protobuf|protocol\s+buffer|MessagePack)"
+_DATA_SUBJECT = rf"(?:{_DATA_FORMAT}|input|payload|request\s+body|response\s+body|document|record|data)"
+_DATA_SPECIFIC_SIGNALS = rf"""
+    JSONDecodeError|Json(?:Parse|Mapping|Reader|Serialization)Exception|JsonException
+    | MismatchedInputException|InvalidProtocolBufferException|XMLSyntaxError|XmlException|SAXParseException
+    | Unicode(?:Decode|Encode|Translate)Error|(?:Decoder|Encoder)FallbackException
+    | MalformedInputException|UnmappableCharacterException|ERR_ENCODING_INVALID_ENCODED_DATA
+    | PicklingError|UnpicklingError|NotSerializableException|DataCloneError
+    | BadZipFile|BadGzipFile|DataFormatException|ERR_ZIP_INVALID_ARCHIVE|ERR_ZIP_ENTRY_CORRUPT
+    | (?:malformed|invalid|corrupt(?:ed)?|truncated)\s+{_DATA_SUBJECT}
+    | {_DATA_FORMAT}\s+(?:parse|parsing|decoding)\s+(?:errors?|failures?|failed)
+    | unexpected\s+end\s+of\s+{_DATA_FORMAT}\s+(?:input|document|data)
+    | (?:failed\s+to|unable\s+to|cannot|could\s+not)\s+(?:parse|decode|validate)\s+(?:the\s+)?{_DATA_SUBJECT}
+    | (?:{_DATA_SUBJECT}|schema)\s+validation\s+(?:errors?|failures?|failed)
+    | [1-9][0-9]*\s+validation\s+errors?\s+for\s+[\w.]+
+    | (?:invalid|malformed|illegal)\s+(?:UTF[- ]?(?:8|16|32)|Unicode|base64|byte\s+sequence)
+    | (?:UTF[- ]?(?:8|16|32)|Unicode|base64)\s+(?:decoding|encoding)\s+(?:errors?|failures?|failed)
+    | codec\s+can(?:not|'t)\s+(?:decode|encode)\s+(?:byte|character)
+    | (?:object|value|type)(?:\s+of\s+type\s+[\w.]+)?\s+(?:is\s+)?not\s+(?:JSON\s+)?seriali[sz]able
+    | (?:cannot|could\s+not|failed\s+to|unable\s+to)\s+(?:de)?seriali[sz]e\s+
+      (?:the\s+)?(?:{_DATA_SUBJECT}|object|value|instance)
+    | (?:checksum|CRC(?:-?32)?)\s+(?:verification\s+|check\s+)?(?:mismatch(?:es)?|failed|failures?|errors?)
+    | (?:bad|invalid|incorrect)\s+(?:checksum|CRC(?:-?32)?)
+    | (?:data|file|archive|payload)\s+integrity\s+(?:check\s+)?(?:failed|failure|error|violation)
+"""
+_DATA_PARSE_SIGNALS = r"""
+    SyntaxError|ParseError|ParseException|ParserError|ScannerError
+    | (?:parse|parsing)\s+(?:errors?|failures?|failed)
+    | (?:failed\s+to|unable\s+to|cannot|could\s+not)\s+parse
+    | unexpected\s+(?:token|end\s+of\s+(?:input|file|data))|invalid\s+token
+"""
+_DATA_VALIDATION_SIGNALS = r"""
+    ValidationError|ValidationException|ConstraintViolationException
+    | validation\s+(?:errors?|failures?|failed)
+    | (?:failed\s+to|unable\s+to|cannot|could\s+not)\s+validate
+"""
+_DATA_SERIALIZATION_SIGNALS = r"""
+    SerializationException|SerializationError|DeserializationException|DeserializationError
+    | (?:de)?seriali[sz]ation\s+(?:errors?|failures?|failed)
+    | (?:failed\s+to|unable\s+to|cannot|could\s+not)\s+(?:de)?seriali[sz]e
+"""
+_DATA_INTEGRITY_SIGNALS = r"""
+    integrity\s+check\s+(?:failed|failure|error)|hash\s+mismatch
+    | incorrect\s+(?:data|header|length)\s+check|Z_DATA_ERROR
+"""
+DATA_PARSING_PATTERN = rf"""(?ix)\b(?:
+    {_DATA_SPECIFIC_SIGNALS}|{_DATA_PARSE_SIGNALS}|{_DATA_VALIDATION_SIGNALS}
+    | {_DATA_SERIALIZATION_SIGNALS}|{_DATA_INTEGRITY_SIGNALS}
+)\b"""
+_DATA_SPECIFIC = re.compile(_DATA_SPECIFIC_SIGNALS, re.IGNORECASE | re.VERBOSE)
+_DATA_SERIALIZATION = re.compile(_DATA_SERIALIZATION_SIGNALS, re.IGNORECASE | re.VERBOSE)
+_DATA_CONTEXT = re.compile(
+    rf"\b(?:{_DATA_SUBJECT}|schema|field|parser|deseriali[sz]er|seriali[sz]er|Jackson|Newtonsoft"
+    r"|pydantic(?:_core)?|jsonschema|marshmallow|Zod|Ajv|ElementTree|lxml|zip|gzip|zlib"
+    r"|archive|compressed|decompress(?:ing|ion)?)\b", re.IGNORECASE,
+)
+_DATA_OTHER_CONTEXT = re.compile(
+    r"\b(?:SQL|SQLSTATE|database|transaction|query|connection|certificate|TLS|SSL|JWT|OAuth"
+    r"|SAML|password|credentials?|authentication|authorization|configuration|config|settings?)\b",
+    re.IGNORECASE,
+)
+_DATA_TRANSACTION_CONTEXT = re.compile(
+    r"\b(?:SQL|SQLSTATE|database|transaction|PostgreSQL|MySQL|concurrent\s+update|read/write\s+dependencies)\b",
+    re.IGNORECASE,
+)
+_DATA_NON_EVENT_PREFIX = re.compile(
+    r"\b(?:if|when|unless|on|example|documented|simulate|simulating)\s+(?:(?:an?|the)\s+)?[\"']?(?:\w+\.)*$"
+    r"|\b(?:register(?:ed|ing)?|install(?:ed|ing)?|catching)\s+(?:an?\s+)?(?:handler\s+for\s+)?[\"']?(?:\w+\.)*$"
+    r"|\b(?:class|def)\s+(?:\w+\.)*$"
+    r"|\b(?:caught|handled|expected|simulated)\s+[\w.]+(?:Error|Exception):\s*$",
+    re.IGNORECASE,
+)
+_DATA_NON_EVENT_SUFFIX = re.compile(
+    r"s?[\"']?\s+(?:metrics?|examples?|simulation|reporting|recovery)\b"
+    r"|\s+(?:(?:is|was|were)\s+)?(?:not\s+(?:raised|observed|detected|reported)|handled|caught)\b"
+    r"|\.(?:java|py|cs):\d+\b",
+    re.IGNORECASE,
+)
+
+
+def is_data_parsing_candidate(line: str, start: int, end: int) -> bool:
+    """Keep data failures and disambiguate validation and transaction terminology."""
+
+    before = re.split(r"[;|\r\n]", line[max(0, start - 180):start])[-1]
+    after = re.split(r"[;|\r\n]", line[end:end + 180])[0]
+    if (_NON_EVENT_PREFIX.search(before) or _NON_EVENT_SUFFIX.match(after)
+            or _DATA_NON_EVENT_PREFIX.search(before) or _DATA_NON_EVENT_SUFFIX.match(after)):
+        return False
+    candidate = line[start:end]
+    if _DATA_SPECIFIC.fullmatch(candidate):
+        return True
+    context = before + " " + after
+    if _DATA_SERIALIZATION.fullmatch(candidate):
+        return _DATA_TRANSACTION_CONTEXT.search(context) is None
+    if _DATA_OTHER_CONTEXT.search(context):
+        return False
+    return _DATA_CONTEXT.search(context) is not None

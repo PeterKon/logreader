@@ -5,7 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import __version__
-from .application_matchers import ACCESS_CREDENTIALS_PATTERN, is_access_credentials_candidate
+from .application_matchers import (
+    ACCESS_CREDENTIALS_PATTERN,
+    CONFIGURATION_STARTUP_PATTERN,
+    DATA_PARSING_PATTERN,
+    is_access_credentials_candidate,
+    is_configuration_startup_candidate,
+    is_data_parsing_candidate,
+)
 from .core import COMBINED_CATEGORY_KEY, MatchValidator, SearchPattern
 from .database_matchers import (
     DATABASE_CONNECTION_PATTERN,
@@ -137,6 +144,20 @@ PATTERN_PRESETS = (
         match_validator=is_access_credentials_candidate,
     ),
     PatternPreset(
+        "configuration_startup",
+        CONFIGURATION_STARTUP_PATTERN,
+        "Configuration / Startup",
+        is_regex=True,
+        match_validator=is_configuration_startup_candidate,
+    ),
+    PatternPreset(
+        "data_parsing",
+        DATA_PARSING_PATTERN,
+        "Data / Parsing",
+        is_regex=True,
+        match_validator=is_data_parsing_candidate,
+    ),
+    PatternPreset(
         "database_connections",
         DATABASE_CONNECTION_PATTERN,
         "Connections / Pools",
@@ -211,7 +232,7 @@ HTTP_STATUS_PATTERN_KEYS = ("http_4xx", "http_5xx")
 NETWORK_PATTERN_KEYS = HTTP_STATUS_PATTERN_KEYS + (
     "connection_failures", "reachability_timeouts", "tls_certificates",
 )
-APPLICATION_PATTERN_KEYS = ("access_credentials",)
+APPLICATION_PATTERN_KEYS = ("access_credentials", "configuration_startup", "data_parsing")
 DATABASE_PATTERN_KEYS = ("database_connections", "database_queries", "database_transactions")
 SYSTEM_RUNTIME_PATTERN_KEYS = ("files_storage", "memory_resources", "crashes_hangs")
 ADVANCED_PATTERN_KEYS = (
