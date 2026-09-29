@@ -243,6 +243,9 @@ QMenu#regexPresetMenu::item {{
 QMenu#regexPresetMenu::item:selected {{
     background-color: {THEME_COLORS['ui_button_hover']};
 }}
+QMenu#regexPresetMenu::item:disabled {{
+    color: {THEME_COLORS['ui_disabled_text']};
+}}
 QPushButton#customPatternAddButton,
 QPushButton#regexPatternAddButton {{
     background-color: {THEME_COLORS['ui_island']};

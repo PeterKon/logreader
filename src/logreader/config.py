@@ -34,6 +34,7 @@ from .network_matchers import (
     is_tls_certificate_candidate,
 )
 from .file_loader import DEFAULT_MAX_LINES_SCANNED
+from .regex_presets import REGEX_PRESET_NAMES
 from .system_matchers import (
     CRASHES_HANGS_PATTERN,
     FILES_STORAGE_PATTERN,
@@ -387,5 +388,7 @@ class LogreaderConfig:
             return self.custom_patterns[index]
         if key.startswith("regex_"):
             index = int(key.removeprefix("regex_")) - 1
-            return self.regex_patterns[index]
+            expression = self.regex_patterns[index]
+            name = REGEX_PRESET_NAMES.get(expression)
+            return f"{name} (regex)" if name is not None else expression
         raise KeyError(key)

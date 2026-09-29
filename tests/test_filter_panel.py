@@ -12,6 +12,7 @@ try:
         QApplication,
         QCheckBox,
         QGroupBox,
+        QLabel,
         QLineEdit,
         QListWidget,
         QPushButton,
@@ -431,12 +432,21 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(expressions[0], r"code=\d+")
         self.assertEqual(self.panel._regex_pattern.text(), "unfinished [")
         self.assertEqual(self.panel._tab_counts[2].text(), "(2)")
+        button.menu().aboutToShow.emit()
+        self.assertFalse(actions[0].isEnabled())
+        self.assertTrue(all(action.isEnabled() for action in actions[1:]))
         actions[0].trigger()
         self.assertEqual(self.panel.build_config().regex_patterns, expressions)
 
         item = self.panel._regex_pattern_list.item(1)
         self.assertEqual(item.data(Qt.ItemDataRole.UserRole), expressions[1])
+        self.assertEqual(item.data(Qt.ItemDataRole.AccessibleTextRole), "Email addresses")
+        label = self.panel._regex_pattern_list.itemWidget(item).findChild(QLabel)
+        self.assertEqual(label.text(), "Email addresses")
+        self.assertEqual(label.toolTip(), expressions[1])
         self.panel.remove_regex_pattern(item)
+        button.menu().aboutToShow.emit()
+        self.assertTrue(actions[0].isEnabled())
         actions[0].trigger()
         self.assertEqual(self.panel.build_config().regex_patterns, expressions)
 
@@ -458,8 +468,13 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(len(actions) - 1, len(samples))
         for action, sample in zip(actions[1:], samples):
             action.trigger()
-            self.assertEqual(re.findall(self.panel.build_config().regex_patterns[-1], sample),
+            expression = self.panel.build_config().regex_patterns[-1]
+            self.assertEqual(re.findall(expression, sample),
                              [sample])
+            item = self.panel._regex_pattern_list.item(self.panel._regex_pattern_list.count() - 1)
+            label = self.panel._regex_pattern_list.itemWidget(item).findChild(QLabel)
+            self.assertEqual(label.text(), action.text())
+            self.assertEqual(label.toolTip(), expression)
         self.assertEqual(self.panel._tab_counts[2].text(), "(8)")
 
 

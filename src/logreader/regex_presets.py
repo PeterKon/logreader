@@ -76,3 +76,5 @@ REGEX_PRESETS = (
                        r"(?:[.,][0-9]+)?(?:[Zz]|[+-](?:[01][0-9]|2[0-3])(?::?[0-5][0-9])?)?"
                        r"(?![\w:+-]|[.,][\w.,])"),
 )
+
+REGEX_PRESET_NAMES = {expression: name for name, expression in REGEX_PRESETS}

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QPlainTextEdit
 from qt_helpers import wait_for_search
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
+from logreader.regex_presets import REGEX_PRESETS
 from logreader.ui.results.results_editor import StructuralBlock
 from logreader.ui.results.results_model import SourceLocation
 from logreader.ui.results.results_view import ResultsView
@@ -86,6 +87,21 @@ class ResultsViewTests(unittest.TestCase):
                                          combined=combined)
                 operations = _iter_analysis_render_operations("test.log", analysis, config)
                 self.assertEqual(next(operations)[0], "Matches (12,500 total):\n")
+
+    def test_regex_presets_use_names_in_summaries_and_headings(self):
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                config = LogreaderConfig(
+                    context=0, combined_view=combined, enabled_patterns=(),
+                    regex_patterns=tuple(expression for _, expression in REGEX_PRESETS) + (r"code=\d+",),
+                )
+                output = self.render(("alex@example.org code=42",), config).toPlainText()
+                for name, expression in REGEX_PRESETS:
+                    self.assertIn(f"{name} (regex)", output)
+                    self.assertNotIn(expression, output)
+                self.assertIn(r"code=\d+", output)
+                if not combined:
+                    self.assertIn("Email addresses (regex) - 1 matches", output)
 
     def test_performance_metrics_use_scanned_lines_and_result_rows(self):
         lines = ("before", "ERROR: needle", "after", "unmatched")

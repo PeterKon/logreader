@@ -44,7 +44,7 @@ from ..config import (
 )
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button
 from ..file_loader import DEFAULT_MAX_LINES_SCANNED
-from ..regex_presets import REGEX_PRESETS
+from ..regex_presets import REGEX_PRESET_NAMES, REGEX_PRESETS
 from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
 
 
@@ -781,9 +781,11 @@ class FilterPanel(QGroupBox):
             menu.setObjectName("regexPresetMenu")
             for label, expression in presets:
                 action = menu.addAction(label)
+                action.setData(expression)
                 action.triggered.connect(
                     lambda _checked=False, pattern=expression: self._add_regex_preset(pattern)
                 )
+            menu.aboutToShow.connect(lambda: self._update_regex_preset_menu(menu))
             preset_button.setMenu(menu)
             header.addWidget(preset_button, 0, Qt.AlignmentFlag.AlignVCenter)
             group.set_border_widgets(heading, preset_button)
@@ -1000,9 +1002,11 @@ class FilterPanel(QGroupBox):
         if not pattern:
             return
 
+        is_custom = pattern_list is self._custom_pattern_list
+        label = pattern if is_custom else REGEX_PRESET_NAMES.get(pattern, pattern)
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, pattern)
-        item.setData(Qt.ItemDataRole.AccessibleTextRole, pattern)
+        item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
         item.setSizeHint(QSize(0, 18))
         pattern_list.addItem(item)
 
@@ -1011,7 +1015,7 @@ class FilterPanel(QGroupBox):
         item_layout = QHBoxLayout(item_row)
         item_layout.setContentsMargins(4, 0, 2, 0)
         item_layout.setSpacing(4)
-        item_label = QLabel(pattern)
+        item_label = QLabel(label)
         item_label_font = item_label.font()
         item_label_font.setBold(False)
         item_label_font.setWeight(QFont.Weight.Normal)
@@ -1020,7 +1024,6 @@ class FilterPanel(QGroupBox):
 
         item_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         item_label.setToolTip(pattern)
-        is_custom = pattern_list is self._custom_pattern_list
         prefix = "customPattern" if is_custom else "regexPattern"
         options = [("Exclude", EXCLUDE_ROLE, "excluding matches", f"{prefix}ExcludeButton")]
         if is_custom:
@@ -1029,7 +1032,7 @@ class FilterPanel(QGroupBox):
             )
         for text, role, action, object_name in options:
             item.setData(role, False)
-            button = SearchOptionButton(text, pattern, action, object_name)
+            button = SearchOptionButton(text, label, action, object_name)
             button.toggled.connect(
                 lambda checked, list_item=item, data_role=role:
                 list_item.setData(data_role, checked)
@@ -1038,8 +1041,8 @@ class FilterPanel(QGroupBox):
 
         remove_button = QPushButton("-")
         remove_button.setObjectName(remove_button_object_name)
-        remove_button.setAccessibleName(f"Remove {pattern}")
-        remove_button.setToolTip(f"Remove {pattern}")
+        remove_button.setAccessibleName(f"Remove {label}")
+        remove_button.setToolTip(f"Remove {label}")
         remove_button.setFixedSize(24, 16)
         remove_button.clicked.connect(
             lambda _checked=False, list_item=item: remove_handler(list_item)
@@ -1051,6 +1054,11 @@ class FilterPanel(QGroupBox):
             input_box.clear()
         input_box.setFocus()
         self._update_summary()
+
+    def _update_regex_preset_menu(self, menu: QMenu) -> None:
+        expressions = set(self._list_values(self._regex_pattern_list))
+        for action in menu.actions():
+            action.setEnabled(action.data() not in expressions)
 
     def _add_regex_preset(self, pattern: str) -> None:
         if pattern in self._list_values(self._regex_pattern_list):
