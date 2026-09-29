@@ -406,6 +406,8 @@ class FilterPanelTests(unittest.TestCase):
 
         first_item = pattern_list.item(0)
         first_row = pattern_list.itemWidget(first_item)
+        self.assertEqual(first_row.findChild(QLabel).text(), "(?i)error")
+        self.assertIsNone(first_row.findChild(QLabel, "regexPresetLabel"))
         first_row.findChild(
             QPushButton,
             "regexPatternRemoveButton",
@@ -475,6 +477,11 @@ class FilterPanelTests(unittest.TestCase):
             label = self.panel._regex_pattern_list.itemWidget(item).findChild(QLabel)
             self.assertEqual(label.text(), action.text())
             self.assertEqual(label.toolTip(), expression)
+            preset_label = self.panel._regex_pattern_list.itemWidget(item).findChild(
+                QLabel, "regexPresetLabel"
+            )
+            self.assertEqual(preset_label.text(), "(preset)")
+            self.assertEqual(preset_label.toolTip(), expression)
         self.assertEqual(self.panel._tab_counts[2].text(), "(8)")
 
 

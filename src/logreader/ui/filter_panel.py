@@ -1003,7 +1003,8 @@ class FilterPanel(QGroupBox):
             return
 
         is_custom = pattern_list is self._custom_pattern_list
-        label = pattern if is_custom else REGEX_PRESET_NAMES.get(pattern, pattern)
+        preset_name = None if is_custom else REGEX_PRESET_NAMES.get(pattern)
+        label = preset_name or pattern
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, pattern)
         item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
@@ -1020,10 +1021,17 @@ class FilterPanel(QGroupBox):
         item_label_font.setBold(False)
         item_label_font.setWeight(QFont.Weight.Normal)
         item_label.setFont(item_label_font)
-        item_layout.addWidget(item_label, 1)
+        item_layout.addWidget(item_label, 0 if preset_name else 1)
 
         item_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         item_label.setToolTip(pattern)
+        if preset_name:
+            item_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+            preset_label = QLabel("(preset)")
+            preset_label.setObjectName("regexPresetLabel")
+            preset_label.setToolTip(pattern)
+            item_layout.addWidget(preset_label)
+            item_layout.addStretch(1)
         prefix = "customPattern" if is_custom else "regexPattern"
         options = [("Exclude", EXCLUDE_ROLE, "excluding matches", f"{prefix}ExcludeButton")]
         if is_custom:
