@@ -334,10 +334,14 @@ class ResultsView(ResultsControls):
         if waiting:
             prefix = "Loading requested area" if editor.navigation.loading_text else "Preparing view"
         elif self.loader.done:
-            prefix = "Loaded"
+            self._set_loading_status(f"Results loaded{self._performance_text}")
+            return
         else:
-            prefix = "Loading"
-        self._set_loading_status(f"{prefix} {editor.ranges.loaded_count:,} / {editor.presentation.row_count:,} rows{self._performance_text}")
+            prefix = "Background loading"
+        percentage = (100 if self.loader.done else
+                      max(1, min(99, editor.ranges.loaded_count * 100 // editor.presentation.row_count)))
+        # Figure spaces reserve the same width as digits in the status font.
+        self._set_loading_status(f"{prefix}: {percentage:\u2007>3}%{self._performance_text}")
 
     def search_results(self):
         if self.source_active:

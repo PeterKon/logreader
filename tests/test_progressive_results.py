@@ -481,7 +481,7 @@ class ProgressiveResultsTests(unittest.TestCase):
         editor = view.editor
         self.background(view)
         self.wait(lambda: view.loader.done)
-        self.assertTrue(view.loading_status.startswith("Loaded "))
+        self.assertEqual(view.loading_status, "Results loaded")
         self.quiet(view)
         QTest.qWait(20)
         gutter = PaintObserver(editor, editor.gutter)
@@ -589,7 +589,7 @@ class ProgressiveResultsTests(unittest.TestCase):
                         self.assertEqual(editor.location_at(editor.textCursor().anchor()), editor.anchor)
                         self.assertEqual(editor.location_at(editor.textCursor().position()), editor.caret)
                         view.loader._tick()
-                        self.assertTrue(view.loading_status.startswith("Loaded "))
+                        self.assertEqual(view.loading_status, "Results loaded")
                         self.assertEqual(self.state(editor), before)
 
 
@@ -930,6 +930,25 @@ class ProgressiveResultsTests(unittest.TestCase):
                 self.assertLessEqual(len(editor._cached_rows), 256)
                 self.assertLessEqual(editor._cached_units, editor.cache_units)
 
+    def test_background_loading_percentage_increases_until_complete(self):
+        view = self.window(fraction=0, lines=[f"ERROR: row {i}" for i in range(1600)])
+        editor = view.editor
+        total = editor.ranges.total
+        statuses = []
+        view.loading_status_changed.connect(statuses.append)
+        view._progress()
+        self.assertEqual(view.loading_status, "Background loading: \u2007\u20071%")
+        for end, percentage in ((total // 2, 50), (total - 1, 99)):
+            editor.insert_range(0, end)
+            view._progress()
+            self.assertEqual(view.loading_status, f"Background loading: {percentage:\u2007>3}%")
+        percentages = [int(status.removeprefix("Background loading: ").removesuffix("%"))
+                       for status in statuses]
+        self.assertEqual(percentages, sorted(percentages))
+        editor.insert_range(0, total)
+        view._progress()
+        self.assertEqual(view.loading_status, "Results loaded")
+
     def test_preparing_view_status_waits_for_slow_layout_and_clears_on_completion(self):
         view = self.window(fraction=1, lines=[f"ERROR: row {i}" for i in range(1600)])
         editor = view.editor
@@ -939,13 +958,13 @@ class ProgressiveResultsTests(unittest.TestCase):
         view.loader.timer.stop()
         self.assertIsNotNone(editor.navigation.pending)
         self.assertTrue(view._navigation_status_timer.isActive())
-        self.assertTrue(view.loading_status.startswith("Loaded "))
+        self.assertEqual(view.loading_status, "Results loaded")
         QTest.qWait(35)
         self.assertFalse(any("Preparing view" in value for value in statuses))
-        self.wait(lambda: view.loading_status.startswith("Preparing view "))
+        self.wait(lambda: view.loading_status.startswith("Preparing view: "))
         view.loader.start()
         self.wait_jump(editor)
-        self.assertTrue(view.loading_status.startswith("Loaded "))
+        self.assertEqual(view.loading_status, "Results loaded")
         self.assertFalse(view._navigation_status_timer.isActive())
         statuses.clear()
         self.jump(editor, 1200)
@@ -972,5 +991,5 @@ class ProgressiveResultsTests(unittest.TestCase):
                 self.assertEqual(statuses, [])
         view = self.window(lines=[f"ERROR: row {i}" for i in range(1600)])
         view.editor.navigate_to(TextPoint(800))
-        self.assertTrue(view.loading_status.startswith("Loading requested area "))
+        self.assertTrue(view.loading_status.startswith("Loading requested area: "))
         self.assertFalse(view._navigation_status_timer.isActive())
