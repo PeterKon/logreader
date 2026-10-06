@@ -100,8 +100,8 @@ class ControlFocusTests(unittest.TestCase):
     def test_buttons_keep_hover_after_click_and_clear_it_on_leave(self):
         page = self.open_document("sample.log")
         advanced_names = ("toggleNetworkButton", "toggleApplicationButton",
-                          "toggleDatabaseButton", "toggleSystemButton")
-        names = ("openButton", "togglePairedButton", "toggleTextButton",
+                          "toggleDatabaseButton", "toggleSystemButton", "toggleAdvancedButton")
+        names = ("openButton", "togglePairedButton", "toggleTextButton", "toggleCommonButton",
                  "customPatternAddButton", "regexPatternAddButton", "maximizeResultsButton") + advanced_names
         with patch("logreader.ui.qt_app.QFileDialog.getOpenFileNames", return_value=([], "")):
             for name in names:

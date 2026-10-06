@@ -21,6 +21,7 @@ try:
     )
 
     from logreader.config import (
+        ADVANCED_PATTERN_KEYS,
         APPLICATION_PATTERN_KEYS,
         DATABASE_PATTERN_KEYS,
         DEFAULT_ENABLED_PATTERNS,
@@ -92,7 +93,7 @@ class FilterPanelTests(unittest.TestCase):
     def test_category_toggles_are_scoped(self):
         paired_toggle = self.panel.findChild(QPushButton, "togglePairedButton")
         text_toggle = self.panel.findChild(QPushButton, "toggleTextButton")
-        self.assertIsNone(self.panel.findChild(QPushButton, "toggleAllButton"))
+        common_toggle = self.panel.findChild(QPushButton, "toggleCommonButton")
         self.panel.findChild(QCheckBox, "pattern_http_4xx").setChecked(True)
         self.panel._custom_pattern.setText("keep")
         self.panel.add_custom_pattern()
@@ -135,6 +136,7 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(self.panel.build_config().enabled_patterns, ("http_4xx",))
         self.assertEqual(paired_toggle.text(), "Select all")
         self.assertEqual(text_toggle.text(), "Select all")
+        self.assertEqual(common_toggle.text(), "Select all")
         paired_toggle.click()
         text_toggle.click()
         self.assertEqual(
@@ -143,12 +145,15 @@ class FilterPanelTests(unittest.TestCase):
         )
         self.assertEqual(paired_toggle.text(), "Clear all")
         self.assertEqual(text_toggle.text(), "Clear all")
+        self.assertEqual(common_toggle.text(), "Clear all")
         self.assertEqual(self.panel.build_config().custom_patterns, ("keep",))
 
-    def test_advanced_category_toggles_are_scoped_and_follow_selection(self):
+    def test_bulk_pattern_toggles_are_scoped_and_follow_selection(self):
         self.panel._custom_pattern.setText("keep")
         self.panel.add_custom_pattern()
         for name, keys in (
+            ("toggleCommonButton", PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS),
+            ("toggleAdvancedButton", ADVANCED_PATTERN_KEYS),
             ("toggleNetworkButton", NETWORK_PATTERN_KEYS),
             ("toggleApplicationButton", APPLICATION_PATTERN_KEYS),
             ("toggleDatabaseButton", DATABASE_PATTERN_KEYS),

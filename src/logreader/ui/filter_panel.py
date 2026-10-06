@@ -570,7 +570,9 @@ class FilterPanel(QGroupBox):
                 toggle_object_name="toggleTextButton",
             ),
         )
-        pattern_groups.addWidget(
+        paired_column = QVBoxLayout()
+        paired_column.setSpacing(4)
+        paired_column.addWidget(
             self._build_pattern_group(
                 "Colon / regular matches",
                 PAIRED_PATTERN_KEYS,
@@ -581,6 +583,13 @@ class FilterPanel(QGroupBox):
             0,
             Qt.AlignmentFlag.AlignTop,
         )
+        paired_column.addStretch(1)
+        common_toggle = self._build_pattern_toggle(
+            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, "toggleCommonButton",
+        )
+        common_toggle.setToolTip("Select or clear all common patterns.")
+        paired_column.addWidget(common_toggle, 0, Qt.AlignmentFlag.AlignRight)
+        pattern_groups.addLayout(paired_column)
         pattern_groups.addStretch(1)
         patterns_layout.addLayout(pattern_groups)
         self._pages.addWidget(patterns)
@@ -623,7 +632,9 @@ class FilterPanel(QGroupBox):
             0,
             Qt.AlignmentFlag.AlignTop,
         )
-        advanced_layout.addWidget(
+        system_column = QVBoxLayout()
+        system_column.setSpacing(4)
+        system_column.addWidget(
             self._build_pattern_group(
                 "System",
                 SYSTEM_RUNTIME_PATTERN_KEYS,
@@ -634,6 +645,11 @@ class FilterPanel(QGroupBox):
             0,
             Qt.AlignmentFlag.AlignTop,
         )
+        system_column.addStretch(1)
+        advanced_toggle = self._build_pattern_toggle(ADVANCED_PATTERN_KEYS, "toggleAdvancedButton")
+        advanced_toggle.setToolTip("Select or clear all advanced patterns.")
+        system_column.addWidget(advanced_toggle, 0, Qt.AlignmentFlag.AlignRight)
+        advanced_layout.addLayout(system_column)
         advanced_layout.addStretch(1)
         self._pages.addWidget(advanced)
         searches = QWidget()
@@ -836,6 +852,19 @@ class FilterPanel(QGroupBox):
         layout.addStretch(1)
         return group, input_box, pattern_list
 
+    def _build_pattern_toggle(
+        self, pattern_keys: tuple[str, ...], object_name: str,
+    ) -> QPushButton:
+        button = QPushButton("Select all")
+        configure_action_button(button)
+        button.setObjectName(object_name)
+        button.setProperty("patternGroupToggle", True)
+        button.clicked.connect(
+            lambda _checked=False, keys=pattern_keys: self.toggle_patterns(keys)
+        )
+        self._bulk_buttons.append((button, pattern_keys))
+        return button
+
     def _build_pattern_group(
         self,
         title: str,
@@ -865,14 +894,7 @@ class FilterPanel(QGroupBox):
         header.addWidget(heading, 0, Qt.AlignmentFlag.AlignVCenter)
         header.addStretch(1)
         if toggle_object_name is not None:
-            toggle_button = QPushButton("Select all")
-            configure_action_button(toggle_button)
-            toggle_button.setObjectName(toggle_object_name)
-            toggle_button.setProperty("patternGroupToggle", True)
-            toggle_button.clicked.connect(
-                lambda _checked=False, keys=pattern_keys: self.toggle_patterns(keys)
-            )
-            self._bulk_buttons.append((toggle_button, pattern_keys))
+            toggle_button = self._build_pattern_toggle(pattern_keys, toggle_object_name)
             header.addWidget(toggle_button, 0, Qt.AlignmentFlag.AlignVCenter)
             group.set_border_widgets(heading, toggle_button)
         outer_layout.addLayout(header)
