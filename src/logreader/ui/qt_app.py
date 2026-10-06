@@ -47,7 +47,7 @@ from PySide6.QtWidgets import (
 from ..config import APP_VERSION, LogreaderConfig
 from .app_icon import application_icon, application_logo, set_windows_app_id
 from .document_page import DocumentPage
-from ..document_session import LoadPhase
+from ..document_session import AnalysisPhase, LoadPhase
 from .theme import THEME_COLORS, configure_action_button
 from .window_frame import TitleBarShadow, apply_title_bar_colors
 from ..workers.work_queue import WorkScheduler
@@ -450,6 +450,9 @@ QStatusBar {{
 }}
 QStatusBar::item {{
     border: none;
+}}
+QLabel#resultsLoadingStatus {{
+    color: {THEME_COLORS['ui_muted']};
 }}
 QToolTip {{
     background-color: {THEME_COLORS['ui_island']};
@@ -949,7 +952,8 @@ class LogreaderWindow(QMainWindow):
             "Queued…" if page is not None and (page.load_queued or page.analysis_queued)
             else "Loading…" if loading else "Analyzing…" if busy else "&Analyze"
         )
-        if page is not None and page.busy_visible:
+        if (page is not None and page.busy_visible
+                and page.session.phase is not AnalysisPhase.RENDERING):
             self.setCursor(Qt.CursorShape.WaitCursor)
         else:
             self.unsetCursor()

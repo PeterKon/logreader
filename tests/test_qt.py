@@ -1584,7 +1584,7 @@ class LogreaderQtTests(unittest.TestCase):
             self.window.findChild(QPlainTextEdit, "resultsView").toPlainText(),
         )
 
-    def test_analyze_button_keeps_analyzing_label_during_rendering(self):
+    def test_analysis_controls_and_cursor_during_rendering(self):
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "rendering-label.log"
             log_path.write_text("ERROR: boom\n", encoding="utf-8")
@@ -1601,6 +1601,8 @@ class LogreaderQtTests(unittest.TestCase):
                 len(config.search_patterns()),
             )
             self.window._document._set_analysis_busy(True)
+            self.window._document._show_analysis_busy()
+            self.assertEqual(self.window.cursor().shape(), Qt.CursorShape.WaitCursor)
 
             try:
                 with patch.object(
@@ -1620,6 +1622,12 @@ class LogreaderQtTests(unittest.TestCase):
                 self.assertEqual(
                     self.window.findChild(QPushButton, "analyzeButton").text(),
                     "Analyzing…",
+                )
+                self.assertFalse(self.window._analyze_button.isEnabled())
+                self.assertEqual(self.window.cursor().shape(), Qt.CursorShape.ArrowCursor)
+                self.assertEqual(
+                    self.window._document.results_view.editor.viewport().cursor().shape(),
+                    Qt.CursorShape.IBeamCursor,
                 )
                 start_rendering.assert_called_once()
             finally:
