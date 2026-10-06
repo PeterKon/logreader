@@ -1,3 +1,3 @@
 """Logreader application package."""
 
-__version__ = "0.46"
+__version__ = "0.8"

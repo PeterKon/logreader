@@ -182,17 +182,27 @@ class SparseLoader(QObject):
         # can shape a giant line. A miss keeps the normal cooperative budgets.
         editor = self.editor
         geometry = self._layout_geometry()
+        if editor._visible_geometry != geometry:
+            return None
         end_top = editor.end_top()
         top = min(point, end_top or point)
         height = 0
         deadline = perf_counter() + .001
-        for row in range(top.row, min(editor.ranges.total, top.row + self.max_rows)):
+        # Screen coverage is independent of the insertion budget. The deadline
+        # still bounds this read-only scan for tall viewports.
+        for row in range(top.row, editor.ranges.total):
             if perf_counter() >= deadline:
                 return None
             block = editor._block(row)
-            if not block.isValid() or self._prepared.get(row) != (geometry, block.userState()):
+            if not block.isValid():
+                return None
+            prepared = self._prepared.get(row)
+            if prepared is not None and prepared != (geometry, block.userState()):
                 return None
             layout = block.layout()
+            # Qt can lay out adjacent rows during painting without registering
+            # them here. Nonempty native layouts remain usable: Qt clears them
+            # on content/geometry changes, and cache eviction clears them too.
             if not layout.lineCount():
                 return None
             height += layout.boundingRect().height()

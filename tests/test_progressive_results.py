@@ -876,6 +876,8 @@ class ProgressiveResultsTests(unittest.TestCase):
         self.jump(editor, 700)
         loader.timer.stop()
         point = editor.top_point()
+        # Native painting can prepare a row without a Python preparation record.
+        editor._prepared_layouts.pop(point.row)
         with patch.object(editor, "_prepare_block", side_effect=AssertionError("Readiness must not lay out")), \
                 patch.object(editor, "blockBoundingRect", side_effect=AssertionError("Readiness must not lay out")):
             self.assertEqual(loader._cached_screen(point)[0], point)
@@ -895,3 +897,80 @@ class ProgressiveResultsTests(unittest.TestCase):
         self.jump(editor, 600)
         view.resize(view.width() + 100, view.height() + 60)
         self.assertIsNone(loader._cached_screen(point))
+
+    def test_tall_cached_scrollbar_navigation_is_immediate_and_preserves_copy(self):
+        for wrapped in (False, True):
+            with self.subTest(wrapped=wrapped):
+                view = self.window(fraction=1, wrapped=wrapped,
+                                   lines=[f"ERROR: row {i} alpha" for i in range(1600)])
+                editor, loader = view.editor, view.loader
+                editor.viewport().setFixedHeight(1200)
+                view.resize(780, 1400)
+                self.app.processEvents()
+                self.jump(editor, 500)
+                self.jump(editor, 600)
+                self.assertGreater(len(editor._visible_rows), loader.max_rows)
+                self.quiet(view)
+                editor.select(TextPoint(502, 15), TextPoint(500, 4))
+                selection = editor.anchor, editor.caret, editor.selected_text()
+                before = editor.inserted_rows, editor.layout_visits, loader.tick_count
+                statuses = []
+                view.loading_status_changed.connect(statuses.append)
+                for row in (500, 600, 500, 600):
+                    view.global_scroll.setValue(row)
+                    self.assertIsNone(editor.navigation.pending)
+                    self.assertEqual(editor.top_point().row, row)
+                    self.app.processEvents()
+                self.assertEqual((editor.inserted_rows, editor.layout_visits, loader.tick_count), before)
+                self.assertEqual((editor.anchor, editor.caret, editor.selected_text()), selection)
+                editor.copy()
+                self.assertEqual(self.app.clipboard().text(), selection[2])
+                self.assertFalse(any("Preparing view" in value for value in statuses))
+                self.assertEqual(loader.max_rows, 64)
+                self.assertLessEqual(len(editor._cached_rows), 256)
+                self.assertLessEqual(editor._cached_units, editor.cache_units)
+
+    def test_preparing_view_status_waits_for_slow_layout_and_clears_on_completion(self):
+        view = self.window(fraction=1, lines=[f"ERROR: row {i}" for i in range(1600)])
+        editor = view.editor
+        statuses = []
+        view.loading_status_changed.connect(statuses.append)
+        editor.navigate_to(TextPoint(800))
+        view.loader.timer.stop()
+        self.assertIsNotNone(editor.navigation.pending)
+        self.assertTrue(view._navigation_status_timer.isActive())
+        self.assertTrue(view.loading_status.startswith("Loaded "))
+        QTest.qWait(35)
+        self.assertFalse(any("Preparing view" in value for value in statuses))
+        self.wait(lambda: view.loading_status.startswith("Preparing view "))
+        view.loader.start()
+        self.wait_jump(editor)
+        self.assertTrue(view.loading_status.startswith("Loaded "))
+        self.assertFalse(view._navigation_status_timer.isActive())
+        statuses.clear()
+        self.jump(editor, 1200)
+        QTest.qWait(140)
+        self.assertFalse(any("Preparing view" in value for value in statuses))
+
+    def test_navigation_status_timer_cannot_outlive_cancellation_replacement_or_close(self):
+        for action in ("cancel", "replace", "close"):
+            with self.subTest(action=action):
+                view = self.window(fraction=1, lines=[f"ERROR: row {i}" for i in range(1600)])
+                view.editor.navigate_to(TextPoint(800))
+                view.loader.timer.stop()
+                self.assertTrue(view._navigation_status_timer.isActive())
+                if action == "cancel":
+                    view.cancel_rendering()
+                elif action == "replace":
+                    view.reset_for_loaded_file("replacement.log")
+                else:
+                    view.close()
+                self.assertFalse(view._navigation_status_timer.isActive())
+                statuses = []
+                view.loading_status_changed.connect(statuses.append)
+                QTest.qWait(140)
+                self.assertEqual(statuses, [])
+        view = self.window(lines=[f"ERROR: row {i}" for i in range(1600)])
+        view.editor.navigate_to(TextPoint(800))
+        self.assertTrue(view.loading_status.startswith("Loading requested area "))
+        self.assertFalse(view._navigation_status_timer.isActive())

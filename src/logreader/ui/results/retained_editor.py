@@ -340,6 +340,7 @@ class SparseResultsEditor(ProgressiveResultsEditor):
         self._movement_gap = None
         self._drag_loading = None
         self._visible_rows = set()
+        self._visible_geometry = None
         self._prepared_layouts = OrderedDict()
         self._gap_pixels = 2048
         self._covered_edit = False
@@ -383,6 +384,7 @@ class SparseResultsEditor(ProgressiveResultsEditor):
             self._cached_rows.clear()
             self._prepared_layouts.clear()
             self._visible_rows.clear()
+            self._visible_geometry = None
             self._cached_units = self.layout_visits = self._max_horizontal = 0
             self._screen_covered = False
             self._end_screen = None
@@ -644,6 +646,7 @@ class SparseResultsEditor(ProgressiveResultsEditor):
                 break
             block = block.next()
         self._visible_rows = visible
+        self._visible_geometry = geometry
         self._trim_layout_cache()
         self._update_ranges()
 

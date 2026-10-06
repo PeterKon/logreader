@@ -1,6 +1,7 @@
 """Production results controls over a progressively filled native document."""
 from array import array
 from bisect import bisect_left
+from math import ceil
 from time import perf_counter
 from uuid import uuid4
 from PySide6.QtCore import QPoint, QSignalBlocker, Qt, QTimer, Signal, QThreadPool, Slot
@@ -95,6 +96,9 @@ class ResultsView(ResultsControls):
         self._visible_timer = QTimer(self)
         self._visible_timer.setSingleShot(True)
         self._visible_timer.timeout.connect(self._paint_decorations)
+        self._navigation_status_timer = QTimer(self)
+        self._navigation_status_timer.setSingleShot(True)
+        self._navigation_status_timer.timeout.connect(self._progress)
         self._install_empty()
         self.destroyed.connect(lambda: setattr(self, "logical", None))
 
@@ -136,6 +140,7 @@ class ResultsView(ResultsControls):
         else:
             previous = old
         self._visible_timer.stop()
+        self._navigation_status_timer.stop()
         self._formats.clear()
         self._overlays.clear()
         self._bookmark_rows.clear()
@@ -315,11 +320,18 @@ class ResultsView(ResultsControls):
             self.loading_status_changed.emit(text)
 
     def _progress(self):
-        if self.logical is None:
+        self._navigation_status_timer.stop()
+        if self._closed or self.logical is None:
             return
         editor = self._editor
         pending = editor.navigation.pending
+        waiting = False
         if pending is not None:
+            remaining = .12 - (perf_counter() - pending.started)
+            waiting = editor.navigation.loading_text or remaining <= 0
+            if not waiting:
+                self._navigation_status_timer.start(max(1, ceil(remaining * 1000)))
+        if waiting:
             prefix = "Loading requested area" if editor.navigation.loading_text else "Preparing view"
         elif self.loader.done:
             prefix = "Loaded"
