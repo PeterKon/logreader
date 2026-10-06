@@ -528,6 +528,10 @@ class LogreaderWindow(QMainWindow):
         )
         QApplication.instance().aboutToQuit.connect(self._shutdown_documents)
         self.statusBar().showMessage("Ready")
+        self._loading_status = QLabel()
+        self._loading_status.setObjectName("resultsLoadingStatus")
+        self._loading_status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.statusBar().addPermanentWidget(self._loading_status)
         self._drop_overlay = QLabel("Drop file", self)
         self._drop_overlay.setObjectName("dropOverlay")
         self._drop_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -775,6 +779,7 @@ class LogreaderWindow(QMainWindow):
         self.statusBar().showMessage(
             page.status_message if page else "Ready"
         )
+        self._loading_status.setText(page.results_view.loading_status if page else "")
         self._present_analysis_busy()
 
     def _set_window_title(self, title: str) -> None:
@@ -794,6 +799,12 @@ class LogreaderWindow(QMainWindow):
         self._refresh_tab_labels()
         if self.sender() is self._document:
             self.statusBar().showMessage(message)
+
+    @Slot(str)
+    def _present_loading_status(self, message: str) -> None:
+        page = self._document
+        if page is not None and self.sender() is page.results_view:
+            self._loading_status.setText(message)
 
     def _refresh_tab_labels(self) -> None:
         pages = [self._pages.widget(index) for index in range(self._tabs.count())]
@@ -901,6 +912,7 @@ class LogreaderWindow(QMainWindow):
         )
         page.set_render_active(False)
         page.status_changed.connect(self._present_document_status)
+        page.results_view.loading_status_changed.connect(self._present_loading_status)
         page.busy_changed.connect(self._present_analysis_busy)
         page.analysis_failed.connect(self._present_analysis_failure)
         page.analysis_finished.connect(self.analysis_finished.emit)
@@ -956,7 +968,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Inspect log files for errors and context.")
     parser.add_argument(
         "-p", "--performance", action="store_true",
-        help="Show analysis and rendering timings in results.",
+        help="Show analysis and rendering timings in the status bar.",
     )
     # Match our flags exactly: argparse would otherwise interpret Qt's
     # single-dash options such as -platform as a use of the -p short flag.

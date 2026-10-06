@@ -234,6 +234,7 @@ class MultiFileWorkTests(unittest.TestCase):
             self.assertIsNone(self.window._scheduler.loading._active)
 
     def test_hidden_rendering_is_deferred_and_paused_time_is_not_counted(self):
+        from qt_helpers import render_results, wait_for_render
         self.window.load_files([self.log("first.log"), self.log("second.log")])
         first, second = self.window._pages.widget(0), self.window._pages.widget(1)
         wait_for_load(first)
@@ -243,29 +244,27 @@ class MultiFileWorkTests(unittest.TestCase):
             self.window.analyze_current()
             self.window._select_document(second)
             self.window.analyze_current()
-            self.assertEqual(len(workers), 1)
             workers[0].run()
             self.assertIsNone(first.results_view._renderer)
             self.wait_until(lambda: len(workers) == 2)
             workers[1].run()
-        second_renderer = second.results_view._renderer
-        self.window._select_document(first)
-        self.assertFalse(second_renderer._timer.isActive())
-        done = QSignalSpy(first.analysis_finished)
-        self.wait_until(lambda: done.count() == 1)
-        second_done = QSignalSpy(second.analysis_finished)
+            preparation = workers[2]
+            self.window._select_document(first)
+            preparation.run()
+            self.assertFalse(second.results_view.results_ready)
+            self.assertIsNotNone(second.results_view._prepared_result)
+            workers[3].run()
+        wait_for_render(first.results_view)
         self.window._select_document(second)
-        self.wait_until(lambda: second_done.count() == 1)
-
-        # Four clock readings: start, pause, resume, finish. The 100-second
-        # inactive interval must not inflate the rendering duration.
-        view = first.results_view
+        wait_for_render(second.results_view)
+        view = second.results_view
+        editor = render_results(view, ("ERROR: timing",) * 1000, complete=False)
+        view._render_started = 10.0
+        view._render_request_id = 99
         rendered = QSignalSpy(view.rendering_completed)
-        with patch("logreader.ui.results.results_renderer.perf_counter", side_effect=(10.0, 11.0, 111.0, 113.0)):
-            view.start_rendering(99, "timing", first.session.analysis, first.session.analysis_config)
-            renderer = view._renderer
-            renderer.set_paused(True)
-            renderer.set_paused(False)
-            with patch("logreader.ui.results.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 100000):
-                renderer._render_next_batch()
+        with patch("logreader.ui.results.results_view.perf_counter", side_effect=(11.0, 111.0, 113.0)):
+            view.set_rendering_paused(True)
+            view.set_rendering_paused(False)
+            editor.insert_range(0, editor.ranges.total)
+            view._loaded()
         self.assertEqual(rendered.at(0), [99, 3.0])

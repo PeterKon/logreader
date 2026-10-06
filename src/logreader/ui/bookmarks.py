@@ -431,7 +431,7 @@ class ResultsBookmarks(QObject):
         if not self._retained(source) or source in self.items:
             return False
         if isinstance(location, ResultLocation) and (
-                self.view.is_rendering or model is None or model.resolve(location) is None):
+                not self.view.results_ready or model is None or model.resolve(location) is None):
             return False
         self.items[source] = Bookmark(location, self._name(name, source))
         self.refresh()
@@ -608,7 +608,7 @@ class ResultsBookmarks(QObject):
         elif bookmark.source_only:
             self.strip.show_tooltip(source)
             return
-        elif self.view.is_rendering:
+        elif not self.view.results_ready:
             return
         elif not self.view.show_result_location(bookmark.location):
             self.refresh()
@@ -621,7 +621,7 @@ class ResultsBookmarks(QObject):
 
     def refresh(self) -> None:
         model = self.view.model
-        if self.view.is_rendering or model is None or not model.ready:
+        if not self.view.results_ready or model is None or not model.ready:
             model = None
         blocks = {}
         selected = self.strip.tabData(self.strip.currentIndex())
@@ -640,7 +640,7 @@ class ResultsBookmarks(QObject):
                 else:
                     rows = ()
             preferred = model.resolve(bookmark.location) if rows else None
-            if not self.view.is_rendering:
+            if self.view.results_ready:
                 bookmark.converted = isinstance(bookmark.location, ResultLocation) and not rows
             for row in rows:
                 blocks[self.view._source_map.block(row)] = row == preferred
@@ -658,7 +658,7 @@ class ResultsBookmarks(QObject):
                 if bookmark.converted:
                     tooltip += ("\nConverted to source bookmark. Match no longer appears on results. "
                                 "Re-analysis needed.")
-            elif self.view.is_rendering and not self.view.source_active:
+            elif not self.view.results_ready and not self.view.source_active:
                 destination = "Results are updating. Open the original file to use this bookmark."
             elif self.view.source_active:
                 destination = "Open this line in the original file."
@@ -672,7 +672,7 @@ class ResultsBookmarks(QObject):
             if bookmark.note:
                 tooltip += f"\n\nNote: {bookmark.note_preview}"
             self.strip.setTabToolTip(index, tooltip)
-            self.strip.setTabEnabled(index, bookmark.source_only or not self.view.is_rendering
+            self.strip.setTabEnabled(index, bookmark.source_only or self.view.results_ready
                                      or self.view.source_active)
             self.strip.set_note_icon(index, bool(bookmark.note))
         self._select(selected)

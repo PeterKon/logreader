@@ -194,7 +194,7 @@ def run(args):
                     page.results_view.search_results()
                 row["search_dispatch_seconds"] = perf_counter() - start
                 probe.wait("searching", lambda: all(not p.results_view.is_searching and
-                    not p.results_view._search_highlighter._highlight_timer.isActive() for p in pages))
+                    not p.results_view._visible_timer.isActive() for p in pages))
                 row["search_seconds"] = perf_counter() - start
                 expected = 2 * min(args.max_lines_scanned, args.lines)
                 assert all(len(p.results_view._search_matches) == expected for p in pages)

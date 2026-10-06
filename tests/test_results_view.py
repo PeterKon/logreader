@@ -10,14 +10,13 @@ from PySide6.QtGui import QFont, QFontDatabase, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPlainTextEdit
 
-from qt_helpers import wait_for_search
+from qt_helpers import wait_for_search, wait_for_navigation, retire_results
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
 from logreader.regex_presets import REGEX_PRESETS
 from logreader.ui.results.results_editor import StructuralBlock
 from logreader.ui.results.results_model import SourceLocation
 from logreader.ui.results.results_view import ResultsView
-from logreader.ui.results.results_renderer import IncrementalAnalysisRenderer, prepend_performance_timings
 from logreader.ui.source_search import utf16_length
 from logreader.ui.theme import THEME_COLORS
 
@@ -103,24 +102,14 @@ class ResultsViewTests(unittest.TestCase):
                 if not combined:
                     self.assertIn("Email addresses (regex) - 1 matches", output)
 
-    def test_performance_metrics_use_scanned_lines_and_result_rows(self):
-        lines = ("before", "ERROR: needle", "after", "unmatched")
-        for source, combined, analysis_rate, rendering_rate in (
-            (lines, True, "30.000 s", "113.333 s"),
-            (lines, False, "30.000 s", "56.667 s"),
-            (("unmatched",) * 4, True, "30.000 s", "N/A"),
-            ((), True, "N/A", "N/A"),
-        ):
-            with self.subTest(source=source, combined=combined):
-                config = LogreaderConfig(context=1, combined_view=combined,
-                                         enabled_patterns=("error_colon",), custom_patterns=("needle",))
-                editor = self.render(source, config)
-                self.view.prepend_performance_timings(.0012, .0034)
-                self.assertIn(
-                    f"Analysis per 100K source rows: {analysis_rate}\n"
-                    f"Rendering per 100K result rows: {rendering_rate}\n\n",
-                    editor.toPlainText(),
-                )
+    def test_performance_status_keeps_text_mapping_and_selection_unchanged(self):
+        editor = self.render(("ERROR: needle", "ERROR: second"))
+        editor.selectAll()
+        before = editor.document(), editor.anchor, editor.caret, editor.selected_text()
+        self.view.prepend_performance_timings(.0012, .0034)
+        self.assertIn("Analysis: 0.001 s | Rendering: 0.003 s", self.view.loading_status)
+        self.assertEqual((editor.document(), editor.anchor, editor.caret, editor.selected_text()), before)
+
 
     def test_copy_all_excludes_structure_and_preserves_duplicate_rows_and_empty_source_lines(self):
         lines = ("before", "ERROR: needle", "", "omitted", "ERROR: needle -------->", "after")
@@ -170,10 +159,10 @@ class ResultsViewTests(unittest.TestCase):
                 self.view.search_results()
                 wait_for_search(self.view)
                 self.assertEqual(len(self.view._search_matches), expected)
-                for start, end in self.view._search_matches:
-                    block = self.view.editor.document().findBlock(start)
+                for row, start, end in self.view._search_matches:
+                    block = self.cursor(row).block()
                     self.assertIsNotNone(self.view._source_map.row(block.blockNumber()))
-                    self.assertLessEqual(end, block.position() + block.length() - 1)
+                    self.assertLessEqual(end, block.length() - 1)
 
     def test_fixed_muted_gutter_and_green_red_text_survive_wrapping_search_and_scrolling(self):
         lines = ("before", "prefix ERROR: " + "body " * 100, "after")
@@ -244,7 +233,7 @@ class ResultsViewTests(unittest.TestCase):
         self.app.processEvents()
         for row in range(self.view.model.row_count):
             self.assertIsNone(self.cursor(row).block().userData())
-        for heading in ("Performance results", "Matches (1 total):", "ERROR:"):
+        for heading in ("Matches (1 total):", "ERROR:"):
             cursor = editor.document().find(heading)
             block = cursor.block()
             self.assertIsInstance(block.userData(), StructuralBlock)
@@ -282,15 +271,21 @@ class ResultsViewTests(unittest.TestCase):
         self.view.show_source_line(10000002)
         self.assertIsNotNone(self.view._return_position)
         self.assertTrue(self.view.show_result_location(target))
+        wait_for_navigation(self.view)
+        editor = self.view.editor
         self.assertFalse(self.view.source_active)
         self.assertEqual(self.view._source_map.row(editor.textCursor().blockNumber()), 120)
         self.assertIsNone(self.view._return_position)
         self.view.prepend_performance_timings(.1, .2)
         self.view.set_line_wrapping(True)
         self.assertTrue(self.view.show_result_location(target))
+        wait_for_navigation(self.view)
+        editor = self.view.editor
         self.assertEqual(self.view._source_map.row(editor.textCursor().blockNumber()), 120)
         self.render(lines, replace(config, combined_view=True), new_snapshot=False)
         self.assertTrue(self.view.show_result_location(target))
+        wait_for_navigation(self.view)
+        editor = self.view.editor
         self.assertEqual(self.view._source_map.row(editor.textCursor().blockNumber()), 40)
         before = editor.textCursor().position()
         self.assertFalse(self.view.show_result_location(SourceLocation("different", 10000041)))
@@ -302,34 +297,36 @@ class ResultsViewTests(unittest.TestCase):
         location = self.view.model.location(0)
         reference = weakref.ref(self.view.model)
         self.view.reset_for_loaded_file("new.log")
+        retire_results()
         self.assertIsNone(reference())
         self.assertIsNone(self.view.model)
         self.assertEqual(self.view.editor.gutter.width(), 0)
-        self.assertFalse(self.view._source_map.starts)
+        self.assertEqual(self.view.editor.ranges.total, 0)
         self.assertFalse(self.view.show_result_location(location))
 
-    def test_cancelling_index_construction_releases_model_even_if_renderer_is_retained(self):
+    def test_cancelling_preparation_drops_stale_completion(self):
+        from PySide6.QtCore import QThreadPool
         config = LogreaderConfig(context=0, enabled_patterns=("error_colon",))
-        analysis = analyze_lines(("ERROR: sample", "skip") * 100,
-                                 config.search_patterns(), combined=True)
-        renderer = IncrementalAnalysisRenderer(1, self.view.editor, "sample", analysis, config)
-        renderer.start()
-        reference = weakref.ref(self.view.editor.model)
-        with patch("logreader.ui.results.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
-            renderer._render_next_batch()
-        self.assertFalse(self.view.editor.model.ready)
-        renderer.cancel()
-        self.assertIsNone(reference())
-        self.assertIsNone(self.view.editor.model)
-        self.assertFalse(self.view.editor.projection.starts)
-        renderer.deleteLater()
+        analysis = analyze_lines(("ERROR: sample", "skip") * 100, config.search_patterns(), combined=True)
+        workers = []
+        with patch.object(QThreadPool, "start", side_effect=workers.append):
+            self.view.start_rendering(1, "sample", analysis, config)
+        worker = workers[0]
+        self.view.cancel_rendering()
+        worker.run()
+        self.assertTrue(worker.cancellation.is_cancelled)
+        self.assertIsNone(worker.analysis)
+        self.assertIsNone(self.view.model)
+        self.assertFalse(self.view.is_rendering)
+
 
     def test_timing_helper_keeps_raw_copy_search_and_source_mapping_aligned(self):
         editor = self.render(("before", "ERROR: needle", "after"))
         location = self.view.model.location(1)
         for _ in range(2):
-            prepend_performance_timings(editor, .1, .2)
+            self.view.prepend_performance_timings(.1, .2)
         self.assertTrue(self.view.show_result_location(location))
+        wait_for_navigation(self.view)
         self.assertEqual(editor.textCursor().block().text(), "ERROR: needle")
         editor.selectAll()
         self.assertEqual(editor.createMimeDataFromSelection().text(), "before\nERROR: needle\nafter\n")
@@ -344,7 +341,7 @@ class ResultsViewTests(unittest.TestCase):
         self.view.show_source_line(10000001)
         self.view.set_source(("ERROR: new",), 10000001, snapshot_id="replacement")
         self.assertIsNone(self.view.model)
-        self.assertEqual(editor.toPlainText(), "")
+        self.assertEqual(self.view.editor.toPlainText(), "")
         self.assertFalse(self.view.show_result_location(location))
         self.assertIsNone(self.view._return_position)
         self.assertEqual(self.view.source_view.editor.toPlainText(), "ERROR: new")

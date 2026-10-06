@@ -40,7 +40,6 @@ def main():
     view.show()
     view.set_line_wrapping(False)
     view.editor.setUndoRedoEnabled(args.undo_enabled)
-    highlighter = view._search_highlighter
     rows = []
 
     def wait(done):
@@ -61,7 +60,7 @@ def main():
         rows.append({"stage": stage, **memory_mib(), "blocks": document.blockCount(),
                      "matches": len(view._search_matches), "undo_steps": document.availableUndoSteps(),
                      "python_search_mib": storage_bytes((view._search_matches,
-                         highlighter._painted_blocks, highlighter._fresh_blocks)) / 2**20})
+                         view._formats, view._overlays)) / 2**20})
 
     levels = ("ERROR:", "ERROR", "WARNING:", "WARNING", "EXCEPTION:", "EXCEPTION")
     lines = tuple(f"{i:08d} {levels[i % 6]} " + "x" * 200 for i in range(6000))
@@ -70,8 +69,9 @@ def main():
     analysis = analyze_lines(lines, config.search_patterns(), combined=False)
     view.start_rendering(1, "synthetic", analysis, config)
     wait(lambda: not view.is_rendering)
+    view.editor.setUndoRedoEnabled(args.undo_enabled)
     snapshot("rendered")
-    assert view.editor.document().blockCount() == 36015
+    assert view.editor.ranges.loaded_count == view.editor.presentation.row_count
     if not args.undo_enabled:
         assert view.editor.document().availableUndoSteps() == 0
 
@@ -79,25 +79,27 @@ def main():
         if args.mode == "scan-only":
             # Diagnostic control only: keep scanning, storage, and markers but
             # suppress the native rehighlight operation. Never used by the app.
-            highlighter.rehighlightBlock = lambda block: None
+            view._visible_timer.timeout.disconnect()
+            view._visible_timer.timeout.connect(lambda: None)
         for cycle in (1, 2):
             for query in ("error", "warning", "exception"):
                 stage = f"cycle {cycle} {query}"
                 view._search_input.setText(query)
                 view.search_results()
-                wait(lambda: not view.is_searching and not highlighter._highlight_timer.isActive())
+                wait(lambda: not view.is_searching and not view._visible_timer.isActive())
                 assert len(view._search_matches) > 0
                 snapshot(stage)
-                bar = view.editor.verticalScrollBar()
+                bar = view.global_scroll
                 for fraction in (.25, .65, 1., 0.):
                     bar.setValue(int(bar.maximum() * fraction))
+                    wait(lambda: view.editor.navigation.pending is None)
                     app.processEvents()
                     view.editor.viewport().repaint()
                     app.processEvents()
-                wait(lambda: not highlighter._highlight_timer.isActive())
+                wait(lambda: not view._visible_timer.isActive())
                 snapshot(stage + " scrolled")
                 view._search_input.clear()
-                wait(lambda: not highlighter._highlight_timer.isActive())
+                wait(lambda: not view._visible_timer.isActive())
                 assert not view._search_matches
                 snapshot(stage + " query cleared")
     else:
@@ -107,12 +109,13 @@ def main():
             if args.mode == "layout-only":
                 document.documentLayout().ensureBlockLayout(block)
             else:
-                highlighter.rehighlightBlock(block)
+                block.layout().setFormats([])
+                document.markContentsDirty(block.position(), block.length())
             block = block.next()
         snapshot(args.mode)
 
     view.reset_for_loaded_file("synthetic")
-    wait(lambda: not highlighter._highlight_timer.isActive())
+    wait(lambda: not view._visible_timer.isActive())
     snapshot("rendered document cleared; source and analysis retained")
     report = {"qt": qVersion(), "python": sys.version.split()[0], "platform": app.platformName(),
               "mode": args.mode, "undo_enabled": args.undo_enabled,

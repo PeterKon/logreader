@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import codecs
-import re
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Iterator
+from typing import BinaryIO
 
-from .cancellation import CancellationToken, checked
+from .cancellation import CancellationToken
 
 
 DEFAULT_MAX_LINES_SCANNED = 2_000_000
 READ_CHUNK_BYTES = 64 * 1024
-_LINE_END = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
 _BOM_ENCODINGS = (
     (codecs.BOM_UTF32_LE, "utf-32", "UTF-32 LE"),
     (codecs.BOM_UTF32_BE, "utf-32", "UTF-32 BE"),
@@ -86,26 +84,12 @@ def _read_tail(
     cancellation: CancellationToken | None,
 ) -> LoadedLog:
     stream.seek(0)
-    tail: deque[str] = deque(maxlen=limit)
-    count = 0
-    for line in checked(_iter_decoded_lines(stream, codec, cancellation), cancellation):
-        tail.append(line)
-        count += 1
-    if cancellation is not None:
-        cancellation.check()
-    loaded = LoadedLog(tuple(tail), label, count)
-    if cancellation is not None:
-        cancellation.check()
-    return loaded
-
-
-def _iter_decoded_lines(
-    stream: BinaryIO, codec: str, cancellation: CancellationToken | None,
-) -> Iterator[str]:
-    """Match str.splitlines(), including CRLF and Unicode boundaries in chunks."""
     decoder = codecs.getincrementaldecoder(codec)()
-    fragments: list[str] = []
+    tail = deque(maxlen=limit)
+    fragments = []
     pending_cr = ""
+    count = 0
+    endings = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
     while True:
         if cancellation is not None:
             cancellation.check()
@@ -114,19 +98,31 @@ def _iter_decoded_lines(
         pending_cr = ""
         if data and text.endswith("\r"):
             text, pending_cr = text[:-1], "\r"
-        start = 0
-        for end in checked(_LINE_END.finditer(text), cancellation):
-            fragments.append(text[start:end.start()])
-            line = "".join(fragments)
-            fragments.clear()
-            yield line
-            start = end.end()
-        if start < len(text):
-            fragments.append(text[start:])
+        lines = text.splitlines()
+        incomplete = lines.pop() if text and text[-1] not in endings else ""
+        if lines:
+            if fragments:
+                fragments.append(lines[0])
+                lines[0] = "".join(fragments)
+                fragments.clear()
+            tail.extend(lines)
+            count += len(lines)
+        if incomplete:
+            fragments.append(incomplete)
         if not data:
             break
     if fragments:
-        yield "".join(fragments)
+        tail.append("".join(fragments))
+        count += 1
+    if cancellation is not None:
+        cancellation.check()
+    result = LoadedLog(tuple(tail), label, count)
+    if cancellation is not None:
+        cancellation.check()
+    return result
+
+
+
 
 
 def decode_log_bytes(data: bytes) -> tuple[str, str]:

@@ -215,7 +215,7 @@ class SourceViewTests(unittest.TestCase):
         self.assertIn(10001, mapped)
         self.assertIsNone(mapping.source_line(0))
         self.view.set_line_wrapping(True)
-        block = self.view.editor.document().findBlockByNumber(mapping.starts[0] + mapping.header_blocks + 1)
+        block = self.view.editor.document().findBlockByNumber(mapping.block(1))
         cursor = QTextCursor(block)
         self.view.editor.setTextCursor(cursor)
         self.view.editor.ensureCursorVisible()
@@ -235,7 +235,7 @@ class SourceViewTests(unittest.TestCase):
         self.render()
         self.view._search_input.setText("needle")
         self.view.search_results()
-        self.wait(lambda: not self.view.is_searching and not self.view._search_highlighter._highlight_timer.isActive())
+        self.wait(lambda: not self.view.is_searching and not self.view._visible_timer.isActive())
         matches = self.view._search_matches
         cursor = self.view.editor.document().find("result 120")
         self.view.editor.setTextCursor(cursor)

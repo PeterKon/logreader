@@ -181,8 +181,8 @@ class TabTests(unittest.TestCase):
             page.analyze()
             self.wait_for_completion(done)
             output = page.results_view.editor.toPlainText()
-            self.assertTrue(output.startswith("Performance results\nAnalysis:"))
-            self.assertIn("Rendering:", output)
+            self.assertIn("Analysis:", page.results_view.loading_status)
+            self.assertIn("Rendering:", page.results_view.loading_status)
             self.assertIn("ERROR: example", output)
 
     def test_performance_cli_flag_preserves_qt_options(self):
@@ -477,9 +477,7 @@ class TabTests(unittest.TestCase):
             self.assertEqual(self.window.statusBar().currentMessage(), status)
             self.window._select_document(first)
             renderer = first.results_view._renderer
-            renderer._timer.stop()
-            with patch("logreader.ui.results.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
-                renderer._render_next_batch()
+            self.assertIsNotNone(renderer)
             first._show_analysis_busy()
             self.assertIn("Displaying results: first.log", self.window.statusBar().currentMessage())
             self.assertFalse(self.window._analyze_button.isEnabled())
@@ -488,7 +486,7 @@ class TabTests(unittest.TestCase):
             draft.setFocus()
             partial = first.results_view.editor.toPlainText()
             QTest.qWait(20)
-            self.assertFalse(renderer._timer.isActive())
+            self.assertFalse(first.results_view.loader.timer.isActive())
             self.assertEqual(first.results_view.editor.toPlainText(), partial)
             self.assertEqual(done.count(), 0)
             self.assertIs(self.app.focusWidget(), draft)
@@ -525,7 +523,7 @@ class TabTests(unittest.TestCase):
                         self.window._select_document(second)
                         # A failure already dispatched before a switch still
                         # belongs to this renderer, even after it is paused.
-                        renderer.failed.emit(workers[0].request_id, message)
+                        renderer.signals.failed.emit(renderer.request_id, message)
                     warning.assert_not_called()
                     self.assertEqual(self.window.statusBar().currentMessage(), status)
                     self.assertEqual(second.session.phase, AnalysisPhase.ANALYZING)

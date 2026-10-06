@@ -16,7 +16,7 @@ try:
     from qt_helpers import wait_for_load
     from logreader.ui.document_page import DocumentPage
     from logreader.document_session import LoadPhase
-    from logreader.file_loader import LoadedLog, _iter_decoded_lines
+    from logreader.file_loader import LoadedLog, _read_tail
     from logreader.ui.qt_app import LogreaderWindow
     from logreader.workers.work_queue import WorkQueue
 except ModuleNotFoundError:
@@ -66,14 +66,14 @@ class LoadingTests(unittest.TestCase):
         slow_path = self.root / "slow.log"
         slow_path.write_bytes(b"ERROR: loaded\n")
 
-        def decoded_lines(stream, codec, cancellation):
+        def decoded_lines(stream, codec, label, limit, cancellation):
             stages.append(("read/decode/split", get_ident()))
             started.set()
             if not release.wait(5):
                 raise TimeoutError("Test read was not released")
-            yield from _iter_decoded_lines(stream, codec, cancellation)
+            return _read_tail(stream, codec, label, limit, cancellation)
 
-        with patch("logreader.file_loader._iter_decoded_lines", side_effect=decoded_lines):
+        with patch("logreader.file_loader._read_tail", side_effect=decoded_lines):
             try:
                 self.assertTrue(self.window.load_file(self.root / "slow.log"))
                 loading = self.window._document

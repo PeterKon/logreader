@@ -13,8 +13,13 @@ from logreader.workers.analysis_worker import AnalysisWorker, InteractiveAnalysi
 from logreader.cancellation import AnalysisCancelled
 from logreader.config import LogreaderConfig
 from logreader.core import SearchPattern, analyze_lines
-from logreader.ui.results.results_renderer import IncrementalAnalysisRenderer
+from logreader.ui.results.result_preparation import PreparationWorker
+from logreader.ui.results.results_view import ResultsView
+from logreader.ui.document_page import DocumentPage
+from logreader.file_loader import LoadedLog
 from logreader.workers.work_queue import WorkScheduler
+from qt_helpers import render_results, retire_results
+from pathlib import Path
 
 
 class SourceText(str):
@@ -31,22 +36,6 @@ class DocumentRetentionTests(unittest.TestCase):
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         gc.collect()
 
-    def test_cancelled_renderer_releases_analysis_before_deferred_deletion(self):
-        editor = QPlainTextEdit()
-        self.addCleanup(editor.deleteLater)
-        source = SourceText("ERROR: retained input")
-        reference = weakref.ref(source)
-        config = LogreaderConfig(enabled_patterns=("error_colon",))
-        analysis = analyze_lines((source,), config.search_patterns())
-        renderer = IncrementalAnalysisRenderer(1, editor, "sample", analysis, config)
-        renderer.start()
-        # Suspend the operations generator while it still owns the analysis.
-        next(renderer._operations)
-        del source, analysis
-        self.assertIsNotNone(reference())
-        renderer.cancel()
-        self.assertIsNone(reference())
-        renderer.deleteLater()
 
     def test_completed_and_cancelled_workers_release_source_even_if_wrapper_is_held(self):
         for cancel in (False, True):
@@ -61,6 +50,62 @@ class DocumentRetentionTests(unittest.TestCase):
                 self.assertEqual(worker.lines, ())
                 self.assertEqual(worker.patterns, ())
                 self.assertIsNone(reference())
+
+    def test_cancelled_preparation_releases_source_even_if_wrapper_is_held(self):
+        source = SourceText("ERROR: prepared input")
+        reference = weakref.ref(source)
+        config = LogreaderConfig(enabled_patterns=("error_colon",))
+        analysis = analyze_lines((source,), config.search_patterns())
+        worker = PreparationWorker(1, analysis, "snapshot", config)
+        del source, analysis
+        worker.cancel()
+        worker.run()
+        self.assertIsNone(worker.analysis)
+        self.assertIsNone(reference())
+
+    def test_retired_editor_releases_model_with_wrapper_cycle_and_collection_disabled(self):
+        view = ResultsView()
+        self.addCleanup(view.deleteLater)
+        self.addCleanup(view.close)
+        source = SourceText("ERROR: retained result")
+        reference = weakref.ref(source)
+        render_results(view, (source,))
+        old = view.editor
+        old.wrapper_cycle = old
+        model = weakref.ref(view.model)
+        del source
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            view.reset_for_loaded_file("replacement")
+            self.assertTrue(view.has_retiring_results)
+            retire_results()
+            self.assertFalse(view.has_retiring_results)
+            self.assertIsNone(old.presentation)
+            self.assertIsNone(model())
+            self.assertIsNone(reference())
+        finally:
+            if was_enabled:
+                gc.enable()
+
+    def test_reload_waits_for_native_retirement_before_submitting_reader(self):
+        page = DocumentPage()
+        self.addCleanup(page.dispose)
+        source = SourceText("ERROR: replaced source")
+        reference = weakref.ref(source)
+        page.stage_loaded_log(Path("old.log"), LoadedLog((source,), "UTF-8"))
+        render_results(page.results_view, (source,))
+        del source
+        observed = []
+        with patch.object(page._scheduler.loading, "submit", side_effect=lambda worker: observed.append(reference())):
+            page.load_file(Path("replacement.log"))
+            self.assertEqual(observed, [])
+            self.assertIsNotNone(page._waiting_load)
+            retire_results()
+            self.assertEqual(observed, [None])
+            self.assertIsNone(page._waiting_load)
+            # The captured worker was deliberately never submitted.
+            page._load_worker.discard()
 
     def test_queued_cancellation_and_shutdown_release_inputs_without_running(self):
         scheduler = WorkScheduler(self.app)

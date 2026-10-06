@@ -120,69 +120,55 @@ def analyze_lines(
     line_offset: int = 0,
     cancellation: CancellationToken | None = None,
 ) -> AnalysisResult:
-    """Analyze lines using literal or regex searches and global exclusions.
-
-    Context ranges that overlap or touch are merged into a single excerpt.  The
-    returned objects retain the original text, match spans, and one-based source
-    line numbers, starting at line_offset + 1. Patterns may validate individual regex candidates before they
-    become matches. Combined analysis returns one detail category, retains the
-    individual pattern counts, and includes each matching source line once.
-    Exclusion patterns suppress all matches on a line, but retain its context.
-    A cancellation token raises AnalysisCancelled between scan/construction
-    operations; an individual regex operation already executing must return.
-    """
-
+    """Analyze source lines, preserving match spans, context and line numbers."""
     if line_offset < 0:
         raise ValueError("Source line offset cannot be negative")
     if cancellation is not None:
         cancellation.check()
-    source_lines = (
-        lines if isinstance(lines, tuple) else tuple(checked(lines, cancellation))
-    )
-    states = []
-    exclusions = []
-    pattern_keys = set()
-    for pattern in checked(patterns, cancellation):
-        if pattern.key in pattern_keys:
+    source = lines if isinstance(lines, tuple) else tuple(checked(lines, cancellation))
+    patterns = tuple(checked(patterns, cancellation))
+    keys = set()
+    states, exclusions = [], []
+    for pattern in patterns:
+        if pattern.key in keys:
             raise ValueError(f"Duplicate search pattern key: {pattern.key}")
-        pattern_keys.add(pattern.key)
+        keys.add(pattern.key)
         state = _compile_pattern_state(pattern)
-        if pattern.exclude:
-            exclusions.append(state.expression)
-        else:
-            states.append(state)
-
-    _collect_pattern_matches(source_lines, states, exclusions, cancellation)
-    if cancellation is not None:
-        cancellation.check()
-    category_match_counts = {
-        state.pattern.key: len(state.match_spans_by_index)
-        for state in states
-    }
-    if combined:
-        categories = {
-            COMBINED_CATEGORY_KEY: _build_combined_category_result(
-                source_lines,
-                states,
-                match_count=sum(category_match_counts.values()),
-                line_offset=line_offset,
-                cancellation=cancellation,
-            )
-        }
+        (exclusions if pattern.exclude else states).append(state)
+    # A negative ASCII check is exact for ASCII literals. Other lines/patterns
+    # use the original matcher, including Unicode IGNORECASE special letters,
+    # regexes, overlapping literal candidates, validators and raw exclusions.
+    literals = tuple(dict.fromkeys(s.pattern.needle.lower() for s in states))
+    fast = bool(states) and all(not s.pattern.is_regex and s.pattern.needle.isascii() for s in states)
+    if fast:
+        for index, line in checked(enumerate(source), cancellation):
+            if line.isascii():
+                folded = line.lower()
+                if not any(needle in folded for needle in literals):
+                    continue
+            if any(s.expression.search(line) is not None for s in checked(exclusions, cancellation)):
+                continue
+            for state in checked(states, cancellation):
+                spans, raw = _find_line_matches(
+                    line, state.expression, state.folded_exclusions,
+                    state.pattern.match_validator, cancellation,
+                )
+                _record_line_matches(state, index, spans, raw)
     else:
-        categories = {
-            state.pattern.key: _build_category_result(source_lines, state, cancellation, line_offset)
-            for state in states
-        }
-
+        _collect_pattern_matches(source, states, [s.expression for s in exclusions], cancellation)
     if cancellation is not None:
         cancellation.check()
-    return AnalysisResult(
-        line_count=len(source_lines),
-        pattern_count=len(states),
-        categories=categories,
-        category_match_counts=category_match_counts,
-    )
+    counts = {state.pattern.key: len(state.match_spans_by_index) for state in states}
+    if combined:
+        categories = {COMBINED_CATEGORY_KEY: _build_combined_category_result(
+            source, states, match_count=sum(counts.values()), line_offset=line_offset, cancellation=cancellation)}
+    else:
+        categories = {state.pattern.key: _build_category_result(source, state, cancellation, line_offset)
+                      for state in states}
+    if cancellation is not None:
+        cancellation.check()
+    return AnalysisResult(len(source), categories, len(states), counts)
+
 
 
 def _compile_pattern_state(pattern: SearchPattern) -> _PatternMatchState:

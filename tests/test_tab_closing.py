@@ -150,20 +150,19 @@ class TabClosingTests(unittest.TestCase):
                 workers = []
                 with capture_analysis(workers):
                     self.window.analyze_current()
-                workers[0].run()
+                preparation = []
+                with patch.object(QThreadPool, "start", side_effect=preparation.append):
+                    workers[0].run()
                 renderer = first.results_view._renderer
-                self.assertTrue(renderer._timer.isActive())
-                with patch("logreader.ui.results.results_renderer.INCREMENTAL_RENDER_BATCH_MS", 0):
-                    renderer._render_next_batch()
-                renderer._timer.stop()
+                self.assertFalse(renderer.cancellation.is_cancelled)
                 if active:
                     self.window.close_tab(self.window._pages.indexOf(first))
                 else:
                     other = self.open_log(f"render-{active}-other.log")
                     self.window.close_tab(self.window._pages.indexOf(first))
                     self.assertIs(self.window._document, other)
-                self.assertTrue(renderer._cancelled)
-                self.assertFalse(renderer._timer.isActive())
+                self.assertTrue(renderer.cancellation.is_cancelled)
+                self.assertFalse(first.results_view.loader.timer.isActive())
                 self.assertIsNone(first.results_view._renderer)
                 status = self.window.statusBar().currentMessage()
                 first.results_view.rendering_completed.emit(workers[0].request_id, 1.0)
@@ -192,8 +191,8 @@ class TabClosingTests(unittest.TestCase):
                     self.window.close()
                 self.assertEqual(self.window._tabs.count(), 0)
                 self.assertTrue(workers[0].cancellation.is_cancelled)
-                self.assertTrue(renderer._cancelled)
-                self.assertFalse(renderer._timer.isActive())
+                self.assertTrue(renderer.cancellation.is_cancelled)
+                self.assertFalse(first.results_view.loader.timer.isActive())
                 self.assertEqual(first.session.lines, ())
                 self.assertEqual(second.session.lines, ())
                 done = QSignalSpy(workers[0].signals.finished)

@@ -50,6 +50,7 @@ class DocumentPage(QWidget):
         self.load_queued = False
         self.analysis_queued = False
         self._render_active = True
+        self._waiting_load = None
         self._analysis_busy_timer = QTimer(self)
         self._analysis_busy_timer.setSingleShot(True)
         self._analysis_busy_timer.setInterval(ANALYSIS_BUSY_DELAY_MS)
@@ -75,6 +76,7 @@ class DocumentPage(QWidget):
         self.results_view.rendering_failed.connect(self._fail_analysis)
         self.results_view.maximized_changed.connect(self._set_results_maximized)
         self.results_view.bookmarks_cleared.connect(self._bookmarks_cleared)
+        self.results_view.retired.connect(self._submit_waiting_load)
         root_layout.addWidget(self.results_view, 1)
 
     @Slot(bool)
@@ -100,6 +102,9 @@ class DocumentPage(QWidget):
         """Replace this document, invalidating its previous work."""
         if self._disposed:
             return
+        if self._waiting_load is not None:
+            waiting, self._waiting_load = self._waiting_load, None
+            waiting.discard()
         self._pending_analysis = None
         if self._analysis_worker is not None:
             self._scheduler.cancel(self._analysis_worker)
@@ -129,6 +134,9 @@ class DocumentPage(QWidget):
         """Start a document-owned load without blocking the GUI thread."""
         if self._disposed:
             return
+        if self._waiting_load is not None:
+            waiting, self._waiting_load = self._waiting_load, None
+            waiting.discard()
         self._pending_analysis = analyze_after_load
         for worker in tuple(self._workers.values()):
             self._scheduler.cancel(worker)
@@ -146,6 +154,17 @@ class DocumentPage(QWidget):
         worker.signals.finished.connect(self._worker_finished)
         self._load_worker = worker
         self._workers[request_id] = worker
+        self._waiting_load = worker
+        self._submit_waiting_load()
+
+    def _submit_waiting_load(self) -> None:
+        worker = self._waiting_load
+        if worker is None or self.results_view.has_retiring_results:
+            return
+        self._waiting_load = None
+        if self._disposed or self.session.active_load_id != worker.request_id:
+            worker.discard()
+            return
         self._scheduler.loading.submit(worker)
 
     @Slot(int)
@@ -273,6 +292,8 @@ class DocumentPage(QWidget):
             self.results_view.start_rendering(
                 request.request_id, str(request.source_path),
                 self.session.analysis, request.config,
+                scan_limit=(request.config.max_lines_scanned, self.session.total_line_count)
+                if request.config.max_lines_scanned < self.session.total_line_count else None,
             )
         self._analysis_busy_timer.start()
         self._set_status(f"Displaying results: {request.source_path.name}")
@@ -283,6 +304,9 @@ class DocumentPage(QWidget):
         if self._disposed:
             return
         self._disposed = True
+        if self._waiting_load is not None:
+            waiting, self._waiting_load = self._waiting_load, None
+            waiting.discard()
         self._pending_analysis = None
         self.session.clear()
         for worker in tuple(self._workers.values()):
@@ -350,12 +374,6 @@ class DocumentPage(QWidget):
             self.results_view.prepend_performance_timings(
                 analysis_seconds,
                 rendering_seconds,
-            )
-
-        config = self.session.analysis_config
-        if config is not None and self.session.total_line_count > config.max_lines_scanned:
-            self.results_view.prepend_scan_limit_warning(
-                config.max_lines_scanned, self.session.total_line_count,
             )
 
         if analysis.line_count == self.session.total_line_count:

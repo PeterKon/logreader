@@ -1,430 +1,343 @@
-"""Qt results panel and incremental rendering for Logreader."""
-
-from __future__ import annotations
-
+"""Production results controls over a progressively filled native document."""
 from array import array
-from bisect import bisect_left, bisect_right
-from textwrap import fill
-from typing import Callable, Iterator
+from bisect import bisect_left
+from time import perf_counter
 from uuid import uuid4
+from PySide6.QtCore import QPoint, QSignalBlocker, Qt, QTimer, Signal, QThreadPool, Slot
+from PySide6.QtGui import QColor, QKeySequence, QTextCharFormat, QTextCursor, QTextLayout
+from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QWidget, QHBoxLayout
+from .results_controls import ResultsControls
+from .result_coordinates import TextPoint
+from .retained_editor import SparseResultsEditor
+from .result_scrollbar import SparsePositionScrollBar
+from .range_loading import SparseLoader
+from .result_presentation import PresentationModel
+from .result_preparation import PreparationWorker
+from .result_headers import scan_limit_operations
+from .results_model import ResultsModel
+from logreader.config import LogreaderConfig
+from logreader.core import AnalysisResult
+from logreader.ui.source_search import SourceMatches, iter_source_matches
+from logreader.ui.theme import THEME_COLORS
+from logreader.ui.widgets.input_menus import ScrollbarContextMenu
+from logreader.ui.widgets.line_number_editor import LineNumberEditor
 
-from PySide6.QtCore import (
-    QElapsedTimer,
-    QSignalBlocker,
-    QSize,
-    QTimer,
-    Qt,
-    Signal,
-    Slot,
-)
-from PySide6.QtGui import (
-    QColor,
-    QFontDatabase,
-    QTextCursor,
-    QTextDocument,
-)
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPlainTextEdit,
-    QPushButton,
-    QSpinBox,
-    QStackedWidget,
-    QStackedLayout,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
-
-from ...config import LogreaderConfig
-from ..bookmarks import ResultsBookmarks
-from ...core import AnalysisResult
-from ...search_storage import SearchMatches
-from ..widgets.search_widgets import SearchMatchHighlighter, SearchMarkerScrollBar
-from .result_source_map import ResultSourceMap
-from .results_editor import ResultsEditor
-from .results_renderer import (
-    IncrementalAnalysisRenderer, render_analysis, prepend_performance_timings, _prepend_result_header,
-)
-from .results_model import ResultLocation, ResultsModel, SourceLocation
-from ..source_search import iter_source_matches
-from ..source_view import SourceView
-from ..widgets.input_menus import InputContextMenu, ScrollbarContextMenu
-from ..theme import THEME_COLORS, configure_action_button, configure_clear_button, vertical_resize_icon
+class LogicalMatches(SourceMatches):
+    def __getitem__(self, index):
+        return self.lines[index], self.starts[index], self.ends[index]
 
 
-INCREMENTAL_SEARCH_BATCH_MS = 4
-SEARCH_CHUNK_SIZE = 4096
-CheckBoxFactory = Callable[[], QCheckBox]
-SpinBoxFactory = Callable[[], QSpinBox]
+class SparseProjection:
+    def __init__(self, editor):
+        self.editor = editor
+
+    def block(self, row):
+        number = self.editor.ranges.block_for(self.editor.presentation.display_row(row))
+        return -1 if number is None else number
+
+    def row(self, number):
+        display = self.editor.ranges.logical_at(number)
+        if not isinstance(display, int):
+            return None
+        entry = self.editor.presentation.entry(display)
+        return entry if isinstance(entry, int) else None
+
+    def source_line(self, number):
+        row = self.row(number)
+        return self.editor.presentation.logical.line(row).number if row is not None else None
 
 
-def _iter_model_search_matches(
-    model: ResultsModel, projection: ResultSourceMap, document: QTextDocument, query: str,
-) -> Iterator[tuple[int, int, int] | None]:
-    """Search logical log rows and project only their matches into Qt."""
-    last_row = None
-    block_number = block_position = 0
-    for match in iter_source_matches((line.text for line in model.iter_lines()), query):
-        if match is None:
-            yield None
-            continue
-        row, start, end = match
-        if row != last_row:
-            block_number = projection.block(row)
-            block_position = document.findBlockByNumber(block_number).position()
-            last_row = row
-        yield block_position + start, block_position + end, block_number
+class DecoratedSparseEditor(SparseResultsEditor):
+    bookmarks_changed = Signal()
+
+    def __init__(self, *args, **kwargs):
+        self.logical_bookmarks = False
+        super().__init__(*args, **kwargs)
+
+    def set_bookmarked_blocks(self, blocks):
+        if self.logical_bookmarks:
+            # ResultsBookmarks also reports unloaded destinations as -1. Its
+            # logical items, rather than this native projection, own identity.
+            self.bookmarks_changed.emit()
+        else:
+            super().set_bookmarked_blocks(blocks)
 
 
-def _iter_search_matches(
-    document: QTextDocument, query: str,
-) -> Iterator[tuple[int, int, int] | None]:
-    """Use Qt's literal matching on bounded slices, including boundary overlap.
+class ResultsView(ResultsControls):
+    loading_status_changed = Signal(str)
+    results_prepared = Signal()
+    retired = Signal()
 
-    Positions and slice lengths are UTF-16 units, as required by QTextCursor.
-    Yield even on empty slices so sparse/no-match searches also yield to the UI.
-    """
-    query_length = len(query.encode("utf-16-le", errors="surrogatepass")) // 2
-    scratch = QTextDocument()
-    cursor = QTextCursor(document)
-    position = 0
-    last_position = document.characterCount() - 1
-    while position < last_position:
-        boundary = min(position + SEARCH_CHUNK_SIZE, last_position)
-        # PySide's QString conversion drops an isolated surrogate. Never cut
-        # a supplementary character in half or subsequent offsets would drift.
-        if (boundary < last_position
-                and 0xDC00 <= ord(document.characterAt(boundary)) <= 0xDFFF):
-            boundary += 1
-        end = min(boundary + query_length - 1, last_position)
-        if (end < last_position
-                and 0xDC00 <= ord(document.characterAt(end)) <= 0xDFFF):
-            end += 1
-        cursor.setPosition(position)
-        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-        scratch.setPlainText(cursor.selectedText())
-        local_position = 0
-        next_position = boundary
-        while True:
-            match = scratch.find(query, local_position)
-            if match.isNull() or position + match.selectionStart() >= boundary:
-                break
-            start = position + match.selectionStart()
-            stop = position + match.selectionEnd()
-            yield start, stop, document.findBlock(start).blockNumber()
-            local_position = match.selectionEnd()
-            next_position = max(next_position, stop)
-        position = next_position
-        yield None
+    def __init__(self, parent=None, **options):
+        self.logical = None
+        self._closed = False
+        self._formats = {}
+        self._overlays = {}
+        self._bookmark_rows = {}
+        self._bookmark_projection = None
+        self._selection_key = None
+        self._revision = 0
+        self._search_identity = self._search_request = None
+        self._pending_sequence = self._source_destination = None
+        self.format_updates = self.decoration_passes = self.search_steps = 0
+        self._preparation_generation = 0
+        self._preparing = {}
+        self._render_request_id = None
+        self._prepared_result = None
+        self._paused_at = None
+        self._paused_seconds = 0.0
+        self._retiring = 0
+        self.loading_status = ""
+        self._performance_text = ""
+        super().__init__(parent, **options)
+        self._search_matches = LogicalMatches()
+        self._pending_matches = LogicalMatches()
+        self._visible_timer = QTimer(self)
+        self._visible_timer.setSingleShot(True)
+        self._visible_timer.timeout.connect(self._paint_decorations)
+        self._install_empty()
+        self.destroyed.connect(lambda: setattr(self, "logical", None))
 
+    def _empty_presentation(self):
+        model = ResultsModel(AnalysisResult(0, {}, 0, {}), self._snapshot_id)
+        for _ in model.prepare():
+            pass
+        presentation = PresentationModel(model, LogreaderConfig(), defer=True)
+        presentation.ready = True
+        return presentation
 
-class ResultsView(QWidget):
-    """Results editor, controls, and incremental rendering lifecycle."""
-
-    maximized_changed = Signal(bool)
-    rendering_completed = Signal(int, float)
-    rendering_failed = Signal(int, str)
-    bookmarks_cleared = Signal()
-
-    def __init__(
-        self,
-        parent: QWidget | None = None,
-        *,
-        checkbox_factory: CheckBoxFactory = QCheckBox,
-        spinbox_factory: SpinBoxFactory = QSpinBox,
-    ) -> None:
-        super().__init__(parent)
-        self.setObjectName("resultsPanel")
-        self._maximized = False
-        self._renderer: IncrementalAnalysisRenderer | None = None
-        self._source_active = False
-        self._rendering_paused = False
-        self._results_query = ""
-        self._snapshot_id = uuid4().hex
-        self._return_position = None
-        self._search_matches = SearchMatches()
-        self._search_match_blocks = array("I")
-        self._current_search_match: int | None = None
-        self._searched_query: str | None = None
-        self._search_from_viewport = True
-        self._search_generation = 0
-        self._search_work: Iterator[tuple[int, int, int] | None] | None = None
-        self._pending_matches = SearchMatches()
-        self._pending_blocks = array("I")
-        self._pending_navigation: bool | None = None
-        self._search_timer = QTimer(self)
-        self._search_timer.setSingleShot(True)
-        self._search_timer.timeout.connect(self._search_next_batch)
-
-        panel_layout = QVBoxLayout(self)
-        panel_layout.setContentsMargins(0, 0, 0, 0)
-        panel_layout.setSpacing(0)
-
-        header = QWidget(self)
-        header.setObjectName("resultsHeader")
-        header.setMinimumHeight(36)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(8, 5, 8, 5)
-        header_layout.setSpacing(8)
-
-        self._expand_icon = vertical_resize_icon()
-        self._contract_icon = vertical_resize_icon(contract=True)
-        self._maximize_button = QPushButton()
-        configure_action_button(self._maximize_button)
-        self._maximize_button.setIcon(self._expand_icon)
-        self._maximize_button.setIconSize(QSize(18, 18))
-        self._maximize_button.setObjectName("maximizeResultsButton")
-        self._maximize_button.setAccessibleName("Maximize results")
-        self._maximize_button.setFixedSize(38, 28)
-        self._maximize_button.setStyleSheet(
-            "QPushButton#maximizeResultsButton {"
-            " padding: 0;"
-            "}"
-            "QToolTip { font-weight: 400; }"
-        )
-        self._maximize_button.setToolTip("Expand results window")
-        self._maximize_button.clicked.connect(self.toggle_maximized)
-        header_layout.addWidget(self._maximize_button)
-        self._source_button = QPushButton("Go to source")
-        self._source_button.setObjectName("sourceToggleButton")
-        self._source_button.setToolTip("Open the original file")
-        configure_action_button(self._source_button)
-        self._source_button.clicked.connect(self.toggle_source)
-        header_layout.addWidget(self._source_button)
-        header_layout.addStretch(1)
-
-        self._search_count_label = QLabel()
-        self._search_count_label.setObjectName("resultsSearchCount")
-        self._search_count_label.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        self._search_count_label.setStyleSheet(
-            f"color: {THEME_COLORS['ui_muted']};"
-        )
-        self._search_count_label.setMinimumWidth(84)
-        count_size_policy = self._search_count_label.sizePolicy()
-        count_size_policy.setRetainSizeWhenHidden(True)
-        self._search_count_label.setSizePolicy(count_size_policy)
-        self._search_count_label.hide()
-        self._source_search_count = QLabel()
-        self._source_search_count.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._source_search_count.setMinimumWidth(84)
-        self._count_stack = QStackedWidget()
-        self._count_stack.setObjectName("searchCountStack")
-        self._count_stack.addWidget(self._search_count_label)
-        self._count_stack.addWidget(self._source_search_count)
-        self._search_count_label.hide()
-        header_layout.addWidget(self._count_stack)
-
-        search_controls = QWidget(header)
-        search_controls.setObjectName("resultsSearchControls")
-        search_controls_layout = QHBoxLayout(search_controls)
-        search_controls_layout.setContentsMargins(0, 0, 0, 0)
-        search_controls_layout.setSpacing(0)
-
-        self._search_input = QLineEdit()
-        self._search_input.setObjectName("resultsSearch")
-        InputContextMenu(self._search_input, undo=True)
-        self._search_input.setAccessibleName("Search results")
-        self._search_input.setPlaceholderText("Press enter to search...")
-        configure_clear_button(self._search_input)
-        self._search_input.setFixedWidth(220)
-        self._search_input.setStyleSheet(
-            "QLineEdit#resultsSearch {"
-            " border-right: none;"
-            " border-top-right-radius: 0;"
-            " border-bottom-right-radius: 0;"
-            "}"
-        )
-        self._search_input.textChanged.connect(self._invalidate_search_results)
-        self._search_input.returnPressed.connect(self.search_results)
-        search_controls_layout.addWidget(self._search_input)
-
-        search_button_separator = QFrame(search_controls)
-        search_button_separator.setObjectName("resultsSearchButtonSeparator")
-        search_button_separator.setFixedSize(1, 28)
-        search_button_separator.setStyleSheet(
-            f"background-color: {THEME_COLORS['ui_border_strong']};"
-            " border: none;"
-        )
-        search_controls_layout.addWidget(search_button_separator)
-
-        self._search_navigation = spinbox_factory()
-        self._search_navigation.setObjectName("resultsSearchNavigation")
-        self._search_navigation.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
-        self._search_navigation.setAccessibleName("Navigate search results")
-        self._search_navigation.setRange(-1, 1)
-        self._search_navigation.setValue(0)
-        self._search_navigation.setFixedSize(22, 28)
-        self._search_navigation.setStyleSheet(
-            "QSpinBox#resultsSearchNavigation {"
-            " border-left: none;"
-            " border-top-left-radius: 0;"
-            " border-bottom-left-radius: 0;"
-            " padding: 0;"
-            "}"
-        )
-        self._search_navigation.lineEdit().hide()
-        self._search_navigation.valueChanged.connect(
-            self._navigate_from_search_arrows
-        )
-        search_controls_layout.addWidget(self._search_navigation)
-        header_layout.addWidget(search_controls)
-
-        search_separator = QFrame()
-        search_separator.setObjectName("resultsSearchSeparator")
-        search_separator.setFrameShape(QFrame.Shape.VLine)
-        search_separator.setFrameShadow(QFrame.Shadow.Plain)
-        search_separator.setFixedWidth(1)
-        search_separator.setMaximumHeight(22)
-        search_separator.setStyleSheet(
-            f"background-color: {THEME_COLORS['ui_border_strong']};"
-            " border: none;"
-        )
-        header_layout.addWidget(search_separator)
-
-        line_wrap_label = QLabel("Line wrapping")
-        line_wrap_label.setObjectName("lineWrapLabel")
-        header_layout.addWidget(line_wrap_label)
-
-        self._line_wrap_check = checkbox_factory()
-        self._line_wrap_check.setObjectName("lineWrapCheck")
-        self._line_wrap_check.setAccessibleName("Line wrapping")
-        self._line_wrap_check.setToolTip(
-            "Enable/disable line-wrapping"
-        )
-        self._line_wrap_check.toggled.connect(self.set_line_wrapping)
-        header_layout.addWidget(self._line_wrap_check)
-        panel_layout.addWidget(header)
-
-        self._editor = ResultsEditor(self)
-        self._source_map = self._editor.projection
-        self._editor.setObjectName("resultsView")
-        self._editor.setReadOnly(True)
-        # Rendering is programmatic; retaining undo commands only wastes memory.
-        self._editor.setUndoRedoEnabled(False)
-        self._editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self._editor.setFont(
-            QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-        )
-        self._editor.setStyleSheet(_results_editor_style_sheet())
-        self._search_marker_scrollbar = SearchMarkerScrollBar(
-            Qt.Orientation.Vertical,
-            self._editor,
-        )
-        self._editor.setVerticalScrollBar(self._search_marker_scrollbar)
-        for scrollbar in (
-            self._search_marker_scrollbar,
-            self._editor.horizontalScrollBar(),
-        ):
-            ScrollbarContextMenu(scrollbar)
-            # User actions re-anchor navigation; ordinary value changes from
-            # revealing a match or laying out the document must not do so.
-            scrollbar.sliderPressed.connect(self._use_viewport_search_anchor)
-            scrollbar.actionTriggered.connect(self._use_viewport_search_anchor)
-        self._search_highlighter = SearchMatchHighlighter(
-            self._editor
-        )
-        self._editor.document().contentsChange.connect(self._results_changed)
-        self._editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._editor.customContextMenuRequested.connect(self._results_context_menu)
-        self.source_view = SourceView(
-            self, highlighter_factory=SearchMatchHighlighter,
-            scrollbar_factory=SearchMarkerScrollBar, editor_style=_results_editor_style_sheet(),
-        )
-        self.source_view.search_status_changed.connect(self._source_search_count.setText)
-        self._view_stack = QStackedLayout()
-        self._view_stack.addWidget(self._editor)
-        self._view_stack.addWidget(self.source_view)
-        panel_layout.addLayout(self._view_stack, 1)
-        self.bookmarks = ResultsBookmarks(self)
-        panel_layout.insertWidget(1, self.bookmarks.bar)
-        self._editor.gutter.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._editor.gutter.customContextMenuRequested.connect(
-            lambda point: self._results_context_menu(
-                self._editor.viewport().mapFromGlobal(self._editor.gutter.mapToGlobal(point))
-            )
-        )
-        source_editor = self.source_view.editor
-        source_editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        source_editor.customContextMenuRequested.connect(self._source_context_menu)
-        source_editor.gutter.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        source_editor.gutter.customContextMenuRequested.connect(
-            lambda point: self._source_context_menu(
-                source_editor.viewport().mapFromGlobal(source_editor.gutter.mapToGlobal(point))
-            )
-        )
+    def _install_empty(self):
+        self._install_presentation(self._empty_presentation())
+        self.logical = None
+        self._editor.setPlaceholderText("")
+        self._set_loading_status("")
 
     @property
-    def source_active(self) -> bool:
-        return self._source_active
+    def has_retiring_results(self):
+        return self._retiring > 0
 
-    def set_source(
-        self, lines: tuple[str, ...], total_line_count: int, *, snapshot_id: str | None = None,
-    ) -> None:
-        snapshot_id = snapshot_id if snapshot_id is not None else uuid4().hex
-        if self._snapshot_id != snapshot_id:
-            self.reset_for_loaded_file("")
-        self._snapshot_id = snapshot_id
-        self.source_view.set_source(lines, total_line_count)
-        if self._source_active:
-            self.source_view.ensure_page()
-        self.bookmarks.refresh()
+    @Slot()
+    def _retired(self):
+        self._retiring -= 1
+        if not self._retiring:
+            self.retired.emit()
 
-    def toggle_source(self) -> None:
-        self.set_source_active(not self._source_active)
+    def _install_presentation(self, presentation):
+        old = self._editor
+        font = old.font()
+        wrapped = old.lineWrapMode() != QPlainTextEdit.LineWrapMode.NoWrap
+        had_focus = old.hasFocus()
+        if hasattr(self, "loader"):
+            self.loader.cancel()
+            old.navigation.invalidate()
+            old._cancel_wheel()
+            old._drag_timer.stop()
+            previous = self.surface
+        else:
+            previous = old
+        self._visible_timer.stop()
+        self._formats.clear()
+        self._overlays.clear()
+        self._bookmark_rows.clear()
+        self._selection_key = self._return_position = self._bookmark_projection = None
+        self._view_stack.removeWidget(previous)
+        previous.hide()
+        old.setObjectName("")
+        if hasattr(old, "presentation") and old.presentation.row_count:
+            self._retiring += 1
+            # QObject emits destroyed before deleting its children. Submit a
+            # replacement read only after the editor and document are gone.
+            previous.destroyed.connect(self._retired, Qt.ConnectionType.QueuedConnection)
+        previous.deleteLater()
+        self.logical = presentation.logical
+        self._editor = DecoratedSparseEditor(presentation, self)
+        editor = self._editor
+        editor.setFont(font)
+        self.surface = QWidget(self)
+        row = QHBoxLayout(self.surface)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        row.addWidget(editor, 1)
+        self.global_scroll = SparsePositionScrollBar(editor, self.surface)
+        row.addWidget(self.global_scroll)
+        self._view_stack.insertWidget(0, self.surface)
+        self._view_stack.setCurrentWidget(self.source_view if self.source_active else self.surface)
+        self._source_map = SparseProjection(editor)
+        self.loader = SparseLoader(editor)
+        self.loader.is_active = lambda: not self._closed and not self._rendering_paused
+        self.loader.progressed.connect(self._progress)
+        self.loader.completed.connect(self._loaded)
+        self.loader.failed.connect(self._loading_failed)
+        editor.navigation.changed.connect(self._progress)
+        editor.navigation.completed.connect(self._navigation_complete)
+        editor.rows_appended.connect(self._progress)
+        editor.logical_bookmarks = True
+        editor.bookmarks_changed.connect(self._bookmarks_changed)
+        editor.window_changed.connect(self._schedule_decorations)
+        editor.updateRequest.connect(self._schedule_decorations)
+        editor.viewport_navigated.connect(self._use_viewport_search_anchor)
+        self._search_marker_scrollbar = editor.verticalScrollBar()
+        for bar in (self.global_scroll, editor.horizontalScrollBar()):
+            ScrollbarContextMenu(bar)
+            bar.sliderPressed.connect(self._use_viewport_search_anchor)
+            bar.actionTriggered.connect(self._use_viewport_search_anchor)
+        editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        editor.customContextMenuRequested.connect(self._results_context_menu)
+        editor.gutter.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        editor.gutter.customContextMenuRequested.connect(lambda point: self._results_context_menu(
+            editor.viewport().mapFromGlobal(editor.gutter.mapToGlobal(point))))
+        editor.set_wrapping(wrapped)
+        if had_focus:
+            editor.setFocus()
 
-    def set_source_active(self, active: bool) -> None:
-        if active == self._source_active:
+    def start_rendering(self, request_id, source_name, analysis, config, *, scan_limit=None):
+        self.cancel_rendering()
+        self._performance_text = ""
+        self._render_request_id = request_id
+        self._render_started = perf_counter()
+        self._paused_at = None
+        self._paused_seconds = 0.0
+        self._clear_search_results()
+        generation = self._preparation_generation
+        headers = scan_limit_operations(*scan_limit) if scan_limit is not None else ()
+        worker = PreparationWorker(generation, analysis, self._snapshot_id, config, header_operations=headers)
+        worker.signals.completed.connect(self._prepared)
+        worker.signals.failed.connect(self._preparation_failed)
+        worker.signals.finished.connect(self._preparation_finished)
+        self._preparing[generation] = worker
+        self._renderer = worker
+        self._set_loading_status("Preparing results…")
+        QThreadPool.globalInstance().start(worker)
+
+    @Slot(int, object)
+    def _prepared(self, generation, prepared):
+        if self._closed or generation != self._preparation_generation or self._render_request_id is None:
             return
-        if active:
-            self._results_query = self._search_input.text()
-        self._source_active = active
-        self._view_stack.setCurrentWidget(self.source_view if active else self._editor)
-        self._count_stack.setCurrentWidget(self._source_search_count if active else self._search_count_label)
-        if not active:
-            self._search_count_label.setVisible(bool(self._searched_query))
-        self._source_button.setText("Go to results" if active else "Go to source")
-        self._source_button.setProperty("sourceActive", active)
-        self._source_button.style().unpolish(self._source_button)
-        self._source_button.style().polish(self._source_button)
-        self._source_button.update()
-        self._source_button.setToolTip("Open the results window" if active else "Open the original file")
-        with QSignalBlocker(self._search_input), QSignalBlocker(self._line_wrap_check):
-            self._search_input.setText(self.source_view.query if active else self._results_query)
-            editor = self.source_view.editor if active else self._editor
-            self._line_wrap_check.setChecked(editor.lineWrapMode() != QPlainTextEdit.LineWrapMode.NoWrap)
-        self._search_input.setAccessibleName("Search retained source" if active else "Search results")
-        self._search_input.setToolTip("Search for matches in the original file" if active else "Search for matches in the results")
-        if active:
-            self.source_view.ensure_page()
-        elif self._return_position is not None:
-            position, anchor, vertical, horizontal = self._return_position
-            cursor = QTextCursor(self._editor.document())
-            cursor.setPosition(anchor)
-            cursor.setPosition(position, QTextCursor.MoveMode.KeepAnchor)
-            self._editor.setTextCursor(cursor)
-            self._editor.verticalScrollBar().setValue(vertical)
-            self._editor.horizontalScrollBar().setValue(horizontal)
-            self._return_position = None
-        self.focus_editor()
+        self._renderer = None
+        if self._rendering_paused:
+            self._prepared_result = generation, prepared
+            return
+        self._clear_search_results()
+        self._install_presentation(prepared.presentation)
+        editor = self._editor
+        total = editor.presentation.row_count
+        end = self.loader._commit_end(0, min(total, 64)) if total else 0
+        if end:
+            editor.insert_range(0, end)
+            with editor.changing():
+                editor.set_top(TextPoint(0))
         self.bookmarks.refresh()
+        self._progress()
+        self.results_prepared.emit()
+        # A signal handler may have replaced or closed the result set.
+        if not self._closed and generation == self._preparation_generation:
+            if self.loader.done:
+                self._loaded()
+            else:
+                self.loader.start()
 
-    def source_line_at(self, point) -> int | None:
-        location = self.result_location_at(point)
-        return location.source.line if location is not None else None
+    @Slot(int)
+    def _preparation_finished(self, generation):
+        self._preparing.pop(generation, None)
+
+    @Slot(int, str)
+    def _preparation_failed(self, generation, message):
+        if generation == self._preparation_generation:
+            self._loading_failed(message)
+
+    def _loading_failed(self, message):
+        request_id = self._render_request_id
+        self.cancel_rendering()
+        self._set_loading_status(f"Loading failed: {message}")
+        if request_id is not None:
+            self.rendering_failed.emit(request_id, message)
+
+    def _loaded(self):
+        if isinstance(self.sender(), SparseLoader) and self.sender() is not self.loader:
+            return
+        request_id = self._render_request_id
+        if request_id is None or not self.loader.done:
+            return
+        self._render_request_id = None
+        elapsed = perf_counter() - self._render_started - self._paused_seconds
+        self._progress()
+        self.bookmarks.refresh()
+        self.rendering_completed.emit(request_id, elapsed)
 
     @property
-    def model(self) -> ResultsModel | None:
-        return self._editor.model
+    def is_rendering(self):
+        return self._render_request_id is not None
 
-    def result_location_at(self, point) -> ResultLocation | None:
-        """Resolve text under the pointer to a layout-independent location."""
-        if self.is_rendering or self.model is None or not self.model.ready:
+    @property
+    def results_ready(self):
+        return self.logical is not None and self.logical.ready
+
+    def cancel_rendering(self):
+        self._preparation_generation += 1
+        self._render_request_id = None
+        self._renderer = None
+        self._prepared_result = None
+        for worker in self._preparing.values():
+            worker.cancel()
+        if hasattr(self, "loader"):
+            self.loader.set_paused(True)
+        self._rendering_paused = False
+
+    def set_rendering_paused(self, paused):
+        if paused and self._paused_at is None and self.is_rendering:
+            self._paused_at = perf_counter()
+        elif not paused and self._paused_at is not None:
+            self._paused_seconds += perf_counter() - self._paused_at
+            self._paused_at = None
+        self._rendering_paused = paused
+        self.loader.set_paused(paused)
+        if not paused and self._prepared_result is not None:
+            prepared, self._prepared_result = self._prepared_result, None
+            self._prepared(*prepared)
+
+    def reset_for_loaded_file(self, source_name):
+        self.cancel_rendering()
+        self._performance_text = ""
+        self.cancel_search()
+        self._snapshot_id = uuid4().hex
+        self.bookmarks.clear()
+        self._results_query = ""
+        self._searched_query = None
+        self.source_view.reset()
+        with QSignalBlocker(self._search_input):
+            self._search_input.clear()
+        self._install_empty()
+        self._clear_search_results()
+
+    def _set_loading_status(self, text):
+        if text != self.loading_status:
+            self.loading_status = text
+            self.loading_status_changed.emit(text)
+
+    def _progress(self):
+        if self.logical is None:
+            return
+        editor = self._editor
+        pending = editor.navigation.pending
+        if pending is not None:
+            prefix = "Loading requested area" if editor.navigation.loading_text else "Preparing view"
+        elif self.loader.done:
+            prefix = "Loaded"
+        else:
+            prefix = "Loading"
+        self._set_loading_status(f"{prefix} {editor.ranges.loaded_count:,} / {editor.presentation.row_count:,} rows{self._performance_text}")
+
+    def search_results(self):
+        if self.source_active:
+            self.source_view.search()
+        elif self.results_ready:
+            if self._searched_query != self._search_input.text():
+                self._refresh_search_matches()
+            else:
+                self.find_next()
+
+    def result_location_at(self, point):
+        if not self.results_ready:
             return None
         block = self._editor.cursorForPosition(point).block()
         rect = self._editor.blockBoundingGeometry(block).translated(self._editor.contentOffset())
@@ -433,535 +346,383 @@ class ResultsView(QWidget):
         row = self._source_map.row(block.blockNumber())
         return self.model.location(row) if row is not None else None
 
-    def show_result_location(self, location: ResultLocation | SourceLocation) -> bool:
-        """Reveal an exact source line, preferring its original result category."""
-        if self.is_rendering or self.model is None:
+    def prepend_performance_timings(self, analysis_seconds, rendering_seconds):
+        self._performance_text = f" | Analysis: {analysis_seconds:.3f} s | Rendering: {rendering_seconds:.3f} s"
+        self._progress()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self._pending_navigation = None
+            self._editor.navigation.cancel()
+            event.accept()
+        elif event.matches(QKeySequence.StandardKey.Copy):
+            (self.source_view.editor if self.source_active else self._editor).copy()
+            event.accept()
+        elif event.matches(QKeySequence.StandardKey.SelectAll):
+            (self.source_view.editor if self.source_active else self._editor).selectAll()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    @property
+    def model(self):
+        return self.logical
+
+    def set_line_wrapping(self, enabled):
+        if self.source_active:
+            self.source_view.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth if enabled else QPlainTextEdit.LineWrapMode.NoWrap)
+        else:
+            self._editor.set_wrapping(enabled)
+            self._schedule_decorations()
+
+    def _navigation_complete(self, _measurement):
+        self._schedule_decorations()
+
+    def show_result_location(self, location, *, result_set_id=None):
+        editor = self._editor
+        if self._closed or self.model is None or (result_set_id is not None and result_set_id is not editor.result_set_id):
             return False
-        row = self.model.resolve(location)
-        if row is None:
+        if self.model.resolve(location) is None:
             return False
-        block = self._source_map.block(row)
         self._return_position = None
         self.set_source_active(False)
-        cursor = QTextCursor(self._editor.document().findBlockByNumber(block))
-        self._editor.setTextCursor(cursor)
-        self._editor.centerCursor()
         self._use_viewport_search_anchor()
+        return editor.go_to_location(location, result_set_id=editor.result_set_id)
+
+    def show_source_line(self, number, *, highlight=True, center_page=False):
+        self._source_destination = number, highlight, center_page
+        if self.source_active:
+            self.source_view.go_to_line(number, highlight=highlight, center_page=center_page)
+            self._source_destination = None
+        else:
+            self.set_source_active(True)
+
+    def set_source_active(self, active):
+        if self._closed or active == self._source_active:
+            return
+        editor = self._editor
+        if active:
+            self._results_query = self._search_input.text()
+            self._return_position = (editor.result_set_id, editor.top_point(), editor.anchor,
+                                     editor.caret, editor.horizontalScrollBar().value())
+            editor.navigation.cancel()
+            self._pending_navigation = None
+            self._visible_timer.stop()
+        self._source_active = active
+        self._view_stack.setCurrentWidget(self.source_view if active else self.surface)
+        self._count_stack.setCurrentWidget(self._source_search_count if active else self._search_count_label)
+        self._search_count_label.setVisible(bool(self._searched_query) and not active)
+        self._source_button.setText("Go to results" if active else "Go to source")
+        self._source_button.setProperty("sourceActive", active)
+        self._source_button.setToolTip("Open the results window" if active else "Open the original file")
+        self._source_button.style().unpolish(self._source_button)
+        self._source_button.style().polish(self._source_button)
+        self._source_button.update()
+        with QSignalBlocker(self._search_input), QSignalBlocker(self._line_wrap_check):
+            self._search_input.setText(self.source_view.query if active else self._results_query)
+            shown_editor = self.source_view.editor if active else editor
+            self._line_wrap_check.setChecked(shown_editor.lineWrapMode() != QPlainTextEdit.LineWrapMode.NoWrap)
+        self._search_input.setAccessibleName("Search retained source" if active else "Search results")
+        self._search_input.setToolTip("Search for matches in the original file" if active else "Search for matches in the results")
+        if active:
+            destination, self._source_destination = self._source_destination, None
+            if destination is None:
+                self.source_view.ensure_page()
+            else:
+                number, highlight, center = destination
+                self.source_view.go_to_line(number, highlight=highlight, center_page=center)
+        else:
+            saved, self._return_position = self._return_position, None
+            if saved is not None and saved[0] is editor.result_set_id:
+                _, top, anchor, caret, horizontal = saved
+                with editor.changing():
+                    editor.anchor, editor.caret = anchor, caret
+                    editor._project_selection()
+                    editor.horizontalScrollBar().setValue(horizontal)
+                editor.navigate_to(top)
+            self._schedule_decorations()
+        self.loader.start()
+        self.bookmarks.refresh()
         self.focus_editor()
-        return True
 
-    def show_source_line(
-        self, number: int, *, highlight: bool = True, center_page: bool = False,
-    ) -> None:
-        cursor = self._editor.textCursor()
-        self._return_position = (
-            cursor.position(), cursor.anchor(),
-            self._editor.verticalScrollBar().value(), self._editor.horizontalScrollBar().value(),
-        )
-        self.set_source_active(True)
-        self.source_view.go_to_line(number, highlight=highlight, center_page=center_page)
-
-    def _results_context_menu(self, point) -> None:
-        location = self.result_location_at(point)
-        self._exec_line_context_menu(self._editor, point, location, show_source=True)
-
-    def _exec_line_context_menu(self, editor, point, location, *, show_source=False) -> None:
-        source = location.source if isinstance(location, ResultLocation) else location
-        menu = editor.createStandardContextMenu()
-        for action in menu.actions():
-            if action.isSeparator():
-                menu.removeAction(action)
-        editor.set_context_target(editor.cursorForPosition(point).block() if source else None)
-        try:
-            if show_source:
-                menu.addSeparator()
-                action = menu.addAction("Show in source")
-                action.setEnabled(source is not None)
-                if source is not None:
-                    action.triggered.connect(lambda: self.show_source_line(source.line)
-                                             if source.snapshot_id == self._snapshot_id else None)
-            if location is not None:
-                menu.addSeparator()
-                self.bookmarks.add_menu_actions(menu, location)
-            menu.exec(editor.viewport().mapToGlobal(point))
-        finally:
-            editor.set_context_target(None)
-            menu.deleteLater()
-
-    def source_location_at(self, point) -> SourceLocation | None:
-        editor = self.source_view.editor
-        if not self.source_view.lines:
-            return None
-        block = editor.cursorForPosition(point).block()
-        rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
-        if not rect.top() <= point.y() < rect.bottom():
-            return None
-        number = editor.source_number(block.blockNumber())
-        if not (self.source_view.first_line + self.source_view.page_start <= number <
-                self.source_view.first_line + self.source_view.page_end):
-            return None
-        return SourceLocation(self._snapshot_id, number)
-
-    def _source_context_menu(self, point) -> None:
-        location = self.source_location_at(point)
-        self._exec_line_context_menu(self.source_view.editor, point, location)
-
-    @property
-    def editor(self) -> QPlainTextEdit:
-        """Return the read-only editor displaying formatted results."""
-
-        return self._editor
-
-    @property
-    def is_maximized(self) -> bool:
-        return self._maximized
-
-    def reset_for_loaded_file(self, source_name: str) -> None:
-        """Clear old output while the newly staged source awaits analysis."""
-
-        self.cancel_rendering()
-        self._snapshot_id = uuid4().hex
-        self.bookmarks.clear()
-        self._source_map.clear()
-        self._return_position = None
-        self._results_query = ""
-        self.source_view.reset()
-        self._search_input.clear()
+    def _invalidate_search_results(self, query):
+        if self.source_active:
+            self.source_view.set_query(query)
+            return
+        self._results_query = query
         self._clear_search_results()
-        self._editor.clear()
-        self._editor.setPlaceholderText("")
 
-    def focus_editor(self) -> None:
-        self._search_input.deselect()
-        self._search_input.clearFocus()
-        (self.source_view.editor if self._source_active else self._editor).setFocus()
-
-    @Slot()
-    def toggle_maximized(self) -> None:
-        self.set_maximized(not self._maximized)
-
-    def set_maximized(self, maximized: bool) -> None:
-        """Update the results expansion state and notify the window shell."""
-
-        if maximized == self._maximized:
-            return
-
-        self._maximized = maximized
-        if maximized:
-            self._maximize_button.setIcon(self._contract_icon)
-            self._maximize_button.setAccessibleName("Restore layout")
-            self._maximize_button.setToolTip("Show menu and filters")
-        else:
-            self._maximize_button.setIcon(self._expand_icon)
-            self._maximize_button.setAccessibleName("Maximize results")
-            self._maximize_button.setToolTip("Expand results window")
-        self.maximized_changed.emit(maximized)
-
-    @Slot(bool)
-    def set_line_wrapping(self, enabled: bool) -> None:
-        """Enable or disable wrapping of long result lines."""
-
-        line_wrap_mode = (
-            QPlainTextEdit.LineWrapMode.WidgetWidth
-            if enabled
-            else QPlainTextEdit.LineWrapMode.NoWrap
-        )
-        (self.source_view.editor if self._source_active else self._editor).setLineWrapMode(line_wrap_mode)
-
-    @Slot(str)
-    def _invalidate_search_results(self, _query: str) -> None:
-        """Clear stale matches without searching while the user types."""
-
-        if self._source_active:
-            self.source_view.set_query(_query)
-        else:
-            self._results_query = _query
-            self._clear_search_results()
-
-    @Slot()
-    def search_results(self) -> None:
-        """Highlight a new query, or navigate down for an unchanged search."""
-
-        if self._source_active:
-            self.source_view.search()
-            return
-        if self._renderer is not None:
-            return
-        if self._searched_query != self._search_input.text():
-            self._refresh_search_matches()
-        else:
-            self.find_next()
-
-    @Slot()
-    def _use_viewport_search_anchor(self) -> None:
-        """Start the next navigation from the top visible text line."""
-
+    def _clear_search_results(self):
+        self.cancel_search()
+        self._search_matches = LogicalMatches()
+        self._current_search_match = None
+        self._searched_query = None
         self._search_from_viewport = True
+        self._revision += 1
+        self.global_scroll.set_marker_rows(matches=array("Q"))
+        self._search_count_label.hide()
+        self._editor.setExtraSelections([])
+        self._selection_key = None
+        self._schedule_decorations(force=True)
 
-    @Slot()
-    def _refresh_search_matches(self) -> None:
-        """Search result content; generated presentation text is excluded."""
+    def cancel_search(self):
+        self._search_generation += 1
+        self._search_timer.stop()
+        if self._search_work is not None:
+            self._search_work.close()
+        self._search_work = None
+        self._pending_matches = LogicalMatches()
+        self._pending_blocks = array("Q")
+        self._pending_navigation = None
+        self._search_identity = None
+        if hasattr(self, "global_scroll") and self._editor.navigation.pending is self._search_request:
+            self._editor.navigation.cancel()
+        self._search_request = None
 
-        query = self._results_query
+    def _refresh_search_matches(self):
         self._clear_search_results()
-        self._searched_query = query
-        if not query:
+        self._searched_query = self._results_query
+        if not self._searched_query or not self.results_ready:
             return
-
-        self._search_work = (
-            _iter_model_search_matches(self.model, self._source_map, self._editor.document(), query)
-            if self.model is not None and self.model.ready else
-            _iter_search_matches(self._editor.document(), query)
-        )
+        self._search_identity = self._editor.result_set_id
+        self._search_work = iter_source_matches((line.text for line in self.model.iter_lines()), self._searched_query)
         self._search_count_label.setText("Searching…")
         self._search_count_label.show()
         self._search_timer.start(0)
 
-    @property
-    def is_searching(self) -> bool:
-        return self._search_work is not None
-
-    @Slot(int, int, int)
-    def _results_changed(self, _position: int, removed: int, added: int) -> None:
-        if (removed or added) and (
-            self.is_searching or self._searched_query is not None
-        ):
-            self._clear_search_results()
-
-    @Slot()
-    def _search_next_batch(self) -> None:
-        self._advance_search(self._search_generation)
-
-    def _advance_search(self, generation: int) -> None:
-        if generation != self._search_generation or self._search_work is None:
+    def _advance_search(self, generation):
+        if (self._closed or generation != self._search_generation or self._search_work is None
+                or self._search_identity is not self._editor.result_set_id):
             return
-        elapsed = QElapsedTimer()
-        elapsed.start()
-        while elapsed.elapsed() < INCREMENTAL_SEARCH_BATCH_MS:
+        deadline = perf_counter() + .004
+        while perf_counter() < deadline:
+            self.search_steps += 1
             try:
                 match = next(self._search_work)
             except StopIteration:
                 self._search_work = None
-                self._search_matches = self._pending_matches
-                self._pending_matches = SearchMatches()
-                self._search_match_blocks = self._pending_blocks
-                self._pending_blocks = array("I")
-                count = len(self._search_matches)
-                self._search_count_label.setText(
-                    f"0 / {count}" if count else "No matches",
-                )
-                self._search_highlighter.set_matches(
-                    self._search_matches, self._search_match_blocks,
-                )
-                self._search_marker_scrollbar.set_match_blocks(
-                    self._search_match_blocks, self._editor.document(),
-                )
-                navigation = self._pending_navigation
-                self._pending_navigation = None
-                if navigation is not None:
-                    self._navigate_search(forward=navigation)
+                self._search_matches, self._pending_matches = self._pending_matches, LogicalMatches()
+                self.global_scroll.set_marker_rows(matches=self._pending_blocks)
+                self._pending_blocks = array("Q")
+                self._revision += 1
+                direction, self._pending_navigation = self._pending_navigation, None
+                if (direction is not None and not self.source_active
+                        and self._pending_sequence == self._editor.navigation._sequence):
+                    self._navigate_search(forward=direction)
+                self._update_count()
+                self._schedule_decorations(force=True)
                 return
             if match is not None:
-                start, end, block = match
-                self._pending_matches.append(start, end)
-                if not self._pending_blocks or self._pending_blocks[-1] != block:
-                    self._pending_blocks.append(block)
+                row, start, end = match
+                if not len(self._pending_matches) or self._pending_matches.lines[-1] != row:
+                    self._pending_blocks.append(self._editor.presentation.display_row(row))
+                self._pending_matches.append(row, start, end)
         self._search_timer.start(1)
 
-    def closeEvent(self, event) -> None:  # noqa: N802
-        self.cancel_search()
-        self.source_view.reset()
-        super().closeEvent(event)
-
-    def cancel_search(self) -> None:
-        """Invalidate pending batches and release their document references."""
-        if self.is_searching:
-            self._searched_query = None
-            self._search_count_label.hide()
-        self._search_generation += 1
-        self._search_timer.stop()
-        self._search_work = None
-        self._pending_matches = SearchMatches()
-        self._pending_blocks = array("I")
-        self._pending_navigation = None
-        self._search_highlighter.cancel()
-
-    def _clear_search_results(self) -> None:
-        self.cancel_search()
-        self._search_matches = SearchMatches()
-        self._search_match_blocks = array("I")
-        self._current_search_match = None
-        self._searched_query = None
-        self._search_from_viewport = True
-        self._search_count_label.hide()
-        self._search_highlighter.set_matches(self._search_matches)
-        self._search_marker_scrollbar.set_match_blocks(
-            self._search_match_blocks,
-            None,
-        )
-        self._editor.setExtraSelections([])
-
-    @Slot()
-    def find_next(self) -> None:
-        """Move to the next result-search match, wrapping at the end."""
-
-        if self._source_active:
-            self.source_view.navigate(True)
-        else:
-            self._navigate_search(forward=True)
-
-    @Slot()
-    def find_previous(self) -> None:
-        """Move to the previous result-search match, wrapping at the start."""
-
-        if self._source_active:
-            self.source_view.navigate(False)
-        else:
-            self._navigate_search(forward=False)
-
-    def _navigate_search(self, *, forward: bool) -> None:
-        if self._renderer is not None:
+    def _navigate_search(self, *, forward):
+        if self._closed:
             return
         if self._searched_query != self._results_query:
             self._refresh_search_matches()
         if self.is_searching:
             self._pending_navigation = forward
+            self._pending_sequence = self._editor.navigation._sequence
             return
-        if not self._search_matches:
+        if not len(self._search_matches):
             return
-
+        editor = self._editor
         if self._current_search_match is None or self._search_from_viewport:
-            anchor = self._editor.cursorForPosition(
-                self._editor.viewport().rect().topLeft()
-            )
-            anchor.movePosition(QTextCursor.MoveOperation.StartOfLine)
-            current = bisect_left(
-                self._search_matches.starts,
-                anchor.position(),
-            )
-            if not forward:
-                current -= 1
-            current %= len(self._search_matches)
+            top = editor.top_point()
+            index = bisect_left(self._search_matches, (top.row, top.column),
+                key=lambda item: (editor.presentation.display_row(item[0]), item[1]))
+            current = (index if forward else index - 1) % len(self._search_matches)
         else:
-            step = 1 if forward else -1
-            current = (self._current_search_match + step) % len(
-                self._search_matches
-            )
-
+            current = (self._current_search_match + (1 if forward else -1)) % len(self._search_matches)
+        row, start, _ = self._search_matches[current]
         self._current_search_match = current
-        self._search_count_label.setText(
-            f"{current + 1} / {len(self._search_matches)}"
-        )
-        self._update_current_search_highlight()
-
-        start, _end = self._search_matches[current]
-        cursor = QTextCursor(self._editor.document())
-        cursor.setPosition(start)
-        self._editor.setTextCursor(cursor)
-        self._editor.ensureCursorVisible()
+        editor.go_to_search_result(self.model.location(row), start, result_set_id=editor.result_set_id)
+        self._search_request = editor.navigation.pending
         self._search_from_viewport = False
+        self._update_count()
+        self._schedule_decorations(force=True)
 
-    @Slot(int)
-    def _navigate_from_search_arrows(self, value: int) -> None:
-        if value > 0:
-            self.find_previous()
-        elif value < 0:
-            self.find_next()
+    def _update_count(self):
+        if not self.is_searching:
+            current = 0 if self._current_search_match is None else self._current_search_match + 1
+            self._search_count_label.setText(f"{current} / {len(self._search_matches)}" if len(self._search_matches) else "No matches")
+            self._search_count_label.setVisible(bool(self._searched_query) and not self.source_active)
 
-        blocker = QSignalBlocker(self._search_navigation)
-        self._search_navigation.setValue(0)
-        del blocker
-
-    def _update_current_search_highlight(self) -> None:
-        if self._current_search_match is None:
-            self._editor.setExtraSelections([])
+    def _bookmarks_changed(self):
+        rows = {}
+        if self.model is None:
             return
+        for source, bookmark in self.bookmarks.items.items():
+            if bookmark.source_only:
+                continue
+            preferred = self.model.resolve(bookmark.location)
+            for row in self.model.rows_for_source(source):
+                rows[self._editor.presentation.display_row(row)] = row == preferred
+        self._bookmark_rows = rows
+        self.global_scroll.set_marker_rows(bookmarks=rows)
+        self._bookmark_projection = None
+        self._schedule_decorations(force=True)
 
-        start, end = self._search_matches[self._current_search_match]
-        selection = QTextEdit.ExtraSelection()
-        cursor = QTextCursor(self._editor.document())
-        cursor.setPosition(start)
-        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-        selection.cursor = cursor
-        selection.format.setBackground(
-            QColor(THEME_COLORS["search_current"])
-        )
-        selection.format.setForeground(QColor(THEME_COLORS["background"]))
-        self._editor.setExtraSelections([selection])
+    def _schedule_decorations(self, *_args, force=False):
+        if self._closed or self.source_active:
+            return
+        if not (force or self._searched_query or self._bookmark_rows or self._formats):
+            return
+        if not self._visible_timer.isActive():
+            self._visible_timer.start(0)
 
-    def start_rendering(
-        self,
-        request_id: int,
-        source_name: str,
-        analysis: AnalysisResult,
-        config: LogreaderConfig,
-    ) -> None:
-        """Start a new incremental render, cancelling any previous one."""
+    def _visible_ranges(self):
+        editor = self._editor
+        height, width = editor.viewport().height(), editor.viewport().width()
+        block = editor.firstVisibleBlock()
+        visible = []
+        while block.isValid():
+            if not block.isVisible():
+                block = block.next()
+                continue
+            display = editor.ranges.logical_at(block.blockNumber())
+            if not isinstance(display, int):
+                break
+            rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
+            if rect.top() >= height:
+                break
+            row = self._source_map.row(block.blockNumber())
+            if row is not None and rect.bottom() > 0:
+                if editor.lineWrapMode() == QPlainTextEdit.LineWrapMode.NoWrap:
+                    y = max(0, min(height - 1, round(rect.top() + editor.fontMetrics().height() / 2)))
+                    left = editor.cursorForPosition(QPoint(0, y)).positionInBlock()
+                    right = editor.cursorForPosition(QPoint(width - 1, y)).positionInBlock()
+                else:
+                    left = 0 if rect.top() >= 0 else editor.cursorForPosition(QPoint(0, 0)).positionInBlock()
+                    right = block.length() - 1 if rect.bottom() <= height else editor.cursorForPosition(QPoint(width - 1, height - 1)).positionInBlock()
+                visible.append((display, row, block, max(0, left - 2), right + 2))
+            block = block.next()
+        return visible
 
+    def _paint_decorations(self):
+        if self._closed or self.source_active or not self._editor.isVisible():
+            return
+        self.decoration_passes += 1
+        editor = self._editor
+        visible = self._visible_ranges()
+        shown = {display for display, *_ in visible}
+        changed = False
+        wrap = editor.lineWrapMode()
+        match_format = QTextCharFormat()
+        match_format.setBackground(QColor(THEME_COLORS["ui_primary"]))
+        match_format.setForeground(QColor("#ffffff"))
+        with editor.preserving_reading_position():
+            # Formats stay bounded by a viewport, not by visited or loaded rows.
+            # Resolve each block again: filling an earlier gap changes numbers.
+            for display in tuple(self._formats):
+                if display not in shown or not self._searched_query:
+                    block = editor._block(display)
+                    if block.isValid() and block.layout().formats():
+                        block.layout().setFormats([])
+                        changed = True
+                    del self._formats[display]
+                    self._overlays.pop(display, None)
+            for display, row, block, left, right in visible:
+                if not self._searched_query or self.is_searching:
+                    continue
+                cached = self._formats.get(display)
+                version = (self._revision, wrap, block)
+                if cached and cached[:3] == version and cached[3] <= left and cached[4] >= right:
+                    continue
+                padding = max(256, (right - left) // 2) if wrap != QPlainTextEdit.LineWrapMode.NoWrap else 0
+                cover_left, cover_right = max(0, left - padding), right + padding
+                formats = []
+                index = max(0, bisect_left(self._search_matches, (row, cover_left, -1)) - 1)
+                while index < len(self._search_matches):
+                    match_row, start, end = self._search_matches[index]
+                    if match_row > row or (match_row == row and start > cover_right):
+                        break
+                    if match_row == row and end > cover_left:
+                        if formats and formats[-1].start + formats[-1].length == start:
+                            formats[-1].length = end - formats[-1].start
+                        else:
+                            span = QTextLayout.FormatRange()
+                            span.start, span.length, span.format = start, end - start, match_format
+                            formats.append(span)
+                    index += 1
+                if block.length() > 8192 and len(formats) <= 8:
+                    # QTextLayout.setFormats invalidates even color-only
+                    # shaping of an entire giant line. Native paint selections
+                    # over the visible part reuse that line's existing layout.
+                    # Many disjoint selections make every native paint costly,
+                    # so use cached layout formats for that case instead.
+                    if block.layout().formats():
+                        block.layout().setFormats([])
+                    self._overlays[display] = tuple((span.start, span.length) for span in formats)
+                    self.format_updates += 1
+                    changed = True
+                else:
+                    self._overlays.pop(display, None)
+                    if formats or block.layout().formats():
+                        block.layout().setFormats(formats)
+                        editor.document().markContentsDirty(block.position(), block.length())
+                        self.format_updates += 1
+                        changed = True
+                self._formats[display] = (*version, cover_left, cover_right)
+            projection = tuple((display, block.blockNumber(), self._bookmark_rows[display])
+                               for display, _, block, _, _ in visible if display in self._bookmark_rows)
+            if projection != self._bookmark_projection:
+                self._bookmark_projection = projection
+                LineNumberEditor.set_bookmarked_blocks(editor, {number: preferred for _, number, preferred in projection})
+                changed = True
+            current = None
+            if self._current_search_match is not None and self._current_search_match < len(self._search_matches):
+                row, start, end = self._search_matches[self._current_search_match]
+                for display, logical, block, left, right in visible:
+                    if row == logical and end > left and start <= right:
+                        current = (display, block, start, end)
+                        break
+            overlays = tuple((display, block, self._overlays[display], display in self._bookmark_rows)
+                             for display, _, block, _, _ in visible if display in self._overlays)
+            selection_key = current, overlays
+            if selection_key != self._selection_key:
+                self._selection_key = selection_key
+                selections = []
+                for _, block, spans, bookmarked in overlays:
+                    for start, length in spans:
+                        selection = QTextEdit.ExtraSelection()
+                        selection.cursor = QTextCursor(block)
+                        selection.cursor.setPosition(block.position() + start)
+                        selection.cursor.setPosition(block.position() + start + length, QTextCursor.MoveMode.KeepAnchor)
+                        selection.format = QTextCharFormat(match_format)
+                        if bookmarked:
+                            selection.format.clearBackground()
+                        selections.append(selection)
+                if current is not None:
+                    _, block, start, end = current
+                    selection = QTextEdit.ExtraSelection()
+                    selection.cursor = QTextCursor(block)
+                    position = block.position()
+                    selection.cursor.setPosition(position + start)
+                    selection.cursor.setPosition(position + end, QTextCursor.MoveMode.KeepAnchor)
+                    selection.format.setBackground(QColor(THEME_COLORS["search_current"]))
+                    selection.format.setForeground(QColor(THEME_COLORS["background"]))
+                    selections.append(selection)
+                editor.setExtraSelections(selections)
+                changed = True
+        if changed:
+            editor._retained_frame = None
+            editor.viewport().update()
+
+    def closeEvent(self, event):  # noqa: N802
+        self._closed = True
+        self.cancel_search()
+        self._visible_timer.stop()
+        self._formats.clear()
+        self._overlays.clear()
+        self._bookmark_rows.clear()
+        self._search_matches = LogicalMatches()
+        self._selection_key = self._return_position = None
+        self.source_view.reset()
         self.cancel_rendering()
-        self._source_map.clear()
-        self._return_position = None
-        # Analyze focuses the editor when invoked. A later worker completion
-        # must preserve whatever control (or other tab) the user moved to.
-        self._clear_search_results()
-        renderer = IncrementalAnalysisRenderer(
-            request_id,
-            self._editor,
-            source_name,
-            analysis,
-            config,
-            self,
-            source_map=self._source_map,
-            model=ResultsModel(analysis, self._snapshot_id),
-        )
-        renderer.completed.connect(self._complete_rendering)
-        renderer.failed.connect(self._fail_rendering)
-        self._renderer = renderer
-        renderer.start()
-        self.set_rendering_paused(self._rendering_paused)
-        self.bookmarks.refresh()
-
-    def cancel_rendering(self) -> None:
-        """Cancel the active incremental render, if any."""
-
-        renderer = self._renderer
-        self._renderer = None
-        if renderer is None:
-            return
-        renderer.cancel()
-        self._editor.set_model(None)
-        self._source_map.clear()
-        renderer.deleteLater()
-        self.bookmarks.refresh()
-
-    @property
-    def is_rendering(self) -> bool:
-        return self._renderer is not None
-
-    def set_rendering_paused(self, paused: bool) -> None:
-        # A hidden page can defer rendering before a renderer even exists.
-        # That deferral must not pause the next renderer when the page opens.
-        self._rendering_paused = paused if self._renderer is not None else False
-        if self._renderer is not None:
-            # Source is another view of the active document; finish its results
-            # so analysis can complete without requiring a view switch.
-            self._renderer.set_paused(paused)
-
-    def prepend_performance_timings(
-        self,
-        analysis_seconds: float,
-        rendering_seconds: float,
-    ) -> None:
-        """Place analysis and rendering durations above the output."""
-
-        prepend_performance_timings(
-            self._editor,
-            analysis_seconds,
-            rendering_seconds,
-        )
-        self.bookmarks.refresh()
-
-    def prepend_scan_limit_warning(self, limit: int, total: int) -> None:
-        message = fill(
-            f"WARNING: Only {limit:,} of this file’s {total:,} lines were scanned because of the "
-            '"Max lines scanned" setting. The scanner reads from the end/tail of the file, '
-            f'so these results cover the last {limit:,} lines. The earlier lines were not '
-            'scanned, and any matches in those lines are not included in these results.',
-            width=100,
-        ) + "\n\n" + fill(
-            'If you want the entire file to be scanned, increase "Max lines scanned" '
-            f'to at least {total:,} and press Analyze again. Do note that increasing this '
-            'setting will cause more lines to be loaded and scanned. This can increase '
-            'analysis and rendering time and will also consume more system memory.',
-            width=100,
-        )
-        _prepend_result_header(self._editor, (
-            ("WARNING: ", "warning", True),
-            (message[len("WARNING: "):] + "\n\n", "muted", False),
-        ))
-        self.bookmarks.refresh()
-
-    @Slot(int, float)
-    def _complete_rendering(
-        self,
-        request_id: int,
-        rendering_seconds: float,
-    ) -> None:
-        renderer = self.sender()
-        if renderer is not self._renderer:
-            return
-
-        self._renderer = None
-        renderer.deleteLater()
-        self.bookmarks.refresh()
-        self.rendering_completed.emit(request_id, rendering_seconds)
-
-    @Slot(int, str)
-    def _fail_rendering(self, request_id: int, message: str) -> None:
-        renderer = self.sender()
-        if renderer is not self._renderer:
-            return
-
-        self._renderer = None
-        self._editor.set_model(None)
-        self._source_map.clear()
-        renderer.deleteLater()
-        self.bookmarks.refresh()
-        self.rendering_failed.emit(request_id, message)
-
-
-def _results_editor_style_sheet() -> str:
-    return (
-        "QPlainTextEdit {"
-        f" background: {THEME_COLORS['background']};"
-        f" color: {THEME_COLORS['body']};"
-        " border: none;"
-        f" selection-background-color: {THEME_COLORS['selection']};"
-        " padding: 8px 8px 8px 4px;"
-        "}"
-        "QPlainTextEdit#resultsView { padding-top: 2px; }"
-        "QPlainTextEdit QScrollBar {"
-        " scrollbar-leftclick-absolute-position: 1;"
-        "}"
-        "QPlainTextEdit QScrollBar:vertical {"
-        f" background: {THEME_COLORS['scrollbar_track']};"
-        " width: 12px;"
-        " margin: 0;"
-        "}"
-        "QPlainTextEdit QScrollBar:horizontal {"
-        f" background: {THEME_COLORS['scrollbar_track']};"
-        " height: 12px;"
-        " margin: 0;"
-        "}"
-        "QPlainTextEdit QScrollBar::handle:vertical {"
-        f" background: {THEME_COLORS['scrollbar_handle']};"
-        " min-height: 28px;"
-        " border-radius: 5px;"
-        " margin: 2px;"
-        "}"
-        "QPlainTextEdit QScrollBar::handle:vertical:hover {"
-        f" background: {THEME_COLORS['scrollbar_handle_hover']};"
-        "}"
-        "QPlainTextEdit QScrollBar::handle:horizontal {"
-        f" background: {THEME_COLORS['scrollbar_handle']};"
-        " min-width: 28px;"
-        " border-radius: 5px;"
-        " margin: 2px;"
-        "}"
-        "QPlainTextEdit QScrollBar::handle:horizontal:hover {"
-        f" background: {THEME_COLORS['scrollbar_handle_hover']};"
-        "}"
-        "QPlainTextEdit QScrollBar::add-line:vertical,"
-        "QPlainTextEdit QScrollBar::sub-line:vertical,"
-        "QPlainTextEdit QScrollBar::add-line:horizontal,"
-        "QPlainTextEdit QScrollBar::sub-line:horizontal {"
-        " height: 0;"
-        " width: 0;"
-        "}"
-        "QPlainTextEdit QScrollBar::add-page:vertical,"
-        "QPlainTextEdit QScrollBar::sub-page:vertical,"
-        "QPlainTextEdit QScrollBar::add-page:horizontal,"
-        "QPlainTextEdit QScrollBar::sub-page:horizontal {"
-        " background: transparent;"
-        "}"
-    )
+        self._editor.navigation.invalidate()
+        super().closeEvent(event)

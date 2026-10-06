@@ -1,7 +1,6 @@
 """Compare search storage and UI latency against a git revision in fresh processes."""
 
 import argparse
-import ast
 import gc
 import json
 from pathlib import Path
@@ -9,7 +8,10 @@ import statistics
 import subprocess
 import sys
 from time import perf_counter
-import types
+import io
+import tarfile
+import tempfile
+import importlib
 
 from documents import distribution, memory_mib
 
@@ -72,54 +74,155 @@ def reset_state_report(view):
 
 
 def _load_baseline_view(reference):
-    for path, package in (
-        ("src/logreader/ui/results/results_view.py", "logreader.ui.results"),
-        ("src/logreader/results_view.py", "logreader"),
-    ):
-        result = subprocess.run(
-            ["git", "show", f"{reference}:{path}"],
-            capture_output=True, text=True, encoding="utf-8",
-        )
-        if result.returncode == 0:
-            break
-    result.check_returncode()
-    source = result.stdout
-    # Historical revisions use the flat package. Translate their imports while
-    # leaving the reference implementation and current application modules intact.
-    moved_modules = {
-        "analysis_worker": "workers.analysis_worker",
-        "load_worker": "workers.load_worker",
-        "work_queue": "workers.work_queue",
-        "qt_app": "ui.qt_app",
-        "document_page": "ui.document_page",
-        "filter_panel": "ui.filter_panel",
-        "bookmarks": "ui.bookmarks",
-        "source_view": "ui.source_view",
-        "source_search": "ui.source_search",
-        "theme": "ui.theme",
-        "results_view": "ui.results.results_view",
-        "results_editor": "ui.results.results_editor",
-        "results_renderer": "ui.results.results_renderer",
-        "results_model": "ui.results.results_model",
-        "result_formatting": "ui.results.result_formatting",
-        "result_source_map": "ui.results.result_source_map",
-        "presentation": "ui.results.presentation",
-        "line_number_editor": "ui.widgets.line_number_editor",
-        "search_widgets": "ui.widgets.search_widgets",
-        "input_menus": "ui.widgets.input_menus",
-    }
-    tree = ast.parse(source, filename="<baseline-results_view>")
-    for node in ast.walk(tree):
-        if package == "logreader" and isinstance(node, ast.ImportFrom) and node.level == 1:
-            node.module = moved_modules.get(node.module, node.module)
-    module = types.ModuleType("logreader._benchmark_results_view")
-    module.__package__ = package
-    sys.modules[module.__name__] = module
-    exec(compile(tree, "<baseline-results_view>", "exec"), module.__dict__)
-    return module.ResultsView
+    # Use the complete reference package so retired rendering and mapping
+    # modules do not have to remain in production for historical comparisons.
+    global _baseline_source
+    _baseline_source = tempfile.TemporaryDirectory(prefix="logreader-reference-")
+    archive = subprocess.check_output(["git", "archive", reference, "src/logreader"])
+    with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
+        bundle.extractall(_baseline_source.name, filter="data")
+    for name in tuple(sys.modules):
+        if name == "logreader" or name.startswith("logreader."):
+            del sys.modules[name]
+    sys.path.insert(0, str(Path(_baseline_source.name) / "src"))
+    try:
+        return importlib.import_module("logreader.ui.results.results_view").ResultsView
+    except ModuleNotFoundError as error:
+        if error.name not in ("logreader.ui", "logreader.ui.results", "logreader.ui.results.results_view"):
+            raise
+        return importlib.import_module("logreader.results_view").ResultsView
+
+
+def _run_current(args):
+    from array import array
+    from PySide6 import __version__ as qt_version
+    from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
+    from PySide6.QtWidgets import QApplication
+    from logreader.config import LogreaderConfig
+    from logreader.core import analyze_lines
+    from logreader.ui.results.results_view import ResultsView
+    from logreader.ui.results.result_coordinates import TextPoint
+
+    app = QApplication([])
+    view = ResultsView()
+    view.resize(1080, 760)
+    view.show()
+    report = dict(implementation="current", reference=args.reference, case=args.case,
+                  python=sys.version.split()[0], pyside=qt_version, qt_platform=app.platformName())
+    if args.case == "reset-state":
+        results = []
+        for count in (30000, 1000000):
+            times = []
+            for _ in range(5):
+                for row in range(count):
+                    view._search_matches.append(row, 0, 6)
+                view.global_scroll.set_marker_rows(matches=array("Q", range(count)))
+                began = perf_counter()
+                view._clear_search_results()
+                times.append((perf_counter()-began)*1000)
+                assert not view._search_matches and not view.global_scroll.match_rows
+            results.append(dict(highlighted_lines=0, matches=count, dispatch_ms=times,
+                                median_ms=statistics.median(times)))
+        view.close()
+        return dict(report, reset_state=results, correctness_checks_passed=True)
+
+    def wait(done):
+        if done():
+            return
+        began = perf_counter()
+        loop, timer = QEventLoop(), QTimer()
+        timer.setInterval(1)
+        timer.timeout.connect(lambda: loop.quit() if done() or perf_counter()-began>90 else None)
+        timer.start()
+        loop.exec()
+        timer.stop()
+        assert done(), "Benchmark timed out"
+
+    settled = lambda: (not view.is_searching and not view._visible_timer.isActive()
+                       and view.editor.navigation.pending is None)
+    count = 10000 if args.case == "many-hits" else 30000
+    per_line = 12 if args.case == "many-hits" else 2
+    every = 100 if args.case == "sparse" else 1
+    source = tuple(f"{i:09d} ERROR: " + ("needle " * per_line if i%every==0 else "ordinary ")
+                   + "x" * 100 for i in range(count))
+    config = LogreaderConfig(context=0, enabled_patterns=("error_colon",), combined_view=True)
+    view.set_line_wrapping(args.case == "dense-wrap")
+    view.start_rendering(1, "synthetic.log", analyze_lines(source, config.search_patterns(), combined=True), config)
+    wait(lambda: not view.is_rendering)
+    editor, bar = view.editor, view.global_scroll
+    row = editor.presentation.display_row(0)
+    editor.select(TextPoint(row, 2), TextPoint(row, 6))
+    wait(settled)
+    selection = editor.anchor, editor.caret
+    initial_scroll = bar.value()
+    expected = ((count-1)//every+1)*per_line
+    report.update(lines=count, expected_matches=expected, rendered_memory=memory_mib())
+    gaps = []
+    last = perf_counter()
+    def tick():
+        nonlocal last
+        now = perf_counter()
+        gaps.append((now-last)*1000)
+        last = now
+    heart = QTimer()
+    heart.setInterval(10)
+    heart.timeout.connect(tick)
+    heart.start()
+    started = perf_counter()
+    view._search_input.setText("needle")
+    view.search_results()
+    wait(lambda: not view.is_searching)
+    scan = perf_counter()
+    report['scanned_memory'] = memory_mib()
+    wait(settled)
+    finished = perf_counter()
+    report.update(scan_seconds=scan-started, highlight_seconds=finished-scan,
+                  search_seconds=finished-started, search_heartbeat=distribution(gaps),
+                  searched_memory=memory_mib(), hit_storage_bytes=storage_bytes(view._search_matches),
+                  block_state_bytes=storage_bytes(view._formats), visual_lines=editor.document().lineCount(),
+                  scroll_max=bar.maximum())
+    assert len(view._search_matches)==expected
+    assert selection==(editor.anchor,editor.caret) and bar.value()==initial_scroll
+    for logical,start,end in view._search_matches:
+        assert source[logical][start:end] == "needle"
+    for label in ('first_scroll','repeated_scroll'):
+        times = []
+        for i in range(1,81):
+            began = perf_counter()
+            bar.setValue(round(bar.maximum()*((i*7919)%30001)/30000))
+            wait(settled)
+            editor.viewport().repaint()
+            times.append((perf_counter()-began)*1000)
+        report[label] = distribution(times)
+    navigation = []
+    for _ in range(100):
+        began = perf_counter()
+        view.find_next()
+        wait(settled)
+        navigation.append((perf_counter()-began)*1000)
+    report['navigation'] = distribution(navigation)
+    report['after_scroll_memory'] = memory_mib()
+    started = perf_counter()
+    view._search_input.clear()
+    report['clear_dispatch_ms'] = (perf_counter()-started)*1000
+    wait(settled)
+    report['clear_seconds'] = perf_counter()-started
+    assert not view._search_matches and not view._formats and not editor.extraSelections()
+    heart.stop()
+    view.close()
+    view.deleteLater()
+    QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+    report['correctness_checks_passed'] = True
+    return report
+
+
 
 
 def run_child(args):
+
+    if args.implementation == "current":
+        return _run_current(args)
+    ResultsView = _load_baseline_view(args.reference)
 
     from PySide6 import __version__ as qt_version
     from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
@@ -127,10 +230,6 @@ def run_child(args):
     from PySide6.QtWidgets import QApplication
     from logreader.config import LogreaderConfig
     from logreader.core import analyze_lines
-    from logreader.ui.results.results_view import ResultsView
-
-    if args.implementation == "baseline":
-        ResultsView = _load_baseline_view(args.reference)
 
     app = QApplication([])
     view = ResultsView()

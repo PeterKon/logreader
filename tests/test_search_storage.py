@@ -85,6 +85,7 @@ from qt_helpers import wait_for_search
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
 from logreader.ui.results.results_view import ResultsView
+from qt_helpers import render_results, wait_for_navigation
 
 
 class SearchStorageIntegrationTests(unittest.TestCase):
@@ -128,44 +129,47 @@ class SearchStorageIntegrationTests(unittest.TestCase):
             self.assertEqual(document.availableUndoSteps(), 0)
 
     def test_publishes_same_packed_buffer_then_releases_it_on_new_query(self):
-        self.view.editor.setPlainText("needle needle\n" * 3000)
+        render_results(self.view, ("needle needle",) * 3000)
         self.view._search_input.setText("needle")
         self.view.search_results()
         pending = self.view._pending_matches
         wait_for_search(self.view)
         self.assertIs(self.view._search_matches, pending)
-        self.assertIs(self.view._search_highlighter._matches, pending)
+        self.assertEqual(len(pending.lines), 6000)
         self.assertIsNot(self.view._pending_matches, pending)
         self.assertEqual(len(pending), 6000)
         self.view._search_input.clear()
         wait_for_search(self.view)
         self.assertFalse(self.view._search_matches)
-        self.assertIsNot(self.view._search_highlighter._matches, pending)
+        self.assertIsNot(self.view._search_matches, pending)
 
     def test_wrapped_scroll_extent_selection_and_highlights_remain_stable(self):
         self.view.resize(600, 400)
         self.view.set_line_wrapping(True)
         self.view.show()
-        self.view.editor.setPlainText(("needle " + "x" * 160 + " needle\n") * 2000)
+        render_results(self.view, ("needle " + "x" * 160 + " needle",) * 2000)
         cursor = self.view.editor.textCursor()
-        cursor.setPosition(2)
-        cursor.setPosition(5, QTextCursor.MoveMode.KeepAnchor)
+        block = self.view.editor._block(self.view.editor.presentation.display_row(0))
+        cursor.setPosition(block.position() + 2)
+        cursor.setPosition(block.position() + 5, QTextCursor.MoveMode.KeepAnchor)
         self.view.editor.setTextCursor(cursor)
         self.view._search_input.setText("needle")
         self.view.search_results()
         wait_for_search(self.view)
         self.assertEqual(self.view.editor.textCursor().selectedText(), "edl")
-        bar = self.view.editor.verticalScrollBar()
+        bar = self.view.global_scroll
         maximum = bar.maximum()
         line_count = self.view.editor.document().lineCount()
-        self.assertGreater(line_count, 4000)
+        self.assertGreater(line_count, 2000)
         for fraction in (.9, .1, .5, 1., 0.):
             bar.setValue(round(maximum * fraction))
+            wait_for_navigation(self.view)
+            wait_for_search(self.view)
             self.app.processEvents()
             self.view.editor.viewport().repaint()
             self.app.processEvents()
             self.assertEqual(bar.maximum(), maximum)
-            self.assertEqual(self.view.editor.document().lineCount(), line_count)
+            self.assertEqual(self.view.editor.textCursor().selectedText(), "edl")
             block = self.view.editor.firstVisibleBlock()
             if "needle" in block.text():
                 self.assertEqual(len(block.layout().formats()), 2)

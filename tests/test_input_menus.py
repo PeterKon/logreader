@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QAbstractSlider, QMenu, QStyle, QSty
 from logreader.ui.filter_panel import FilterPanel
 from logreader.ui.widgets.input_menus import InputContextMenu, ScrollbarContextMenu
 from logreader.ui.results.results_view import ResultsView
+from qt_helpers import render_results, wait_for_navigation
 
 
 class InputMenuTests(unittest.TestCase):
@@ -173,7 +174,7 @@ class InputMenuTests(unittest.TestCase):
             (self.panel._custom_pattern_list, ["Top", "Bottom"]),
             (self.panel._regex_pattern_list, ["Top", "Bottom"]),
         ):
-            yield widget.verticalScrollBar(), vertical_labels
+            yield (self.view.global_scroll if widget is self.view.editor else widget.verticalScrollBar()), vertical_labels
             yield widget.horizontalScrollBar(), ["Left edge", "Right edge"]
 
     def scrollbar_menu(self, scrollbar):
@@ -193,7 +194,7 @@ class InputMenuTests(unittest.TestCase):
         lines = tuple("wide text " * 100 for _ in range(200))
         self.view.resize(700, 400)
         self.view.set_source(lines, len(lines))
-        self.view.editor.setPlainText("\n".join(lines))
+        render_results(self.view, lines)
         self.view.source_view.ensure_page()
         for index in range(20):
             self.panel._custom_pattern.setText(f"pattern {index}")
@@ -212,11 +213,13 @@ class InputMenuTests(unittest.TestCase):
                 self.assertEqual([a.isEnabled() for a in menu.actions()], [False, True])
                 actions = QSignalSpy(scrollbar.actionTriggered)
                 menu.actions()[1].trigger()
+                wait_for_navigation(self.view)
                 self.assertEqual(scrollbar.value(), maximum)
                 self.assertEqual(actions.at(0)[0], QAbstractSlider.SliderAction.SliderToMaximum.value)
                 menu = self.scrollbar_menu(scrollbar)
                 self.assertEqual([a.isEnabled() for a in menu.actions()], [True, False])
                 menu.actions()[0].trigger()
+                wait_for_navigation(self.view)
                 self.assertEqual(scrollbar.value(), minimum)
                 self.assertEqual(actions.at(1)[0], QAbstractSlider.SliderAction.SliderToMinimum.value)
 
@@ -224,7 +227,7 @@ class InputMenuTests(unittest.TestCase):
         lines = tuple(f"Line {i}: " + "long text " * 30 for i in range(200))
         self.view.resize(700, 400)
         self.view.set_source(lines, len(lines))
-        self.view.editor.setPlainText("\n".join(lines))
+        render_results(self.view, lines)
         for source in (False, True):
             self.view.set_source_active(source)
             editor = self.view.source_view.editor if source else self.view.editor
@@ -232,13 +235,14 @@ class InputMenuTests(unittest.TestCase):
             cursor = QTextCursor(editor.document().firstBlock())
             cursor.select(QTextCursor.SelectionType.WordUnderCursor)
             editor.setTextCursor(cursor)
-            for scrollbar in (editor.verticalScrollBar(), editor.horizontalScrollBar()):
+            for scrollbar in (self.view.global_scroll if not source else editor.verticalScrollBar(), editor.horizontalScrollBar()):
                 with self.subTest(source=source, axis=scrollbar.orientation()):
                     self.assertGreater(scrollbar.maximum(), 0)
                     scrollbar.setValue(0)
                     self.view._search_from_viewport = False
                     self.view.source_view._from_viewport = False
                     self.scrollbar_menu(scrollbar).actions()[1].trigger()
+                    wait_for_navigation(self.view)
                     self.assertEqual(scrollbar.value(), scrollbar.maximum())
                     self.assertEqual(editor.textCursor().position(), cursor.position())
                     self.assertEqual(editor.textCursor().anchor(), cursor.anchor())
@@ -264,9 +268,9 @@ class InputMenuTests(unittest.TestCase):
 
     def test_scrollbar_left_click_behavior_is_unchanged(self):
         self.view.resize(700, 400)
-        self.view.editor.setPlainText("\n".join("wide text " * 100 for _ in range(200)))
+        render_results(self.view, ("wide text " * 100 for _ in range(200)))
         self.app.processEvents()
-        for scrollbar in (self.view.editor.verticalScrollBar(), self.view.editor.horizontalScrollBar()):
+        for scrollbar in (self.view.global_scroll, self.view.editor.horizontalScrollBar()):
             controller = scrollbar.findChild(ScrollbarContextMenu)
             option = QStyleOptionSlider()
             scrollbar.initStyleOption(option)

@@ -8,7 +8,7 @@ from unittest.mock import patch
 from logreader.cancellation import AnalysisCancelled, CancellationToken
 from logreader.core import SearchPattern, analyze_lines
 from logreader.file_loader import (
-    DEFAULT_MAX_LINES_SCANNED, LogDecodeError, _iter_decoded_lines, load_log,
+    DEFAULT_MAX_LINES_SCANNED, LogDecodeError, _read_tail, load_log,
 )
 
 
@@ -83,7 +83,7 @@ class TailLoadingTests(unittest.TestCase):
                     raise AssertionError("Unbounded read")
 
         with self.assertRaises(AnalysisCancelled):
-            list(_iter_decoded_lines(CancellingStream(b"a\nb\n"), "utf-8", token))
+            _read_tail(CancellingStream(b"a\nb\n"), "utf-8", "UTF-8", 10, token)
 
     def test_source_offsets_context_and_exclusions_in_both_views(self):
         patterns = (SearchPattern("error", "ERROR", context=3),
