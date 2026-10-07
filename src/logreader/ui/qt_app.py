@@ -199,13 +199,10 @@ QPushButton#openButton {{
     border-left: 1px solid {THEME_COLORS['ui_border']};
     border-bottom: 1px solid {THEME_COLORS['ui_border']};
     border-radius: 0;
-    padding: 6px 12px;
+    padding: 7px 12px;
 }}
 QPushButton#openButton:hover {{
     background-color: {THEME_COLORS['ui_button_hover']};
-    border-color: {THEME_COLORS['ui_accent']};
-}}
-QPushButton#openButton:focus {{
     border-color: {THEME_COLORS['ui_accent']};
 }}
 QPushButton#openButton:pressed {{

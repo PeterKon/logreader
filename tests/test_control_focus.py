@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QPoint, QThreadPool, QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QStyle, QStyleOptionSpinBox
+from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QStyle, QStyleOptionSpinBox, QTabBar
 
 from logreader.ui.qt_app import LogreaderWindow
 from logreader.ui.theme import THEME_COLORS
@@ -67,6 +67,20 @@ class ControlFocusTests(unittest.TestCase):
         QTest.mouseMove(widget, position)
         QTest.qWait(100)  # Allow native Windows hover events to arrive.
 
+    def test_open_button_size_stays_constant_when_tabs_open_and_close(self):
+        button = self.window._open_button
+        initial_size = button.size()
+        for cycle in range(2):
+            self.open_document(f"first-{cycle}.log")
+            self.assertEqual(button.height(), self.window._tabs.sizeHint().height())
+            self.assertEqual(button.size(), initial_size)
+            self.open_document(f"second-{cycle}.log")
+            self.assertEqual(button.size(), initial_size)
+            for _ in range(2):
+                self.window.close_tab(0)
+                self.app.processEvents()
+                self.assertEqual(button.size(), initial_size)
+
     def test_revisiting_tabs_keeps_neutral_or_explicit_editing_focus(self):
         pages = [self.open_document(name) for name in ("first.log", "second.log")]
         for page in pages * 3:
@@ -81,9 +95,9 @@ class ControlFocusTests(unittest.TestCase):
         self.app.processEvents()
         self.assertIs(self.app.focusWidget(), editor)
 
-    def assert_button_state(self, button, hovered):
+    def assert_button_state(self, button, hovered, *, focused=False):
         self.assertEqual(button.underMouse(), hovered)
-        self.assertFalse(button.hasFocus())
+        self.assertEqual(button.hasFocus(), focused)
         image = button.grab().toImage()
         if button.property("patternGroupToggle"):
             self.assertEqual(image.pixelColor(0, 0), QColor(Qt.GlobalColor.transparent))
@@ -96,6 +110,9 @@ class ControlFocusTests(unittest.TestCase):
         normal_border = "ui_border" if button.objectName() == "openButton" else "ui_border_strong"
         expected = QColor(THEME_COLORS["ui_accent" if hovered else normal_border])
         self.assertEqual(image.pixelColor(0, image.height() // 2), expected)
+        if button.objectName() == "openButton":
+            background = THEME_COLORS["ui_button_hover" if hovered else "ui_button"]
+            self.assertEqual(image.pixelColor(3, image.height() // 2), QColor(background))
 
     def test_buttons_keep_hover_after_click_and_clear_it_on_leave(self):
         page = self.open_document("sample.log")
@@ -138,6 +155,37 @@ class ControlFocusTests(unittest.TestCase):
         self.assert_button_state(button, False)
         self.move_pointer(button)
         self.assert_button_state(button, True)
+
+    def test_open_button_has_no_focus_highlight_after_closing_last_tab(self):
+        button = self.window._open_button
+        for method in ("close button", "shortcut"):
+            with self.subTest(method=method):
+                self.open_document("sample.log")
+                close_button = self.window._tabs.tabButton(0, QTabBar.ButtonPosition.RightSide)
+                self.move_pointer(close_button)
+                if method == "close button":
+                    QTest.mouseClick(close_button, Qt.MouseButton.LeftButton)
+                else:
+                    QTest.keyClick(self.window, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
+                self.app.processEvents()
+                self.assertTrue(self.window._empty_page.isVisible())
+                self.assert_button_state(button, False, focused=button.hasFocus())
+
+        button.setFocus(Qt.FocusReason.TabFocusReason)
+        self.app.processEvents()
+        self.assert_button_state(button, False, focused=True)
+        self.move_pointer(button)
+        self.assert_button_state(button, True, focused=True)
+        self.move_pointer(self.window, QPoint(1, self.window.height() - 1))
+        self.assert_button_state(button, False, focused=True)
+        with patch("logreader.ui.qt_app.QFileDialog.getOpenFileNames", return_value=([], "")) as dialog:
+            QTest.keyPress(button, Qt.Key.Key_Space)
+            image = button.grab().toImage()
+            self.assertEqual(image.pixelColor(3, image.height() // 2),
+                             QColor(THEME_COLORS["ui_button_pressed"]))
+            QTest.keyRelease(button, Qt.Key.Key_Space)
+            dialog.assert_called_once()
+        self.assert_button_state(button, False)
 
     def test_arrow_clicks_do_not_leave_focus_or_selection_but_text_clicks_do(self):
         page = self.open_document("sample.log")
