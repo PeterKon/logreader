@@ -17,6 +17,7 @@ from logreader.ui.results.loaded_ranges import RangeIndex, UnloadedGap
 from logreader.ui.results.results_model import ResultsModel
 from logreader.ui.results.results_editor import ExcerptGapBlock, StructuralBlock, SummaryBlock
 from logreader.ui.source_search import utf16_length
+from logreader.ui.theme import THEME_COLORS
 
 def sample(rows=6000, combined=False):
     events = (
@@ -231,6 +232,69 @@ class ProgressiveResultsTests(unittest.TestCase):
                 self.wait_jump(editor)
                 self.assertEqual(editor.top_point(), TextPoint(0))
 
+    def test_resize_keeps_scrollbar_range_stable_until_new_geometry_is_ready(self):
+        for wrapped in (False, True):
+            with self.subTest(wrapped=wrapped):
+                view = self.window(fraction=1, wrapped=wrapped,
+                                   lines=[f"ERROR: row {i}" for i in range(60)])
+                editor, bar = view.editor, view.global_scroll
+                self.wait(lambda: editor.end_top() is not None)
+                pending_paints = 0
+                for bottom in (False, True):
+                    bar.setValue(bar.maximum() if bottom else bar.maximum() // 2)
+                    self.wait_jump(editor)
+                    for height in (420, 440, 430, 400):
+                        before = bar.maximum()
+                        top = editor.top_point()
+                        updates = []
+                        before_image = bar.grab().toImage()
+                        set_range = bar.setRange
+
+                        def record_range(minimum, maximum):
+                            set_range(minimum, maximum)
+                            updates.append(bar.maximum())
+
+                        with patch.object(bar, "setRange", side_effect=record_range):
+                            view.resize(view.width(), height)
+                            self.assertTrue(bar.updatesEnabled())
+                            if editor.end_top() is None:
+                                pending_paints += 1
+                                pending_image = bar.grab().toImage()
+                                shared_height = min(before_image.height(), pending_image.height())
+                                self.assertEqual(
+                                    before_image.copy(0, 0, before_image.width(), shared_height),
+                                    pending_image.copy(0, 0, pending_image.width(), shared_height))
+                                for y in range(pending_image.height()):
+                                    self.assertEqual(pending_image.pixelColor(0, y).name(),
+                                                     THEME_COLORS["scrollbar_track"])
+                            self.wait(lambda: editor.end_top() is not None
+                                      and editor.navigation.pending is None)
+                            self.app.processEvents()
+                        after = bar.maximum()
+                        self.assertTrue(updates)
+                        self.assertTrue(all(min(before, after) <= value <= max(before, after)
+                                            for value in updates), updates)
+                        self.assertTrue(bar.updatesEnabled())
+                        if bottom:
+                            self.assert_final_screen(view)
+                        else:
+                            self.assertEqual(editor.top_point(), top)
+                self.assertGreater(pending_paints, 0)
+
+
+    def test_resize_remeasures_known_endpoint_without_loading_all_results(self):
+        view = self.window(fraction=.01, lines=[f"ERROR: row {i}" for i in range(2000)])
+        editor, bar = view.editor, view.global_scroll
+        self.jump(editor, editor.ranges.total - 1)
+        self.jump(editor, 500)
+        self.quiet(view)
+        top, maximum = editor.top_point(), bar.maximum()
+        view.resize(view.width(), 900)
+        self.wait(lambda: editor.end_top() is not None)
+        self.assertLess(bar.maximum(), maximum)
+        self.assertEqual(bar.maximum(), editor.end_scroll_maximum())
+        self.assertEqual(editor.top_point(), top)
+        self.assertFalse(view.loader.done)
 
     def test_compact_index_scales_with_intervals_and_round_trips(self):
         index = RangeIndex(10**9)

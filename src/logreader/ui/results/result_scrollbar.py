@@ -50,10 +50,14 @@ class GlobalMarkerScrollBar(QScrollBar):
     def _marker_extent(self):
         return self.maximum()
 
-    def paintEvent(self, event):
+    def _paint_bar(self, event):
         super().paintEvent(event)
         option = QStyleOptionSlider()
         self.initStyleOption(option)
+        return option
+
+    def paintEvent(self, event):
+        option = self._paint_bar(event)
         groove = self.style().subControlRect(
             QStyle.ComplexControl.CC_ScrollBar, option,
             QStyle.SubControl.SC_ScrollBarGroove, self)
@@ -153,8 +157,32 @@ class ProgressivePositionScrollBar(GlobalMarkerScrollBar):
 
 class SparsePositionScrollBar(ProgressivePositionScrollBar):
     def __init__(self, editor, parent=None):
+        self._painted_option = None
         super().__init__(editor, parent)
         self.setVisible(editor.presentation.row_count > 0)
+
+    def _paint_bar(self, event):
+        if (self.editor.end_top() is None and self.editor._end_screen is not None
+                and self._painted_option is not None and not self.isSliderDown()
+                and not self._navigating):
+            option = QStyleOptionSlider()
+            self.initStyleOption(option)
+            option.subControls = QStyle.SubControl.SC_All
+            # Keep the last painted geometry until cooperative measurement
+            # finishes, but still repaint the track, including newly exposed area.
+            # Disabling updates lets the parent's background flash through.
+            for field in ("rect", "minimum", "maximum", "pageStep",
+                          "sliderPosition", "sliderValue"):
+                setattr(option, field, getattr(self._painted_option, field))
+            painter = QPainter(self)
+            painter.fillRect(self.rect(), QColor(THEME_COLORS["scrollbar_track"]))
+            self.style().drawComplexControl(QStyle.ComplexControl.CC_ScrollBar,
+                                           option, painter, self)
+            painter.end()
+            return option
+        option = super()._paint_bar(event)
+        self._painted_option = QStyleOptionSlider(option)
+        return option
 
     def _marker_extent(self):
         return max(0, self.editor.presentation.row_count - 1)
@@ -165,6 +193,10 @@ class SparsePositionScrollBar(ProgressivePositionScrollBar):
         editor = self.editor
         end = editor.end_top()
         maximum = editor.end_scroll_maximum()
+        # Keep the measured thumb geometry while a resize is being measured.
+        # Falling back to the full row count makes short results visibly jump.
+        if maximum is None and editor._end_screen is not None:
+            return
         with QSignalBlocker(self):
             self.setRange(0, maximum if maximum is not None else max(0, editor.presentation.row_count - 1))
             request = editor.navigation.pending

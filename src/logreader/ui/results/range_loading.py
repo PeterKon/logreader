@@ -226,7 +226,8 @@ class SparseLoader(QObject):
 
     def _needs_end_measurement(self):
         # Hidden results can finish loading before their viewport is sized.
-        return (self.done and self.editor.isVisible() and self.editor.ranges.total > 0
+        return ((self.done or self.editor._end_screen is not None)
+                and self.editor.isVisible() and self.editor.ranges.total > 0
                 and self.editor.end_top() is None)
 
     def _geometry_changed(self):
@@ -560,12 +561,12 @@ class SparseLoader(QObject):
                     self._priority(request)
             elif self.buffer and not self.error:
                 self._surrounding(generation)
-            elif self.background and not self.error and editor.ranges.gaps:
-                self._background_fill(generation)
             elif not self.error and self._needs_end_measurement():
                 with editor.preserving_reading_position():
                     self._measure_end_screen(generation)
                 editor.window_changed.emit()
+            elif self.background and not self.error and editor.ranges.gaps:
+                self._background_fill(generation)
             if not self.valid(generation):
                 return
             flush_view_paints(editor)
