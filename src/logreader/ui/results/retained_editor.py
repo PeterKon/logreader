@@ -672,7 +672,13 @@ class SparseResultsEditor(ProgressiveResultsEditor):
         return None
 
     def remember_end_top(self, point):
-        self._end_screen = self._end_geometry(), point
+        visual_line = (self._block(point.row).layout().lineForTextPosition(point.column).lineNumber()
+                       if point.column else 0)
+        self._end_screen = self._end_geometry(), point, visual_line
+
+    def end_scroll_maximum(self):
+        point = self.end_top()
+        return point.row + self._end_screen[2] if point is not None else None
 
     def at_bottom(self):
         point = self.end_top()
@@ -964,12 +970,13 @@ class SparseResultsEditor(ProgressiveResultsEditor):
                 self.navigate_to(self.top_point())
 
     def set_wrapping(self, enabled):
-        was_bottom = self.at_bottom()
+        was_bottom = self.at_bottom() and self.top_point() != TextPoint(0)
         super().set_wrapping(enabled)
         self._refresh_end_screen(was_bottom)
 
     def resizeEvent(self, event):  # noqa: N802
-        was_bottom = self._end_screen is not None and self._end_screen[1] == self.top_point()
+        was_bottom = (self._end_screen is not None and self._end_screen[1] != TextPoint(0)
+                      and self._end_screen[1] == self.top_point())
         super().resizeEvent(event)
         self._refresh_end_screen(was_bottom)
         if self.viewport().height() > self._gap_pixels:

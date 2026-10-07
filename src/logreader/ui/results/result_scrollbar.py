@@ -24,12 +24,13 @@ class GlobalMarkerScrollBar(QScrollBar):
         self.update()
 
     def _marker_rows_for_groove(self, groove, *, bookmarks=False):
-        key = (*groove.getRect(), self.minimum(), self.maximum())
+        extent = self._marker_extent()
+        key = (*groove.getRect(), self.minimum(), extent)
         cached = self._marker_cache.get(bookmarks)
         if cached is not None and cached[0] == key:
             return cached[1]
         blocks = self.bookmark_rows if bookmarks else self.match_rows
-        span = max(1, self.maximum() - self.minimum())
+        span = max(1, extent - self.minimum())
         height = max(0, groove.height() - 1)
         rows = []
         index = 0
@@ -45,6 +46,9 @@ class GlobalMarkerScrollBar(QScrollBar):
         result = tuple(rows)
         self._marker_cache[bookmarks] = (key, result)
         return result
+
+    def _marker_extent(self):
+        return self.maximum()
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -148,12 +152,45 @@ class ProgressivePositionScrollBar(GlobalMarkerScrollBar):
 
 
 class SparsePositionScrollBar(ProgressivePositionScrollBar):
+    def __init__(self, editor, parent=None):
+        super().__init__(editor, parent)
+        self.setVisible(editor.presentation.row_count > 0)
+
+    def _marker_extent(self):
+        return max(0, self.editor.presentation.row_count - 1)
+
     def sync_position(self):
         if self.isSliderDown() or self._navigating:
             return
-        super().sync_position()
-        # Keep the full logical range while mapping its endpoint to the final
-        # screen, including when that screen starts inside a wrapped row.
-        if self.editor.navigation.pending is None and self.editor.at_bottom():
-            with QSignalBlocker(self):
-                self.setValue(self.maximum() if self.editor.top_point() != TextPoint(0) else 0)
+        editor = self.editor
+        end = editor.end_top()
+        maximum = editor.end_scroll_maximum()
+        with QSignalBlocker(self):
+            self.setRange(0, maximum if maximum is not None else max(0, editor.presentation.row_count - 1))
+            request = editor.navigation.pending
+            point = request.point if request else editor.top_point()
+            value = point.row
+            if end is not None and point.row == end.row:
+                # The final logical row may still contain several screens of
+                # wrapped text. Its remaining travel uses visual-line steps.
+                if request and request.movement:
+                    value += request.movement.delta
+                elif point.column:
+                    layout = editor._block(point.row).layout()
+                    if layout.lineCount():
+                        value += layout.lineForTextPosition(point.column).lineNumber()
+            self.setValue(value)
+            self.setPageStep(max(1, editor.viewport().height() // editor.fontMetrics().height()))
+        if maximum is not None:
+            self.setVisible(maximum > 0)
+
+    def _seek(self, row):
+        end = self.editor.end_top()
+        if end is None or row <= end.row:
+            return super()._seek(row)
+        self._navigating = True
+        try:
+            self.editor.navigation.request_reading(TextPoint(end.row), row - end.row)
+        finally:
+            self._navigating = False
+        self.sync_position()

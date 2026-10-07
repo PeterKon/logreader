@@ -131,6 +131,7 @@ class SparseLoader(QObject):
         self.paused = self.cancelled = False
         self.error = None
         self.request = self.buffer = None
+        self._end_measurement = None
         self.row = self.height = 0
         self.ticks = []
         self.operations = []
@@ -146,6 +147,7 @@ class SparseLoader(QObject):
         self.timer.timeout.connect(self._tick)
         editor.navigation.needs_loading.connect(self._requested)
         editor.navigation.changed.connect(self.start)
+        editor.window_changed.connect(self._geometry_changed)
 
     @property
     def done(self):
@@ -218,8 +220,57 @@ class SparseLoader(QObject):
         if (self.valid() and not self.paused and self.is_active()
                 and not self.timer.isActive()
                 and (self.editor.navigation.pending is not None
-                     or (not self.error and (self.buffer is not None or (self.background and not self.done))))):
+                     or (not self.error and (self.buffer is not None or (self.background and not self.done)
+                         or self._needs_end_measurement() or (self.done and not self._reported_done))))):
             self.timer.start(self.interval_ms)
+
+    def _needs_end_measurement(self):
+        # Hidden results can finish loading before their viewport is sized.
+        return (self.done and self.editor.isVisible() and self.editor.ranges.total > 0
+                and self.editor.end_top() is None)
+
+    def _geometry_changed(self):
+        if self.editor.navigation.pending is None and self._needs_end_measurement():
+            self.start()
+
+    def _measure_end_screen(self, generation):
+        editor = self.editor
+        geometry = editor._end_geometry()
+        if self._end_measurement is None or self._end_measurement[0] != geometry:
+            self._end_measurement = [geometry, editor.ranges.total - 1, 0]
+        measurement = self._end_measurement
+        while measurement[1] >= 0 and not self._spent():
+            row = measurement[1]
+            block = self._ensure(row, generation)
+            if block is None:
+                return
+            if geometry != editor._end_geometry():
+                self._end_measurement = None
+                return
+            measurement[2] += editor.blockBoundingRect(block).height()
+            measurement[1] -= 1
+            if measurement[2] >= editor.viewport().height() or row == 0:
+                top = self._end_point(block, row, measurement[2])
+                editor.remember_end_top(top)
+                self._end_measurement = None
+                return
+
+    def _end_point(self, block, row, height):
+        layout = block.layout()
+        excess = max(0, height - self.editor.viewport().height())
+        # Native scrolling advances by visual lines; round up to expose EOF.
+        index, stop = 0, layout.lineCount()
+        while index < stop:
+            middle = (index + stop) // 2
+            if layout.lineAt(middle).y() < excess:
+                index = middle + 1
+            else:
+                stop = middle
+        if index < layout.lineCount():
+            return TextPoint(row, layout.lineAt(index).textStart())
+        if row + 1 < self.editor.ranges.total:
+            return TextPoint(row + 1)
+        return TextPoint(row, layout.lineAt(layout.lineCount() - 1).textStart())
 
     def set_paused(self, paused):
         self.paused = paused
@@ -416,19 +467,7 @@ class SparseLoader(QObject):
             block = self._ensure(self.back_row + 1, request.sequence)
             if block is None:
                 return
-            layout = block.layout()
-            excess = max(0, self.height - editor.viewport().height())
-            # Native scrolling advances in visual lines. Round up so the last
-            # line stays visible, with less than one line of spare space.
-            index, stop = 0, layout.lineCount()
-            while index < stop:
-                middle = (index + stop) // 2
-                if layout.lineAt(middle).y() < excess:
-                    index = middle + 1
-                else:
-                    stop = middle
-            top = (TextPoint(self.back_row + 1, layout.lineAt(index).textStart())
-                   if index < layout.lineCount() else TextPoint(self.back_row + 2))
+            top = self._end_point(block, self.back_row + 1, self.height)
             editor.remember_end_top(top)
             top = min(self.screen_start, top)
         if (self.valid(request.sequence) and editor.navigation.valid(request)
@@ -523,6 +562,10 @@ class SparseLoader(QObject):
                 self._surrounding(generation)
             elif self.background and not self.error and editor.ranges.gaps:
                 self._background_fill(generation)
+            elif not self.error and self._needs_end_measurement():
+                with editor.preserving_reading_position():
+                    self._measure_end_screen(generation)
+                editor.window_changed.emit()
             if not self.valid(generation):
                 return
             flush_view_paints(editor)
@@ -543,7 +586,7 @@ class SparseLoader(QObject):
                 if len(self.ticks) > 4096:
                     del self.ticks[:2048]
                 self.progressed.emit()
-        if self.valid() and self.done and not self._reported_done:
+        if self.valid() and self.done and not self._needs_end_measurement() and not self._reported_done:
             self._reported_done = True
             self.completed.emit()
         self.start()

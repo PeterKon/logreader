@@ -448,12 +448,15 @@ class BookmarkTests(unittest.TestCase):
                     groove = scrollbar.style().subControlRect(QStyle.ComplexControl.CC_ScrollBar, option,
                                                              QStyle.SubControl.SC_ScrollBarGroove, scrollbar)
                     extent = scrollbar.maximum() + scrollbar.pageStep()
-                    self.assertGreater(extent, editor.blockCount())
+                    if source_active:
+                        self.assertGreater(extent, editor.blockCount())
                     expected = tuple(sorted({groove.top() + editor.document().findBlockByNumber(block).firstLineNumber()
                                              * (groove.height() - 1) // (extent - 1)
                                              for block in editor._bookmark_blocks}))
                     if not source_active:
-                        expected = tuple(sorted({groove.top() + row * (groove.height() - 1) // max(1, scrollbar.maximum()) for row in scrollbar.bookmark_rows}))
+                        expected = tuple(sorted({groove.top() + row * (groove.height() - 1)
+                                                 // max(1, editor.presentation.row_count - 1)
+                                                 for row in scrollbar.bookmark_rows}))
                     self.assertEqual(scrollbar._marker_rows_for_groove(groove, bookmarks=True), expected)
 
     def test_bookmark_markers_update_on_reanalysis_removal_and_source_replacement(self):

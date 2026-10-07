@@ -380,7 +380,7 @@ class DocumentPage(QWidget):
             scanned = f"All {analysis.line_count:,} lines scanned"
         else:
             scanned = f"{analysis.line_count:,} of {self.session.total_line_count:,} lines were scanned"
-        self._finish_analysis_request()
+        self._finish_analysis_request(cancel_rendering=False)
         self._set_status(
             f"{scanned} - {self.session.encoding or 'unknown encoding'}"
         )
@@ -426,8 +426,9 @@ class DocumentPage(QWidget):
                 f"Analyzing: {source_name}"
             )
 
-    def _finish_analysis_request(self) -> None:
-        self.results_view.cancel_rendering()
+    def _finish_analysis_request(self, *, cancel_rendering: bool = True) -> None:
+        if cancel_rendering:
+            self.results_view.cancel_rendering()
         self._analysis_worker = None
         self.analysis_queued = False
         self._set_analysis_busy(False)

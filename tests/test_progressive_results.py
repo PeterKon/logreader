@@ -181,6 +181,56 @@ class ProgressiveResultsTests(unittest.TestCase):
         self.assertLessEqual(evidence["bottom"], editor.viewport().height() + 2)
         self.assertEqual(view.global_scroll.value(), view.global_scroll.maximum())
 
+    def test_scrollbar_disappears_when_results_fit_and_returns_after_resize(self):
+        view = self.window(fraction=1, lines=[f"ERROR: row {i}" for i in range(20)])
+        editor, bar = view.editor, view.global_scroll
+        view.resize(780, 900)
+        self.wait(lambda: editor.end_top() == TextPoint(0) and bar.isHidden())
+        self.assertEqual(bar.maximum(), 0)
+        view.resize(780, 220)
+        self.wait(lambda: editor.end_top() is not None and bar.isVisible() and bar.maximum() > 0)
+        self.assertEqual(editor.top_point(), TextPoint(0))
+        bar.setValue(bar.maximum())
+        self.wait_jump(editor)
+        self.assert_final_screen(view)
+        view.resize(780, 900)
+        self.wait(lambda: editor.end_top() == TextPoint(0) and bar.isHidden())
+        self.assertEqual(editor.top_point(), TextPoint(0))
+        self.assertEqual(bar.maximum(), 0)
+
+    def test_scrollbar_drag_has_no_unused_travel_after_the_final_screen(self):
+        for wrapped in (False, True):
+            with self.subTest(wrapped=wrapped):
+                lines = [f"ERROR: row {i}" for i in range(100)]
+                if wrapped:
+                    lines[-1] += " long wrapped payload" * 300
+                view = self.window(fraction=1, wrapped=wrapped, lines=lines)
+                editor, bar = view.editor, view.global_scroll
+                self.wait(lambda: editor.end_top() is not None)
+                endpoint = editor.end_top()
+                if wrapped:
+                    self.assertGreater(endpoint.column, 0)
+                else:
+                    self.assertLess(bar.maximum(), editor.presentation.row_count - 1)
+                maximum = bar.maximum()
+                previous = TextPoint(0)
+                bar.setSliderDown(True)
+                try:
+                    for value in range(maximum - 3, maximum + 1):
+                        bar.setSliderPosition(value)
+                        self.wait_jump(editor)
+                        self.assertGreater(editor.top_point(), previous)
+                        self.assertEqual(bar.maximum(), maximum)
+                        self.assertEqual(bar.value(), value)
+                        previous = editor.top_point()
+                    self.assertEqual(editor.top_point(), endpoint)
+                finally:
+                    bar.setSliderDown(False)
+                self.assert_final_screen(view)
+                bar.setValue(0)
+                self.wait_jump(editor)
+                self.assertEqual(editor.top_point(), TextPoint(0))
+
 
     def test_compact_index_scales_with_intervals_and_round_trips(self):
         index = RangeIndex(10**9)
@@ -582,7 +632,9 @@ class ProgressiveResultsTests(unittest.TestCase):
                                 editor.insert_range(part, min(end, part + 64))
                                 self.app.processEvents()
                                 self.assertEqual(self.state(editor), before)
-                                self.assertEqual(view.global_scroll.maximum(), maximum)
+                                end_maximum = editor.end_scroll_maximum()
+                                self.assertEqual(view.global_scroll.maximum(),
+                                                 maximum if end_maximum is None else end_maximum)
                         self.assertFalse(editor.ranges.gaps)
                         self.assertTrue(retained.isValid())
                         self.assertEqual(retained.userState(), revision)
@@ -907,6 +959,7 @@ class ProgressiveResultsTests(unittest.TestCase):
                 editor.viewport().setFixedHeight(1200)
                 view.resize(780, 1400)
                 self.app.processEvents()
+                self.wait(lambda: editor.end_top() is not None)
                 self.jump(editor, 500)
                 self.jump(editor, 600)
                 self.assertGreater(len(editor._visible_rows), loader.max_rows)

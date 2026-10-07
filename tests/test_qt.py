@@ -104,6 +104,43 @@ class LogreaderQtTests(unittest.TestCase):
             QTest.qWait(10)
         self.fail("Analysis did not finish")
 
+    def test_analysis_sets_scroll_range_without_touching_scrollbar(self):
+        self.window.resize(975, 1097)
+        self.window.show()
+        panel = self.window._document.filter_panel
+        panel._context_spin.setValue(5)
+        for key, checkbox in panel._pattern_checkboxes.items():
+            checkbox.setChecked(key == "warning")
+        for matches in (3, 12):
+            with self.subTest(matches=matches):
+                path = Path(self.directory.name) / "warnings.log"
+                path.write_text("\n".join(
+                    "WARNING: event" if row % 31 == 15 else f"info {row}"
+                    for row in range(matches * 31)
+                ), encoding="utf-8")
+                self._stage_file(path)
+                self._click_analyze_and_wait()
+                view = self.window._document.results_view
+                editor, bar = view.editor, view.global_scroll
+                self.assertIsNotNone(editor.end_top())
+                self.assertEqual(bar.maximum(), editor.end_scroll_maximum())
+                self.assertEqual(bar.isVisible(), matches == 12)
+                if matches == 3:
+                    self.assertEqual(bar.maximum(), 0)
+                initial_maximum = bar.maximum()
+                self.window.resize(975, 500)
+                for _ in range(1000):
+                    self.app.processEvents()
+                    if editor.end_top() is not None and bar.maximum() > initial_maximum:
+                        break
+                    QTest.qWait(2)
+                self.assertIsNotNone(editor.end_top())
+                self.assertEqual(bar.maximum(), editor.end_scroll_maximum())
+                self.assertGreater(bar.maximum(), initial_maximum)
+                self.assertTrue(bar.isVisible())
+                self.window.resize(975, 1097)
+                self.app.processEvents()
+
     def _drop_urls(self, target, urls):
         mime = QMimeData()
         mime.setUrls(urls)
@@ -1205,10 +1242,8 @@ class LogreaderQtTests(unittest.TestCase):
                     scrollbar,
                 )
 
-                scroll_extent = scrollbar.maximum() + scrollbar.pageStep()
-                self.assertGreater(scroll_extent, results.blockCount())
                 expected_rows = tuple(groove.top() + results.presentation.display_row(row)
-                                      * (groove.height() - 1) // scrollbar.maximum()
+                                      * (groove.height() - 1) // (results.presentation.row_count - 1)
                                       for row in (20, 100, 180))
                 self.assertEqual(
                     scrollbar._marker_rows_for_groove(groove),

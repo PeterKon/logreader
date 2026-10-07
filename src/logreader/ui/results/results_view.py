@@ -236,10 +236,7 @@ class ResultsView(ResultsControls):
         self.results_prepared.emit()
         # A signal handler may have replaced or closed the result set.
         if not self._closed and generation == self._preparation_generation:
-            if self.loader.done:
-                self._loaded()
-            else:
-                self.loader.start()
+            self.loader.start()
 
     @Slot(int)
     def _preparation_finished(self, generation):
