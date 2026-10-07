@@ -10,9 +10,7 @@ from .presentation import CategoryPresentation, build_category_presentations
 from .results_model import ResultsModel
 
 
-SUMMARY_COLUMNS = 3
-SUMMARY_COLUMN_WIDTH = 19
-SUMMARY_COLUMN_GAP = 5
+SUMMARY_ENTRY_GAP = 3
 SUMMARY_LINE_LENGTH = 100
 RESULT_LABEL_OVERRIDES = {"http_4xx": "HTTP 4xx", "http_5xx": "HTTP 5xx"}
 
@@ -86,17 +84,22 @@ def _iter_analysis_render_operations(
 def _iter_positive_summary_entries(
     entries: list[tuple[str, int]],
 ) -> Iterator[RenderOperation]:
-    """Fill three 19-character columns per row, with five spaces between them.
-
-    Oversized entries keep their full label and count, extending only their row.
-    """
-    for index, (label, count) in enumerate(entries):
-        if index:
-            yield "\n" if index % SUMMARY_COLUMNS == 0 else " " * SUMMARY_COLUMN_GAP, "muted", False
+    """Keep label/count pairs together, with wider gaps between entries."""
+    line_length = 0
+    for label, count in entries:
         count_text = str(count)
-        padding = " " * max(1, SUMMARY_COLUMN_WIDTH - len(label) - len(count_text))
-        yield label + padding, _match_count_role(count), False
+        entry_length = len(label) + 1 + len(count_text)
+        if line_length:
+            if line_length + SUMMARY_ENTRY_GAP + entry_length > SUMMARY_LINE_LENGTH:
+                yield "\n", "muted", False
+                line_length = 0
+            else:
+                yield " " * SUMMARY_ENTRY_GAP, "muted", False
+                line_length += SUMMARY_ENTRY_GAP
+        # Qt renders these as ordinary spaces but keeps each pair together when wrapping.
+        yield label.replace(" ", "\u00a0") + "\u00a0", _match_count_role(count), False
         yield count_text, "body", False
+        line_length += entry_length
 
 
 def _iter_summary_entries(

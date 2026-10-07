@@ -1723,7 +1723,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(editor.toPlainText(), before)
 
 
-    def test_summary_grid_fills_rows_and_preserves_long_entries(self):
+    def test_summary_inline_groups_wrap_between_entries_and_preserve_long_labels(self):
         from logreader.ui.results.result_formatting import _iter_positive_summary_entries, _iter_summary_entries
 
         def text(entries):
@@ -1732,11 +1732,17 @@ class LogreaderQtTests(unittest.TestCase):
         oversized = "Z" * 101
         self.assertEqual(
             "".join(value for value, _, _ in _iter_positive_summary_entries([
-                ("ERROR:", 13), ("ERROR", 206), ("EXCEPTION", 4),
+                ("ERROR:", 13), ("ERROR", 206), ("EXCEPTION", 4), ("HTTP 5xx", 12),
                 (oversized, 3), ("FATAL", 4),
-            ])),
-            "ERROR:           13     ERROR           206     EXCEPTION         4\n"
-            f"{oversized} 3     FATAL             4",
+            ])).replace("\u00a0", " "),
+            "ERROR: 13   ERROR 206   EXCEPTION 4   HTTP 5xx 12\n"
+            f"{oversized} 3\nFATAL 4",
+        )
+        self.assertEqual(
+            "".join(value for value, _, _ in _iter_positive_summary_entries([
+                ("A" * 90, 1), ("END", 2), ("NEXT", 3),
+            ])).replace("\u00a0", " "),
+            f"{'A' * 90} 1   END 2\nNEXT 3",
         )
         self.assertEqual(
             text([("A" * 100, None), ("FAILED", None), (oversized, None), ("FATAL", None)]),
@@ -1754,7 +1760,7 @@ class LogreaderQtTests(unittest.TestCase):
                 regex_patterns=(r"code=\d+",), combined_view=combined,
             )
             for source, expected in (
-                ("ERROR: needle code=42", "Matches (3 total):\nERROR:            1     needle            1     code=\\d+          1\n"),
+                ("ERROR: needle code=42", "Matches (3 total):\nERROR: 1   needle 1   code=\\d+ 1\n"),
                 ("ordinary", "Matches (0 total):\n0\n\nNo matches:\nERROR:, needle, code=\\d+\n"),
             ):
                 analysis = analyze_lines((source,), config.search_patterns(), combined=combined)
@@ -1765,7 +1771,7 @@ class LogreaderQtTests(unittest.TestCase):
                 )
                 output = "".join(
                     value for value, _, _ in _iter_analysis_render_operations("test.log", analysis, config)
-                )
+                ).replace("\u00a0", " ")
                 self.assertTrue(output.startswith(expected), output)
 
     def test_zero_match_patterns_stay_in_summary_without_blank_sections(self):
@@ -1825,8 +1831,7 @@ class LogreaderQtTests(unittest.TestCase):
         )
         summary = output.split("\nERROR: failed", 1)[0]
         self.assertTrue(summary.startswith(
-            "Matches (4 total):\nERROR:            1     FAILED            1     panic             1\n"
-            "code=\\d+          1\n\n"
+            "Matches (4 total):\nERROR: 1   FAILED 1   panic 1   code=\\d+ 1\n\n"
         ), summary)
         self.assertIn("No matches:\nERROR, EXCEPTION:, EXCEPTION, FAILURE, CRITICAL, REFUSED\n", summary)
         self.assertNotIn("Total matches", summary)

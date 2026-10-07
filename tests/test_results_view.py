@@ -68,12 +68,30 @@ class ResultsViewTests(unittest.TestCase):
                 self.assertTrue(output.startswith("Matches (3 total):\n"))
                 self.assertNotIn("Total matches -", output)
                 if combined:
-                    self.assertIn("needle            1\n\nERROR: needle", output)
+                    self.assertIn("needle 1\n\nERROR: needle", output)
                 else:
                     self.assertIn("ERROR: - 2 matches\n\nERROR: needle", output)
                     self.assertIn("needle - 1 matches\n\nERROR: needle", output)
                 for row, line in enumerate(self.view.model.iter_lines()):
                     self.assertEqual(self.cursor(row).block().text(), line.text)
+
+    def test_inline_summary_keeps_multiword_labels_with_counts_when_wrapping(self):
+        labels = ("ERROR:", "FATAL", "Exception", "Timeout", "HTTP 5xx", "HTTP 4xx",
+                  "Connection refused", "Retry exhausted")
+        editor = self.render(labels, LogreaderConfig(context=0, enabled_patterns=(),
+                                                    custom_patterns=labels))
+        self.view.resize(690, 550)
+        self.view.set_line_wrapping(True)
+        self.app.processEvents()
+        for label in labels:
+            cursor = editor.document().find(label + " 1")
+            self.assertFalse(cursor.isNull(), label)
+            block = cursor.block()
+            layout = block.layout()
+            start = cursor.selectionStart() - block.position()
+            end = cursor.selectionEnd() - block.position() - 1
+            self.assertEqual(layout.lineForTextPosition(start).lineNumber(),
+                             layout.lineForTextPosition(end).lineNumber(), label)
 
     def test_total_uses_thousands_separator_in_both_views(self):
         from logreader.ui.results.result_formatting import _iter_analysis_render_operations
