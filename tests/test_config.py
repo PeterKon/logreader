@@ -24,7 +24,7 @@ class LogreaderConfigTests(unittest.TestCase):
         )
         config = LogreaderConfig(
             context=2, enabled_patterns=("error_colon",), custom_patterns=("ERROR",),
-            regex_patterns=(r"(?i)(?=.*skip\d+)", "ERROR"),
+            regex_patterns=(r"(?=.*skip\d+)", "ERROR"),
             regex_pattern_exclude=(True, False),
         )
         for combined in (False, True):
@@ -62,23 +62,38 @@ class LogreaderConfigTests(unittest.TestCase):
             with self.subTest(flags=flags), self.assertRaises(ValueError):
                 LogreaderConfig(custom_patterns=("skip", "Keep"), custom_pattern_exclude=flags)
 
-    def test_custom_match_case_defaults_and_validation(self):
-        config = LogreaderConfig(custom_patterns=("Error", "Error"))
-        self.assertEqual(config.custom_pattern_match_case, (False, False))
-        config = LogreaderConfig(
-            enabled_patterns=(), custom_patterns=("Error", "Error"),
-            custom_pattern_match_case=(True, False),
-        )
-        self.assertEqual(
-            tuple(pattern.case_sensitive for pattern in config.search_patterns()),
-            (True, False),
-        )
-        for flags in ((True,), (True, False, True), (True, "false")):
-            with self.subTest(flags=flags), self.assertRaises(ValueError):
-                LogreaderConfig(
-                    custom_patterns=("Error", "Error"),
-                    custom_pattern_match_case=flags,
+    def test_match_case_defaults_and_validation(self):
+        for kind in ("custom", "regex"):
+            patterns = {f"{kind}_patterns": ("Error", "Error")}
+            option = f"{kind}_pattern_match_case"
+            with self.subTest(kind=kind):
+                config = LogreaderConfig(**patterns)
+                self.assertEqual(getattr(config, option), (False, False))
+                config = LogreaderConfig(
+                    enabled_patterns=(), **patterns, **{option: (True, False)},
                 )
+                self.assertEqual(
+                    tuple(pattern.case_sensitive for pattern in config.search_patterns()),
+                    (True, False),
+                )
+                for flags in ((True,), (True, False, True), (True, "false")):
+                    with self.subTest(flags=flags), self.assertRaises(ValueError):
+                        LogreaderConfig(**patterns, **{option: flags})
+
+    def test_regex_exclusion_honors_case_toggle(self):
+        for match_case, expected in ((False, 1), (True, 2)):
+            config = LogreaderConfig(
+                enabled_patterns=(), custom_patterns=("error",),
+                regex_patterns=(r"Skip\d+",), regex_pattern_exclude=(True,),
+                regex_pattern_match_case=(match_case,),
+            )
+            for combined in (False, True):
+                with self.subTest(case=match_case, combined=combined):
+                    result = analyze_lines(
+                        ["ERROR Skip42", "ERROR skip42", "ERROR keep"],
+                        config.search_patterns(), combined=combined,
+                    )
+                    self.assertEqual(result.category_match_counts, {"custom_1": expected})
 
     def test_defaults_enable_high_signal_patterns_with_shared_context(self):
         config = LogreaderConfig()

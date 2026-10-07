@@ -981,6 +981,10 @@ class FilterPanel(QGroupBox):
                 for index in range(self._custom_pattern_list.count())
             ),
             regex_patterns=self._list_values(self._regex_pattern_list),
+            regex_pattern_match_case=tuple(
+                bool(self._regex_pattern_list.item(index).data(MATCH_CASE_ROLE))
+                for index in range(self._regex_pattern_list.count())
+            ),
             regex_pattern_exclude=tuple(
                 bool(self._regex_pattern_list.item(index).data(EXCLUDE_ROLE))
                 for index in range(self._regex_pattern_list.count())
@@ -1064,11 +1068,10 @@ class FilterPanel(QGroupBox):
             item_layout.addWidget(preset_label)
             item_layout.addStretch(1)
         prefix = "customPattern" if is_custom else "regexPattern"
-        options = [("Exclude", EXCLUDE_ROLE, "excluding matches", f"{prefix}ExcludeButton")]
-        if is_custom:
-            options.append(
-                ("Case", MATCH_CASE_ROLE, "matching case", "customPatternMatchCaseButton")
-            )
+        options = [
+            ("Exclude", EXCLUDE_ROLE, "excluding matches", f"{prefix}ExcludeButton"),
+            ("Case", MATCH_CASE_ROLE, "matching case", f"{prefix}MatchCaseButton"),
+        ]
         for text, role, action, object_name in options:
             item.setData(role, False)
             button = SearchOptionButton(text, label, action, object_name)

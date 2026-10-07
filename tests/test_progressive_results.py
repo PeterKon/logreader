@@ -542,7 +542,7 @@ class ProgressiveResultsTests(unittest.TestCase):
             self.assertEqual(editor._block(row).text(), editor.presentation.line(row).text)
 
 
-    def test_retained_frame_matches_fresh_native_paint_and_invalidates_on_selection_and_scroll(self):
+    def test_retained_frame_matches_fresh_paint_and_invalidates_on_interaction(self):
         view = self.window(lines=["ERROR: alpha β 😀 " + "payload " * 80 for _ in range(1500)])
         editor = view.editor
         row = editor.presentation.display_row(1350)
@@ -561,6 +561,18 @@ class ProgressiveResultsTests(unittest.TestCase):
                               round(editor.width() * scale), round(editor.height() * scale))
         retained = pixels()
         self.assertIsNotNone(editor._retained_frame)
+        selection = editor.anchor, editor.caret, editor.selected_text()
+        previous = retained
+        for target in (editor._block(row), editor._block(row + 1), None):
+            editor.set_context_target(target)
+            self.assertIsNone(editor._retained_frame)
+            current = pixels()
+            self.assertNotEqual(current, previous)
+            editor._retain_frame()
+            self.assertEqual(pixels(), current)
+            previous = current
+        self.assertEqual(previous, retained)
+        self.assertEqual((editor.anchor, editor.caret, editor.selected_text()), selection)
         editor._retained_frame = None
         self.assertEqual(pixels(), retained)
         editor.insert_range(view.initial_end + 64, view.initial_end + 128)

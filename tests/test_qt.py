@@ -1435,6 +1435,8 @@ class LogreaderQtTests(unittest.TestCase):
             entry.returnPressed.emit()
         row = pattern_list.itemWidget(pattern_list.item(1))
         exclude = row.findChild(QPushButton, "regexPatternExcludeButton")
+        case = row.findChild(QPushButton, "regexPatternMatchCaseButton")
+        self.assertFalse(case.isChecked())
         self.assertFalse(exclude.isChecked())
         self.assertEqual(exclude.focusPolicy(), Qt.FocusPolicy.NoFocus)
         self.assertEqual(exclude.toolTip(), "Click for this pattern to exclude matches")
@@ -1452,14 +1454,19 @@ class LogreaderQtTests(unittest.TestCase):
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             counts = self.window._document.session.analysis.category_match_counts
-            self.assertEqual(counts["error_colon"], 2)
+            self.assertEqual(counts["error_colon"], 1)
             self.assertNotIn("regex_2", counts)
+            case.click()
+            self._click_analyze_and_wait()
+            counts = self.window._document.session.analysis.category_match_counts
+            self.assertEqual(counts["error_colon"], 2)
+            case.click()
             exclude.click()
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual(counts["error_colon"], 3)
-            self.assertEqual(counts["regex_2"], 1)
+            self.assertEqual(counts["regex_2"], 2)
         exclude.click()
         pattern_list.itemWidget(pattern_list.item(0)).findChild(
             QPushButton, "regexPatternRemoveButton",

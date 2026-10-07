@@ -320,27 +320,29 @@ class AnalyzeLinesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid search pattern regex"):
             SearchPattern("invalid", "[", is_regex=True)
 
-    def test_regex_is_case_sensitive_unless_inline_flags_enable_folding(self):
-        result = analyze_lines(
-            ["error ERROR"],
-            [
-                SearchPattern("sensitive", "error", is_regex=True),
-                SearchPattern("insensitive", "(?i)error", is_regex=True),
-                SearchPattern("literal_failure", "failure"),
-                SearchPattern("literal_fatal", "fatal"),
-            ],
-        )
-
-        sensitive_line = result.category("sensitive").excerpts[0].lines[0]
-        insensitive_line = result.category("insensitive").excerpts[0].lines[0]
-        self.assertEqual(
-            [(span.start, span.end) for span in sensitive_line.match_spans],
-            [(0, 5)],
-        )
-        self.assertEqual(
-            [(span.start, span.end) for span in insensitive_line.match_spans],
-            [(0, 5), (6, 11)],
-        )
+    def test_regex_case_setting_and_inline_overrides_preserve_match_spans(self):
+        for expression, case_sensitive, line_text, spans in (
+            ("error", False, "error ERROR", [(0, 5), (6, 11)]),
+            ("error", True, "error ERROR", [(0, 5)]),
+            ("(?i)error", True, "error ERROR", [(0, 5), (6, 11)]),
+            ("(?i:error)", True, "error ERROR", [(0, 5), (6, 11)]),
+            ("(?-i:error)", False, "error ERROR", [(0, 5)]),
+            ("(?-i:error) ERROR", False, "ERROR error|error ERROR|error error", [(12, 23), (24, 35)]),
+            ("error (?i:ERROR)", True, "ERROR error|error ERROR|error error", [(12, 23), (24, 35)]),
+        ):
+            for combined in (False, True):
+                with self.subTest(expression=expression, case=case_sensitive, combined=combined):
+                    result = analyze_lines([line_text], [
+                        SearchPattern("regex", expression, is_regex=True,
+                                      case_sensitive=case_sensitive),
+                        SearchPattern("literal_failure", "failure"),
+                        SearchPattern("literal_fatal", "fatal"),
+                    ], combined=combined)
+                    category = result.category("combined" if combined else "regex")
+                    self.assertEqual(
+                        [(span.start, span.end) for span in category.excerpts[0].lines[0].match_spans],
+                        spans,
+                    )
 
     def test_zero_width_regex_matches_are_ignored(self):
         result = analyze_lines(

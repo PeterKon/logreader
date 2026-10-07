@@ -248,6 +248,7 @@ class FilterPanelTests(unittest.TestCase):
         self.panel.findChild(QPushButton, "customPatternExcludeButton").click()
         self.panel._regex_pattern.setText(r"^ERROR\b")
         self.panel.add_regex_pattern()
+        self.panel.findChild(QPushButton, "regexPatternMatchCaseButton").click()
         self.panel._custom_pattern.setText("unfinished text")
         self.panel._regex_pattern.setText("unfinished [")
         before = self.panel.build_config()
@@ -294,6 +295,7 @@ class FilterPanelTests(unittest.TestCase):
             self.assertTrue(self.panel._combined_view.isVisible())
 
         self.assertEqual(before.custom_pattern_match_case, (True,))
+        self.assertEqual(before.regex_pattern_match_case, (True,))
         self.assertEqual(before.custom_pattern_exclude, (True,))
         self.assertEqual(self.panel._tab_counts[0].text(), "(10/22)")
         self.assertEqual(self.panel._tab_counts[1].text(), "(14/15)")
@@ -432,12 +434,24 @@ class FilterPanelTests(unittest.TestCase):
 
         config = self.panel.build_config()
         self.assertEqual(config.regex_patterns, ("(?i)error", r"^WARN\b"))
+        self.assertEqual(config.regex_pattern_match_case, (False, False))
         self.assertTrue(
             all(pattern.is_regex for pattern in config.search_patterns()[-2:])
         )
 
         first_item = pattern_list.item(0)
         first_row = pattern_list.itemWidget(first_item)
+        second_row = pattern_list.itemWidget(pattern_list.item(1))
+        case_button = second_row.findChild(QPushButton, "regexPatternMatchCaseButton")
+        case_button.click()
+        config = self.panel.build_config()
+        self.assertEqual(config.regex_pattern_match_case, (False, True))
+        result = analyze_lines(["warn", "WARN"], config.search_patterns())
+        self.assertEqual(result.category_match_counts["regex_2"], 1)
+        case_button.click()
+        result = analyze_lines(["warn", "WARN"], self.panel.build_config().search_patterns())
+        self.assertEqual(result.category_match_counts["regex_2"], 2)
+        case_button.click()
         self.assertEqual(first_row.findChild(QLabel).text(), "(?i)error")
         self.assertIsNone(first_row.findChild(QLabel, "regexPresetLabel"))
         first_row.findChild(
@@ -448,6 +462,7 @@ class FilterPanelTests(unittest.TestCase):
             self.panel.build_config().regex_patterns,
             (r"^WARN\b",),
         )
+        self.assertEqual(self.panel.build_config().regex_pattern_match_case, (True,))
 
     def test_email_preset_appends_once_and_preserves_draft(self):
         self.panel._regex_pattern.setText(r"code=\d+")

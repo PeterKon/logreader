@@ -19,7 +19,7 @@ COMBINED_CATEGORY_KEY = "combined"
 
 @dataclass(frozen=True, slots=True)
 class SearchPattern:
-    """Configuration for a literal (optionally matching case) or regex search."""
+    """Configuration for a literal or regex search, optionally matching case."""
 
     key: str
     needle: str
@@ -174,7 +174,7 @@ def analyze_lines(
 def _compile_pattern_state(pattern: SearchPattern) -> _PatternMatchState:
     expression = re.compile(
         pattern.needle if pattern.is_regex else re.escape(pattern.needle),
-        0 if pattern.is_regex or pattern.case_sensitive else re.IGNORECASE,
+        0 if pattern.case_sensitive else re.IGNORECASE,
     )
     return _PatternMatchState(
         pattern=pattern,

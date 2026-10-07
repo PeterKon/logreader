@@ -344,6 +344,7 @@ class SparseResultsEditor(ProgressiveResultsEditor):
         self._prepared_layouts = OrderedDict()
         self._gap_pixels = 2048
         self._covered_edit = False
+        self._context_insertion_id = None
         self._end_screen = None
         self._gap_format = None
         super().__init__(presentation, parent)
@@ -535,6 +536,27 @@ class SparseResultsEditor(ProgressiveResultsEditor):
         if not self._covered_edit:
             self.update_gutter()
 
+    def set_context_target(self, block):
+        if block != self._context_target:
+            self._retained_frame = None
+        super().set_context_target(block)
+
+    def _context_contents_changed(self, position, removed, added):
+        if (self._context_insertion_id is not None
+                and self._context_insertion_id is self.result_set_id
+                and self._context_target is not None and self._context_target.isValid()):
+            return
+        super()._context_contents_changed(position, removed, added)
+
+    @contextmanager
+    def _retaining_context_target(self):
+        previous = self._context_insertion_id
+        self._context_insertion_id = self.result_set_id
+        try:
+            yield
+        finally:
+            self._context_insertion_id = previous
+
     @contextmanager
     def _retaining_gutter(self, covered):
         previous = self._covered_edit
@@ -556,7 +578,7 @@ class SparseResultsEditor(ProgressiveResultsEditor):
         block = self.document().findBlockByNumber(number)
         # Block-count notifications need no repaint when the visible source
         # stays unchanged. Explicit navigation and resize updates remain live.
-        with self._retaining_gutter(covered), self.changing():
+        with self._retaining_context_target(), self._retaining_gutter(covered), self.changing():
             blocker = QSignalBlocker(self.document().documentLayout()) if covered else None
             cursor = QTextCursor(block)
             cursor.beginEditBlock()

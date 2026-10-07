@@ -276,6 +276,7 @@ class LogreaderConfig:
     custom_pattern_match_case: tuple[bool, ...] = ()
     custom_pattern_exclude: tuple[bool, ...] = ()
     regex_pattern_exclude: tuple[bool, ...] = ()
+    regex_pattern_match_case: tuple[bool, ...] = ()
 
     def __post_init__(self) -> None:
         if self.context < 0:
@@ -312,6 +313,13 @@ class LogreaderConfig:
         regex_patterns = tuple(pattern.strip() for pattern in self.regex_patterns)
         if any(not pattern for pattern in regex_patterns):
             raise ValueError("Regex patterns cannot be empty")
+        regex_match_case = tuple(self.regex_pattern_match_case)
+        if not regex_match_case:
+            regex_match_case = (False,) * len(regex_patterns)
+        if len(regex_match_case) != len(regex_patterns) or any(
+            not isinstance(value, bool) for value in regex_match_case
+        ):
+            raise ValueError("Match case must provide one boolean per regex pattern")
         regex_exclude = tuple(self.regex_pattern_exclude)
         if not regex_exclude:
             regex_exclude = (False,) * len(regex_patterns)
@@ -325,6 +333,7 @@ class LogreaderConfig:
         object.__setattr__(self, "custom_pattern_match_case", match_case)
         object.__setattr__(self, "custom_pattern_exclude", exclude)
         object.__setattr__(self, "regex_patterns", regex_patterns)
+        object.__setattr__(self, "regex_pattern_match_case", regex_match_case)
         object.__setattr__(self, "regex_pattern_exclude", regex_exclude)
 
     def search_patterns(self) -> tuple[SearchPattern, ...]:
@@ -342,6 +351,7 @@ class LogreaderConfig:
                     context=self.context,
                     excluded_substrings=preset.excluded_substrings,
                     is_regex=preset.is_regex,
+                    case_sensitive=preset.is_regex,
                     match_validator=preset.match_validator,
                 )
             )
@@ -362,6 +372,7 @@ class LogreaderConfig:
                 needle=needle,
                 context=self.context,
                 is_regex=True,
+                case_sensitive=self.regex_pattern_match_case[index - 1],
                 exclude=self.regex_pattern_exclude[index - 1],
             )
             for index, needle in enumerate(self.regex_patterns, start=1)

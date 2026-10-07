@@ -12,7 +12,9 @@ from PySide6.QtWidgets import QApplication, QInputDialog, QMenu
 from qt_helpers import wait_for_search
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
-from logreader.ui.results.results_model import SourceLocation
+from logreader.ui.results.result_coordinates import TextPoint
+from logreader.ui.results.result_presentation import PresentationModel
+from logreader.ui.results.results_model import ResultsModel, SourceLocation
 from logreader.ui.results.results_view import ResultsView
 
 
@@ -158,6 +160,45 @@ class ContextTargetTests(unittest.TestCase):
                     self.assertFalse(any(a.text().startswith("Line ") for a in menu.actions()))
                     self.assertFalse(any(a.text() == "Add bookmark" for a in menu.actions()))
                 self.right_click(editor, point, inspect)
+
+    def test_target_survives_progressive_insertions_before_and_after_clicked_line(self):
+        lines = tuple(f"ERROR: row {row}" for row in range(400))
+        config = LogreaderConfig(context=0, enabled_patterns=("error_colon",))
+        model = ResultsModel(analyze_lines(lines, config.search_patterns(), combined=True), "snapshot")
+        list(model.prepare())
+        for gutter in (False, True):
+            with self.subTest(gutter=gutter):
+                self.view._install_presentation(PresentationModel(model, config))
+                self.view.loader.background = False
+                editor = self.view.editor
+                row = editor.presentation.display_row(200)
+                editor.insert_range(row, row + 30)
+                with editor.changing():
+                    editor.set_top(TextPoint(row))
+                self.app.processEvents()
+                target = editor._block(row + 1)
+                selection = QTextCursor(editor._block(row))
+                selection.select(QTextCursor.SelectionType.BlockUnderCursor)
+                editor.setTextCursor(selection)
+                selected_text = editor.selected_text()
+
+                def inspect(menu):
+                    self.assertFalse(self.view.loader.done)
+                    self.assertEqual(editor._context_target, target)
+                    block_number = target.blockNumber()
+                    for start, end in ((row + 30, row + 50), (0, 30)):
+                        editor.insert_range(start, end)
+                        self.app.processEvents()
+                        self.assertEqual(editor._context_target, target)
+                        self.assertEqual(target.text(), "ERROR: row 201")
+                        self.assertEqual(editor.selected_text(), selected_text)
+                    self.assertGreater(target.blockNumber(), block_number)
+
+                self.right_click(editor, self.point_for(editor, target), inspect, gutter=gutter)
+                self.assertIsNone(editor._context_target)
+                editor.set_context_target(target)
+                editor.set_results(editor.presentation)
+                self.assertIsNone(editor._context_target)
 
     def test_target_survives_bookmark_dialog_and_clears_after_cancel(self):
         editor, target = self.editor_and_block(False, 1)
