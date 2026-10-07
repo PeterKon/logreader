@@ -535,15 +535,38 @@ class FilterPanel(QGroupBox):
         self._tabs.setDrawBase(False)
         self._tabs.setExpanding(False)
         self._tab_counts: list[QLabel] = []
-        for title in ("Common patterns", "Advanced patterns", "Text and Regex"):
+        for title, total in (
+            ("Common patterns", len(PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS)),
+            ("Advanced patterns", len(ADVANCED_PATTERN_KEYS)),
+            ("Text and Regex", None),
+        ):
             index = self._tabs.addTab(title)
             count = QLabel(self._tabs)
             count.setObjectName("filterTabCount")
             count.setContentsMargins(0, 0, 8, 0)
+            if total is not None:
+                width = 0
+                for selected in range(total + 1):
+                    count.setText(f"({selected}/{total})")
+                    width = max(width, count.sizeHint().width())
+                count.setFixedWidth(width)
+                count.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             count.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             self._tabs.setTabButton(index, QTabBar.ButtonPosition.RightSide, count)
             self._tab_counts.append(count)
         header_layout.addWidget(self._tabs)
+        header_layout.addSpacing(5)
+        self._tab_pattern_toggles = []
+        for index, (keys, name, scope) in enumerate((
+            (PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, "toggleCommonButton", "common"),
+            (ADVANCED_PATTERN_KEYS, "toggleAdvancedButton", "advanced"),
+        )):
+            button = self._build_pattern_toggle(keys, name)
+            button.setToolTip(f"Select or clear all {scope} patterns.")
+            button.setMinimumWidth(button.fontMetrics().horizontalAdvance("Select all"))
+            header_layout.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+            button.setVisible(index == self._tabs.currentIndex())
+            self._tab_pattern_toggles.append(button)
         header_layout.addStretch(1)
         self._exclusions_label = QLabel()
         self._exclusions_label.setObjectName("filterExclusions")
@@ -570,9 +593,7 @@ class FilterPanel(QGroupBox):
                 toggle_object_name="toggleTextButton",
             ),
         )
-        paired_column = QVBoxLayout()
-        paired_column.setSpacing(4)
-        paired_column.addWidget(
+        pattern_groups.addWidget(
             self._build_pattern_group(
                 "Colon / regular matches",
                 PAIRED_PATTERN_KEYS,
@@ -583,13 +604,6 @@ class FilterPanel(QGroupBox):
             0,
             Qt.AlignmentFlag.AlignTop,
         )
-        paired_column.addStretch(1)
-        common_toggle = self._build_pattern_toggle(
-            PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, "toggleCommonButton",
-        )
-        common_toggle.setToolTip("Select or clear all common patterns.")
-        paired_column.addWidget(common_toggle, 0, Qt.AlignmentFlag.AlignRight)
-        pattern_groups.addLayout(paired_column)
         pattern_groups.addStretch(1)
         patterns_layout.addLayout(pattern_groups)
         self._pages.addWidget(patterns)
@@ -632,9 +646,7 @@ class FilterPanel(QGroupBox):
             0,
             Qt.AlignmentFlag.AlignTop,
         )
-        system_column = QVBoxLayout()
-        system_column.setSpacing(4)
-        system_column.addWidget(
+        advanced_layout.addWidget(
             self._build_pattern_group(
                 "System",
                 SYSTEM_RUNTIME_PATTERN_KEYS,
@@ -645,11 +657,6 @@ class FilterPanel(QGroupBox):
             0,
             Qt.AlignmentFlag.AlignTop,
         )
-        system_column.addStretch(1)
-        advanced_toggle = self._build_pattern_toggle(ADVANCED_PATTERN_KEYS, "toggleAdvancedButton")
-        advanced_toggle.setToolTip("Select or clear all advanced patterns.")
-        system_column.addWidget(advanced_toggle, 0, Qt.AlignmentFlag.AlignRight)
-        advanced_layout.addLayout(system_column)
         advanced_layout.addStretch(1)
         self._pages.addWidget(advanced)
         searches = QWidget()
@@ -679,6 +686,8 @@ class FilterPanel(QGroupBox):
 
     def _select_editor(self, index: int) -> None:
         self._pages.setCurrentIndex(index)
+        for tab_index, button in enumerate(self._tab_pattern_toggles):
+            button.setVisible(tab_index == index)
         self._pages.updateGeometry()
 
     def _resize_search_lists(self, height: int) -> None:

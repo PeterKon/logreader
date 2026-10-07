@@ -189,6 +189,27 @@ class FilterPanelTests(unittest.TestCase):
                 )
                 self.assertEqual(self.panel.build_config().custom_patterns, ("keep",))
 
+    def test_pattern_tab_widths_stay_fixed_for_every_selection_count(self):
+        self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
+        self.panel.resize(975, 500)
+        self.panel.show()
+        self.app.processEvents()
+        tabs = self.panel._tabs
+        widths = [tabs.tabRect(index).width() for index in (0, 1)]
+        for index, keys in enumerate((PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, ADVANCED_PATTERN_KEYS)):
+            tabs.setCurrentIndex(index)
+            for key in keys:
+                self.panel._pattern_checkboxes[key].setChecked(False)
+            for selected in range(len(keys) + 1):
+                with self.subTest(tab=index, selected=selected):
+                    if selected:
+                        self.panel._pattern_checkboxes[keys[selected - 1]].setChecked(True)
+                    self.app.processEvents()
+                    self.assertEqual([tabs.tabRect(i).width() for i in (0, 1)], widths)
+                    count = self.panel._tab_counts[index]
+                    self.assertEqual(count.text(), f"({selected}/{len(keys)})")
+                    self.assertGreaterEqual(count.width(), count.sizeHint().width())
+
     def test_switching_editors_preserves_filters_options_and_drafts(self):
         tabs = self.panel.findChild(QTabBar, "filterTabs")
         # Documents inherit the window theme after the counts are first sized.
@@ -245,6 +266,12 @@ class FilterPanelTests(unittest.TestCase):
             self.assertEqual(self.panel.build_config(), before)
             self.assertEqual(self.panel._custom_pattern.text(), "unfinished text")
             self.assertEqual(self.panel._regex_pattern.text(), "unfinished [")
+            self.assertEqual(
+                self.panel.findChild(QPushButton, "toggleCommonButton").isVisible(), index == 0,
+            )
+            self.assertEqual(
+                self.panel.findChild(QPushButton, "toggleAdvancedButton").isVisible(), index == 1,
+            )
             self.assertEqual(self.panel._custom_pattern.isVisible(), index == 2)
             self.assertEqual(self.panel._pattern_checkboxes["error_colon"].isVisible(), index == 0)
             self.assertEqual(self.panel._pattern_checkboxes["http_5xx"].isVisible(), index == 1)
