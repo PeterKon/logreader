@@ -54,7 +54,9 @@ class ResultsStructureArea(QWidget):
         painter.setClipRect(event.rect())
         painter.setPen(QColor(THEME_COLORS["body"]))
         offset = editor.contentOffset()
-        x = offset.x() + GUTTER_LEFT_PADDING - editor.document().documentMargin()
+        offset.setY(offset.y() + editor.viewport().y())
+        x = (editor.gutter.x() + offset.x() + GUTTER_LEFT_PADDING
+             - editor.document().documentMargin())
         block = editor.firstVisibleBlock()
         while block.isValid():
             rect = editor.blockBoundingGeometry(block).translated(offset)
@@ -62,19 +64,19 @@ class ResultsStructureArea(QWidget):
                 break
             if block.isVisible() and isinstance(block.userData(), StructuralBlock):
                 summary = block.userData() if isinstance(block.userData(), SummaryBlock) else None
+                background_top = min(0, rect.top()) if summary and summary.first and block.blockNumber() == 0 else rect.top()
                 painter.fillRect(
-                    QRectF(0, rect.top(), self.width(), rect.height()),
+                    QRectF(0, background_top, self.width(), rect.bottom() - background_top),
                     QColor(THEME_COLORS["summary_background" if summary else "background"]),
                 )
                 # Reuse the document's shaped text, formatting and wrapped line
                 # heights. This layer owns no duplicate text document or layout.
                 block.layout().draw(painter, QPointF(x + (6 if summary else 0), rect.top()))
-                if summary:
-                    border = QColor(THEME_COLORS["summary_border"])
-                    painter.fillRect(QRectF(0, rect.top(), 1, rect.height()), border)
-                    painter.fillRect(QRectF(self.width() - 1, rect.top(), 1, rect.height()), border)
-                    if summary.first:
-                        painter.fillRect(QRectF(0, rect.top(), self.width(), 1), border)
-                    if summary.last:
-                        painter.fillRect(QRectF(0, rect.bottom() - 1, self.width(), 1), border)
+                previous = block.previous()
+                previous_summary = previous.userData() if previous.isValid() else None
+                if isinstance(previous_summary, SummaryBlock) and previous_summary.last:
+                    # Extend the summary into the blank separator below it.
+                    padding = min(6, rect.height())
+                    painter.fillRect(QRectF(0, rect.top(), self.width(), padding),
+                                     QColor(THEME_COLORS["summary_background"]))
             block = block.next()

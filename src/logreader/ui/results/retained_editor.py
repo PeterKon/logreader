@@ -94,8 +94,8 @@ class ProgressiveResultsEditor(StyledWindowEditor):
         LineNumberEditor.update_gutter(self)
         if hasattr(self, "structure_area"):
             viewport = self.viewport().geometry()
-            left = self.gutter.geometry().left()
-            geometry = QRect(left, viewport.top(), viewport.right() - left + 1, viewport.height())
+            geometry = QRect(0, 0, viewport.right() + 1 + self.contentsMargins().right(),
+                             viewport.bottom() + 1)
             if self.structure_area.geometry() != geometry:
                 self.structure_area.setGeometry(geometry)
                 self.structure_area.raise_()
@@ -105,7 +105,9 @@ class ProgressiveResultsEditor(StyledWindowEditor):
         if dy:
             self.structure_area.update()
         else:
-            self.structure_area.update(QRect(0, rect.y(), self.structure_area.width(), rect.height()))
+            top = rect.top() + self.viewport().y() if rect.top() > 0 else 0
+            self.structure_area.update(QRect(0, top, self.structure_area.width(),
+                                            rect.bottom() + self.viewport().y() - top + 1))
 
     def __init__(self, presentation, parent=None, *, layout_mode="visible", cache_units=1048576,
                  restore_mode="needed", buffered_tail=True, quiet_append=True):
