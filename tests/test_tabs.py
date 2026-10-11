@@ -8,8 +8,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from qt_helpers import wait_for_search, capture_analysis, wait_for_load
-    from PySide6.QtCore import QPoint, QThreadPool, Qt
-    from PySide6.QtGui import QKeySequence, QTextCursor
+    from PySide6.QtCore import QPoint, QPointF, QThreadPool, Qt
+    from PySide6.QtGui import QKeySequence, QTextCursor, QWheelEvent
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QCheckBox, QLineEdit, QPushButton, QSpinBox, QTabBar
 
@@ -66,13 +66,15 @@ class TabTests(unittest.TestCase):
     def test_view_menu_actions_follow_header_controls_and_empty_state(self):
         self.window.show()
         menu = self.window._view_menu
-        navigate, expand = menu.actions()
+        navigate, expand, separator, zoom = menu.actions()
         self.assertEqual([item.text() for item in menu.actions()],
-                         ["Go to source", "Expand results"])
-        self.assertTrue(all(not item.isEnabled() for item in menu.actions()))
+                         ["Go to source", "Expand results", "", "Zoom"])
+        self.assertTrue(separator.isSeparator())
+        self.assertTrue(all(not item.isEnabled() for item in (navigate, expand, zoom)))
         page = self.open_log("view.log")
         view = page.results_view
         self.assertTrue(navigate.isEnabled())
+        self.assertTrue(zoom.isEnabled())
         navigate.trigger()
         self.assertTrue(view.source_active)
         self.assertIn("ERROR: example", view.source_view.editor.toPlainText())
@@ -96,14 +98,14 @@ class TabTests(unittest.TestCase):
         self.assertEqual(expand.text(), "Restore results")
 
         self.window.close_tab(0)
-        self.assertTrue(all(not item.isEnabled() for item in menu.actions()))
+        self.assertTrue(all(not item.isEnabled() for item in (navigate, expand, zoom)))
         self.assertEqual(navigate.text(), "Go to source")
         self.assertEqual(expand.text(), "Expand results")
 
     def test_view_menu_follows_active_tab_and_ignores_background_changes(self):
         first = self.open_log("first.log")
         view = first.results_view
-        navigate, expand = self.window._view_menu.actions()
+        navigate, expand = self.window._view_menu.actions()[:2]
 
         second = self.open_log("second.log")
         self.assertEqual(expand.text(), "Expand results")
@@ -125,6 +127,67 @@ class TabTests(unittest.TestCase):
         self.assertEqual(expand.text(), "Expand results")
         navigate.trigger()
         self.assertFalse(second.results_view.source_active)
+
+    def test_zoom_menu_targets_only_the_active_editor_and_tab(self):
+        zoom_in, zoom_out, separator, reset = self.window._zoom_menu.actions()
+        self.assertEqual([action.text() for action in (zoom_in, zoom_out, reset)],
+                         ["Zoom in\tCtrl + Wheel ↑", "Zoom out\tCtrl + Wheel ↓", "Reset zoom"])
+        self.assertTrue(separator.isSeparator())
+        self.assertTrue(all(action.shortcut().isEmpty() for action in (zoom_in, zoom_out, reset)))
+        self.assertTrue(all(not action.isEnabled() for action in (zoom_in, zoom_out, reset)))
+        first = self.open_log("first.log")
+        results = first.results_view.editor
+        source = first.results_view.source_view.editor
+        results_size, source_size = results.font().pointSizeF(), source.font().pointSizeF()
+        zoom_in.trigger()
+        self.assertGreater(results.font().pointSizeF(), results_size)
+        self.assertEqual(source.font().pointSizeF(), source_size)
+        zoom_out.trigger()
+        self.assertEqual(results.font().pointSizeF(), results_size)
+        first.results_view.set_source_active(True)
+        zoom_in.trigger()
+        self.assertGreater(source.font().pointSizeF(), source_size)
+        self.assertEqual(results.font().pointSizeF(), results_size)
+
+        second = self.open_log("second.log")
+        second_size = second.results_view.editor.font().pointSizeF()
+        zoom_out.trigger()
+        self.assertLess(second.results_view.editor.font().pointSizeF(), second_size)
+        self.assertGreater(source.font().pointSizeF(), source_size)
+        self.window._select_document(first)
+        reset.trigger()
+        self.assertEqual(source.font().pointSizeF(), source_size)
+        self.assertLess(second.results_view.editor.font().pointSizeF(), second_size)
+        self.window.close_tab(0)
+        reset.trigger()
+        self.assertEqual(second.results_view.editor.font().pointSizeF(), second_size)
+
+    def test_reset_zoom_restores_initial_size_after_wheel_zoom_and_reanalysis(self):
+        self.window.show()
+        page = self.open_log("zoom.log")
+        view = page.results_view
+        results_font, source_font = view.editor.font(), view.source_view.editor.font()
+        for active in (False, True):
+            view.set_source_active(active)
+            editor = view.source_view.editor if active else view.editor
+            initial = editor.font().pointSizeF()
+            point = QPointF(editor.viewport().rect().center())
+            wheel = QWheelEvent(point, point, QPoint(), QPoint(0, 120), Qt.MouseButton.NoButton,
+                                Qt.KeyboardModifier.ControlModifier, Qt.ScrollPhase.NoScrollPhase, False)
+            self.app.sendEvent(editor.viewport(), wheel)
+            self.assertGreater(editor.font().pointSizeF(), initial)
+
+        results_zoom = view.editor.font().pointSizeF()
+        finished = QSignalSpy(page.analysis_finished)
+        page.analyze()
+        self.wait_for_completion(finished)
+        self.assertEqual(view.editor.font().pointSizeF(), results_zoom)
+        self.window._reset_zoom_action.trigger()
+        self.assertEqual(view.source_view.editor.font(), source_font)
+        self.assertEqual(view.editor.font().pointSizeF(), results_zoom)
+        view.set_source_active(False)
+        self.window._reset_zoom_action.trigger()
+        self.assertEqual(view.editor.font(), results_font)
 
     def test_empty_state_and_file_picker_open_without_analysis(self):
         self.assertEqual(self.window.size().width(), 975)

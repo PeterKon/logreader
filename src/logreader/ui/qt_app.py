@@ -50,7 +50,7 @@ from .document_page import DocumentPage
 from ..document_session import AnalysisPhase, LoadPhase
 from .theme import THEME_COLORS, configure_action_button
 from .window_frame import TitleBarShadow, apply_title_bar_colors
-from .title_bar import TitleBarWindow
+from .title_bar import TitleBarWindow, TitleMenu
 from ..workers.work_queue import WorkScheduler
 
 
@@ -558,6 +558,17 @@ class LogreaderWindow(TitleBarWindow):
         self._toggle_source_action.triggered.connect(self._toggle_source)
         self._expand_results_action = self._view_menu.addAction("Expand results")
         self._expand_results_action.triggered.connect(self._toggle_results_expansion)
+        self._view_menu.addSeparator()
+        self._zoom_menu = TitleMenu("Zoom", self._view_menu)
+        self._zoom_menu.setObjectName("zoomMenu")
+        self._view_menu.addMenu(self._zoom_menu)
+        self._zoom_in_action = self._zoom_menu.addAction("Zoom in\tCtrl + Wheel ↑")
+        self._zoom_in_action.triggered.connect(lambda: self._zoom_active_view(1))
+        self._zoom_out_action = self._zoom_menu.addAction("Zoom out\tCtrl + Wheel ↓")
+        self._zoom_out_action.triggered.connect(lambda: self._zoom_active_view(-1))
+        self._zoom_menu.addSeparator()
+        self._reset_zoom_action = self._zoom_menu.addAction("Reset zoom")
+        self._reset_zoom_action.triggered.connect(self._reset_zoom)
         self._view_menu.aboutToShow.connect(self._update_view_menu)
         self._update_view_menu()
 
@@ -573,6 +584,9 @@ class LogreaderWindow(TitleBarWindow):
         self._expand_results_action.setText(
             "Restore results" if view is not None and view.is_maximized else "Expand results"
         )
+        self._zoom_menu.setEnabled(view is not None)
+        for action in (self._zoom_in_action, self._zoom_out_action, self._reset_zoom_action):
+            action.setEnabled(view is not None)
 
     @Slot()
     def _toggle_source(self) -> None:
@@ -583,6 +597,15 @@ class LogreaderWindow(TitleBarWindow):
     def _toggle_results_expansion(self) -> None:
         if self._document is not None:
             self._document.results_view.toggle_maximized()
+
+    def _zoom_active_view(self, steps: int) -> None:
+        if self._document is not None:
+            self._document.results_view.zoom(steps)
+
+    @Slot()
+    def _reset_zoom(self) -> None:
+        if self._document is not None:
+            self._document.results_view.reset_zoom()
 
     @Slot()
     def _update_title_bar(self) -> None:

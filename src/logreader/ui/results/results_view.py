@@ -92,6 +92,8 @@ class ResultsView(ResultsControls):
         self.loading_status = ""
         self._performance_text = ""
         super().__init__(parent, **options)
+        self._default_results_font = self._editor.font()
+        self._default_source_font = self.source_view.editor.font()
         self._search_matches = LogicalMatches()
         self._pending_matches = LogicalMatches()
         self._visible_timer = QTimer(self)
@@ -381,6 +383,14 @@ class ResultsView(ResultsControls):
     @property
     def model(self):
         return self.logical
+
+    def zoom(self, steps: int) -> None:
+        editor = self.source_view.editor if self.source_active else self._editor
+        editor.zoomIn(steps)
+
+    def reset_zoom(self) -> None:
+        editor = self.source_view.editor if self.source_active else self._editor
+        editor.setFont(self._default_source_font if self.source_active else self._default_results_font)
 
     def set_line_wrapping(self, enabled):
         if self.source_active:

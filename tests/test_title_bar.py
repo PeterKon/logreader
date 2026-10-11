@@ -8,7 +8,7 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMainWindow
 
-from logreader.ui.title_bar import create_title_menus
+from logreader.ui.title_bar import TitleMenu, create_title_menus
 
 
 class TitleMenuTests(unittest.TestCase):
@@ -79,7 +79,11 @@ class TitleMenuTests(unittest.TestCase):
         get_attribute = ctypes.WinDLL("dwmapi").DwmGetWindowAttribute
         get_attribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
         get_attribute.restype = ctypes.c_long
-        for action in self.menus.actions():
+        parent_menu = self.menus.actions()[1].menu()
+        submenu = TitleMenu("Zoom", parent_menu)
+        parent_menu.addMenu(submenu)
+        submenu.addAction("Zoom in")
+        for action in [*self.menus.actions(), submenu.menuAction()]:
             menu = action.menu()
             for attempt in range(2):
                 with self.subTest(menu=action.text(), attempt=attempt):

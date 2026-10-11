@@ -64,7 +64,7 @@ class _WindowsFrame:
         return border, metric(SM_CYCAPTION, dpi)
 
 
-class _TitleMenu(QMenu):
+class TitleMenu(QMenu):
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
         apply_menu_corners(self)
@@ -97,16 +97,17 @@ def create_title_menus(parent: QWidget) -> QMenuBar:
             background: {COLORS['ui_button']}; color: {COLORS['ui_text']};
             border: 1px solid {COLORS['ui_border']};
             padding-left: 3px;
+            min-width: 180px;
         }}
-        QMenu::item {{ margin: 2px 0; padding: 3px 4px; border-radius: 3px; }}
+        QMenu::item {{ margin: 2px 0; padding: 3px 10px; border-radius: 3px; }}
         QMenu::item:selected:enabled {{ background: {COLORS['ui_button_hover']}; }}
         QMenu::item:disabled {{ color: {COLORS['ui_muted']}; }}
         QMenu::separator {{
-            height: 1px; background: rgba(255, 255, 255, 55); margin: 3px 6px;
+            height: 1px; background: rgba(255, 255, 255, 55); margin: 2px 6px;
         }}
     """)
     for title in ("&File", "&View", "&Settings", "&Profiles", "&Help"):
-        menu = _TitleMenu(title, menus)
+        menu = TitleMenu(title, menus)
         menus.addMenu(menu)
         menu.setObjectName(f"{title[1:].lower()}Menu")
         menu.addAction("Coming soon...").setEnabled(False)
