@@ -125,7 +125,9 @@ def main():
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     output = json.dumps(report, indent=2) + "\n"
     if args.output:
-        Path(args.output).write_text(output, encoding="utf-8")
+        path = Path(args.output)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(output, encoding="utf-8")
     else:
         print(output, end="")
 

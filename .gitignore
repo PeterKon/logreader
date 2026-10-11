@@ -1,11 +1,6 @@
-*.txt
-*.log
-.venv/
-build/
-dist/
+/.local/
 *.egg-info/
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-/benchmarks/archive/

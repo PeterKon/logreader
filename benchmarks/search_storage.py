@@ -397,7 +397,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", default="8364966")
     parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument("--output", default="benchmarks/search-storage.json")
+    parser.add_argument("--output", type=Path,
+                        default=Path(__file__).resolve().parents[1] / ".local/benchmark-results/search-storage.json")
     parser.add_argument("--implementation", choices=("baseline", "current"))
     cases = ("dense", "dense-wrap", "many-hits", "sparse", "reset-state")
     parser.add_argument("--case", choices=cases)
@@ -408,6 +409,7 @@ def main():
     args.reference = subprocess.check_output(
         ["git", "rev-parse", "--verify", f"{args.reference}^{{commit}}"], text=True,
     ).strip()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     rows = []
     for case in cases:
         for repeat in range(args.repeats):
@@ -422,7 +424,7 @@ def main():
                 row = json.loads(process.stdout)
                 row["repeat"] = repeat + 1
                 rows.append(row)
-                Path(args.output).write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+                args.output.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
                 progress = {"case": case, "repeat": repeat + 1, "implementation": implementation}
                 if case == "reset-state":
                     progress["reset_medians_ms"] = [r["median_ms"] for r in row["reset_state"]]

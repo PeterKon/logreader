@@ -9,9 +9,8 @@ Requires Python 3.10 or newer.
 ```powershell
 git clone https://github.com/PeterKon/logreader.git
 cd logreader
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e .
+python -B tools/setup_environment.py
+.\.local\venv\Scripts\Activate.ps1
 ```
 
 ## Run

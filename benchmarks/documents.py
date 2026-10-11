@@ -279,10 +279,13 @@ if __name__ == "__main__":
     parser.add_argument("--lines", type=int, default=100000)
     parser.add_argument("--max-lines-scanned", type=int, default=10000, help="Source lines analyzed from the tail of each file")
     parser.add_argument("--cycles", type=int, default=2)
-    parser.add_argument("--output", default="benchmark-results.json")
+    parser.add_argument("--output",
+                        default=str(Path(__file__).resolve().parents[1] / ".local/benchmark-results/documents.json"))
     args = parser.parse_args()
     if min(args.documents, args.lines, args.cycles, args.max_lines_scanned) < 1:
         parser.error("Counts and max lines scanned must be positive")
     result = run(args)
-    Path(args.output).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(f"Report: {args.output}")

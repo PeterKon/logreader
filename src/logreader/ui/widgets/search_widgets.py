@@ -81,7 +81,6 @@ class SearchMatchHighlighter(QSyntaxHighlighter):
                             # Before changing this highlighting path, compare Qt
                             # versions and benchmark native scrolling, wrapping,
                             # and search responsiveness.
-                            # Investigation: benchmarks/layout-memory-investigation.md
                             # Upstream report: https://qt-project.atlassian.net/browse/QTBUG-150286
                             # Upstream change:
                             # https://github.com/qt/qtbase/commit/8209078e0eb1f100f0f822d75856c9f557f60195
