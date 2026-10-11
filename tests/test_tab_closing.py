@@ -16,8 +16,7 @@ try:
     from shiboken6 import isValid
 
     from logreader.core import analyze_lines
-    from logreader.ui.qt_app import LogreaderWindow
-    from logreader.ui.title_bar import TitleMenu
+    from logreader.ui.qt_app import DocumentTabMenu, LogreaderWindow
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -72,7 +71,7 @@ class TabClosingTests(unittest.TestCase):
                 before_choice()
             return menu.actions()[choose] if choose is not None else None
 
-        with patch.object(TitleMenu, "exec", new=execute):
+        with patch.object(DocumentTabMenu, "exec", new=execute):
             QTest.mouseClick(tabs, Qt.MouseButton.RightButton, pos=point)
             self.assertIs(self.window._document, active)
             # QTest mouse events do not synthesize the platform context-menu event.
@@ -130,6 +129,24 @@ class TabClosingTests(unittest.TestCase):
                     self.window.close_tab(self.window._tabs.count() - 1)
                 for worker in workers:
                     worker.run()
+
+    def test_tab_menu_actions_accept_only_left_mouse_clicks(self):
+        menu = DocumentTabMenu(self.window.title_menus)
+        self.addCleanup(menu.close)
+        action = menu.addAction("Close tab")
+        triggered = QSignalSpy(action.triggered)
+        menu.popup(QPoint(100, 100))
+        self.app.processEvents()
+        point = menu.actionGeometry(action).center()
+        QTest.mouseMove(menu, point)
+        # Releasing the right-click that opened the menu must also be harmless.
+        QTest.mouseRelease(menu, Qt.MouseButton.RightButton, pos=point)
+        self.assertEqual(triggered.count(), 0)
+        QTest.mouseClick(menu, Qt.MouseButton.RightButton, pos=point)
+        self.assertEqual(triggered.count(), 0)
+        self.assertTrue(menu.isVisible())
+        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=point)
+        self.assertEqual(triggered.count(), 1)
 
     def test_tab_menu_resolves_target_after_tabs_change_while_open(self):
         self.open_log("first.log")

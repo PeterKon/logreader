@@ -477,6 +477,16 @@ class DocumentTabBar(QTabBar):
         return size
 
 
+class DocumentTabMenu(TitleMenu):
+    def event(self, event) -> bool:
+        if (event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease,
+                             QEvent.Type.MouseButtonDblClick)
+                and event.button() != Qt.MouseButton.LeftButton):
+            event.accept()
+            return True
+        return super().event(event)
+
+
 class TabCloseButton(QAbstractButton):
     """A standalone cross with a generous hit target and no button frame."""
 
@@ -802,7 +812,7 @@ class LogreaderWindow(TitleBarWindow):
         if index < 0:
             return
         page = self._pages.widget(index)
-        menu = TitleMenu(self.title_menus)
+        menu = DocumentTabMenu(self.title_menus)
         menu.setStyleSheet(
             "QMenu { min-width: 0; padding-right: 3px; }"
             "QMenu::item { min-width: 160px; }"
