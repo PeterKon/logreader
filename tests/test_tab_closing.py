@@ -9,13 +9,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from qt_helpers import capture_analysis, wait_for_load
-    from PySide6.QtCore import QCoreApplication, QEvent, QThreadPool, Qt
+    from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QThreadPool, Qt
+    from PySide6.QtGui import QContextMenuEvent
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QTabBar
     from shiboken6 import isValid
 
     from logreader.core import analyze_lines
     from logreader.ui.qt_app import LogreaderWindow
+    from logreader.ui.title_bar import TitleMenu
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -53,6 +55,89 @@ class TabClosingTests(unittest.TestCase):
                 return
             QTest.qWait(10)
         self.fail("Worker did not finish")
+
+    def tab_menu(self, index, choose=None, before_choice=None):
+        self.window.show()
+        self.app.processEvents()
+        tabs = self.window._tabs
+        point = tabs.tabRect(index).center() if index >= 0 else QPoint(tabs.width() - 1, 5)
+        active = self.window._document
+        seen = []
+
+        def execute(menu, position):
+            self.assertIs(self.window._document, active)
+            self.assertEqual(position, tabs.mapToGlobal(point))
+            seen.extend((action.text(), action.isEnabled()) for action in menu.actions())
+            if before_choice:
+                before_choice()
+            return menu.actions()[choose] if choose is not None else None
+
+        with patch.object(TitleMenu, "exec", new=execute):
+            QTest.mouseClick(tabs, Qt.MouseButton.RightButton, pos=point)
+            self.assertIs(self.window._document, active)
+            # QTest mouse events do not synthesize the platform context-menu event.
+            event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, tabs.mapToGlobal(point))
+            QApplication.sendEvent(tabs, event)
+        return seen
+
+    def test_tab_menu_targets_inactive_tab_and_preserves_selection_on_dismissal(self):
+        first = self.open_log("first.log")
+        second = self.open_log("second.log")
+        self.assertEqual(self.tab_menu(0), [
+            ("Close tab", True), ("Close all other tabs", True),
+            ("Close all tabs to the right", True),
+        ])
+        self.assertIs(self.window._document, second)
+        self.tab_menu(0, choose=0)
+        self.assertEqual(self.window._tabs.count(), 1)
+        self.assertIs(self.window._document, second)
+        self.assertNotIn(first, self.window._documents_by_path.values())
+        self.tab_menu(0, choose=0)
+        self.assertEqual(self.window._tabs.count(), 0)
+        self.assertIsNone(self.window._document)
+        self.assertTrue(self.window._empty_page.isVisible())
+
+    def test_tab_menu_disabled_actions_and_empty_space(self):
+        self.open_log("first.log")
+        self.assertEqual(self.tab_menu(0), [
+            ("Close tab", True), ("Close all other tabs", False),
+            ("Close all tabs to the right", False),
+        ])
+        self.open_log("second.log")
+        self.assertEqual(self.tab_menu(1)[1:], [
+            ("Close all other tabs", True), ("Close all tabs to the right", False),
+        ])
+        self.assertEqual(self.tab_menu(-1), [])
+        self.assertEqual(self.window._tabs.count(), 2)
+
+    def test_tab_menu_bulk_closing_keeps_correct_tabs_and_cancels_work(self):
+        for action in (1, 2):
+            with self.subTest(action=action):
+                pages = [self.open_log(f"{action}-{i}.log") for i in range(4)]
+                workers = []
+                with capture_analysis(workers):
+                    for page in pages:
+                        self.window._select_document(page)
+                        self.window.analyze_current()
+                self.tab_menu(1, choose=action)
+                kept = [pages[1]] if action == 1 else pages[:2]
+                self.assertEqual(list(self.window._documents_by_path.values()), kept)
+                self.assertEqual(self.window._tabs.count(), len(kept))
+                self.assertIs(self.window._document, pages[1])
+                for page, worker in zip(pages, workers):
+                    self.assertEqual(worker.cancellation.is_cancelled, page not in kept)
+                while self.window._tabs.count():
+                    self.window.close_tab(self.window._tabs.count() - 1)
+                for worker in workers:
+                    worker.run()
+
+    def test_tab_menu_resolves_target_after_tabs_change_while_open(self):
+        self.open_log("first.log")
+        self.open_log("second.log")
+        third = self.open_log("third.log")
+        self.tab_menu(1, choose=0, before_choice=lambda: self.window.close_tab(0))
+        self.assertEqual(self.window._tabs.count(), 1)
+        self.assertIs(self.window._document, third)
 
     def test_close_cross_targets_its_tab_after_indexes_shift_and_last_returns_empty(self):
         first = self.open_log("one/server.log")

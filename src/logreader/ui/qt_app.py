@@ -465,6 +465,12 @@ QToolTip {{
 class DocumentTabBar(QTabBar):
     """Keep long filenames from consuming the neighboring tabs' label space."""
 
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.RightButton:
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     def tabSizeHint(self, index: int) -> QSize:  # noqa: N802 - Qt API name
         size = super().tabSizeHint(index)
         size.setWidth(min(size.width(), 280))
@@ -690,6 +696,8 @@ class LogreaderWindow(TitleBarWindow):
         self._tabs.setExpanding(False)
         self._tabs.setElideMode(Qt.TextElideMode.ElideRight)
         self._tabs.setUsesScrollButtons(True)
+        self._tabs.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tabs.customContextMenuRequested.connect(self._show_tab_menu)
         self._tabs.hide()
         self._tab_controls = QWidget(central)
         tab_row = QHBoxLayout(self._tab_controls)
@@ -788,6 +796,40 @@ class LogreaderWindow(TitleBarWindow):
         count = self._tabs.count()
         if count > 1:
             self._tabs.setCurrentIndex((self._tabs.currentIndex() + step) % count)
+
+    def _show_tab_menu(self, position) -> None:
+        index = self._tabs.tabAt(position)
+        if index < 0:
+            return
+        page = self._pages.widget(index)
+        menu = TitleMenu(self.title_menus)
+        menu.setStyleSheet(
+            "QMenu { min-width: 0; padding-right: 3px; }"
+            "QMenu::item { min-width: 160px; }"
+        )
+        close = menu.addAction("Close tab")
+        others = menu.addAction("Close all other tabs")
+        right = menu.addAction("Close all tabs to the right")
+        others.setEnabled(self._tabs.count() > 1)
+        right.setEnabled(index < self._tabs.count() - 1)
+        try:
+            selected = menu.exec(self._tabs.mapToGlobal(position))
+            # Resolve the document again in case tabs changed while the menu was open.
+            index = next((i for i in range(self._pages.count())
+                          if self._pages.widget(i) is page), -1)
+            if index < 0:
+                return
+            if selected is close:
+                self.close_tab(index)
+            elif selected is others:
+                for other in range(self._tabs.count() - 1, -1, -1):
+                    if other != index:
+                        self.close_tab(other)
+            elif selected is right:
+                for other in range(self._tabs.count() - 1, index, -1):
+                    self.close_tab(other)
+        finally:
+            menu.deleteLater()
 
     def close_tab(self, index: int) -> None:
         """Remove a tab atomically, then dispose its document's pending work."""
