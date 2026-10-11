@@ -630,6 +630,15 @@ class LogreaderWindow(TitleBarWindow):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Route file drops over every child control through normal file loading."""
 
+        if (event.type() == QEvent.Type.MouseButtonRelease
+                and watched is getattr(self, "_zoom_menu", None)
+                and event.button() == Qt.MouseButton.LeftButton):
+            action = self._zoom_menu.actionAt(event.position().toPoint())
+            if action in (self._zoom_in_action, self._zoom_out_action) and action.isEnabled():
+                action.trigger()
+                event.accept()
+                return True
+
         if watched is self._empty_page and event.type() in (
             QEvent.Type.Resize, QEvent.Type.Move, QEvent.Type.Show,
         ):
