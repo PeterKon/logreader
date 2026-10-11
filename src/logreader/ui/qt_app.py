@@ -34,7 +34,6 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QMainWindow,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -50,6 +49,7 @@ from .document_page import DocumentPage
 from ..document_session import AnalysisPhase, LoadPhase
 from .theme import THEME_COLORS, configure_action_button
 from .window_frame import TitleBarShadow, apply_title_bar_colors
+from .title_bar import TitleBarWindow
 from ..workers.work_queue import WorkScheduler
 
 
@@ -501,7 +501,7 @@ class TabCloseButton(QAbstractButton):
         painter.drawLine(14, 6, 6, 14)
 
 
-class LogreaderWindow(QMainWindow):
+class LogreaderWindow(TitleBarWindow):
     """Small desktop shell around the shared Logreader engine."""
 
     analysis_finished = Signal()
@@ -547,6 +547,7 @@ class LogreaderWindow(QMainWindow):
         self._drop_leave_timer.timeout.connect(self._drop_overlay.hide)
         self.setAcceptDrops(True)
         QApplication.instance().installEventFilter(self)
+        self.install_title_bar()
 
     @Slot()
     def _update_title_bar(self) -> None:

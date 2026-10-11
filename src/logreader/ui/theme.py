@@ -15,6 +15,7 @@ THEME_COLORS = {
     "ui_border": "#344255",
     "ui_border_strong": "#53657a",
     "ui_text": "#e6edf3",
+    "ui_menu_text": "#c5cdd5",
     "ui_muted": "#9aa7b5",
     "ui_accent": "#79c0ff",
     "ui_button": "#263445",
