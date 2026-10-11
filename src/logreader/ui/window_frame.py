@@ -13,9 +13,11 @@ from .theme import THEME_COLORS
 
 
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWA_BORDER_COLOR = 34
 DWMWA_CAPTION_COLOR = 35
 DWMWA_TEXT_COLOR = 36
+DWMWCP_ROUNDSMALL = 3
 
 
 class TitleBarShadow(QWidget):
@@ -50,6 +52,21 @@ class TitleBarShadow(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.fillRect(self.rect(), self._gradient)
+
+
+def apply_menu_corners(menu: QWidget) -> None:
+    if sys.platform != "win32" or QApplication.platformName() != "windows":
+        return
+    handle = menu.internalWinId()
+    if not handle or sys.getwindowsversion().build < 22000:
+        return
+
+    set_attribute = ctypes.WinDLL("dwmapi").DwmSetWindowAttribute
+    set_attribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+    set_attribute.restype = ctypes.c_long
+    preference = wintypes.DWORD(DWMWCP_ROUNDSMALL)
+    set_attribute(handle, DWMWA_WINDOW_CORNER_PREFERENCE,
+                  ctypes.byref(preference), ctypes.sizeof(preference))
 
 
 def apply_title_bar_colors(window: QWidget) -> None:

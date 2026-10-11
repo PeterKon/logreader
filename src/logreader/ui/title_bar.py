@@ -7,10 +7,11 @@ import sys
 from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenuBar, QWidget,
+    QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QMenu, QMenuBar, QWidget,
 )
 
 from .theme import THEME_COLORS as COLORS
+from .window_frame import apply_menu_corners
 
 
 WM_NCCALCSIZE = 0x0083
@@ -63,6 +64,12 @@ class _WindowsFrame:
         return border, metric(SM_CYCAPTION, dpi)
 
 
+class _TitleMenu(QMenu):
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        apply_menu_corners(self)
+
+
 class _TitleMenus(QMenuBar):
     def event(self, event) -> bool:
         # Menu navigation must not erase the current log/loading status.
@@ -77,7 +84,9 @@ def create_title_menus(parent: QWidget) -> QMenuBar:
     menus.setNativeMenuBar(False)
     menus.setStyleSheet(f"""
         QMenuBar {{ background: transparent; color: {COLORS['ui_menu_text']}; border: none; }}
-        QMenuBar::item {{ padding: 4px 10px 2px 10px; background: transparent; }}
+        QMenuBar::item {{
+            padding: 4px 10px 2px 10px; background: transparent; border-radius: 3px;
+        }}
         QMenuBar::item:selected {{
             background: {COLORS['ui_button_hover']}; color: {COLORS['ui_menu_text']};
         }}
@@ -87,12 +96,20 @@ def create_title_menus(parent: QWidget) -> QMenuBar:
         QMenu {{
             background: {COLORS['ui_button']}; color: {COLORS['ui_text']};
             border: 1px solid {COLORS['ui_border']};
+            padding-left: 3px;
         }}
-        QMenu::item {{ padding: 7px 18px; }}
+        QMenu::item {{ margin: 2px 0; padding: 3px 4px; border-radius: 3px; }}
+        QMenu::item:selected:enabled {{ background: {COLORS['ui_button_hover']}; }}
         QMenu::item:disabled {{ color: {COLORS['ui_muted']}; }}
+        QMenu::separator {{
+            height: 1px; background: rgba(255, 255, 255, 55); margin: 3px 6px;
+        }}
     """)
     for title in ("&File", "&View", "&Settings", "&Profiles", "&Help"):
-        menus.addMenu(title).addAction("Coming soon...").setEnabled(False)
+        menu = _TitleMenu(title, menus)
+        menus.addMenu(menu)
+        menu.setObjectName(f"{title[1:].lower()}Menu")
+        menu.addAction("Coming soon...").setEnabled(False)
     return menus
 
 

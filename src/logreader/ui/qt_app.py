@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -548,6 +549,40 @@ class LogreaderWindow(TitleBarWindow):
         self.setAcceptDrops(True)
         QApplication.instance().installEventFilter(self)
         self.install_title_bar()
+        self._build_view_menu()
+
+    def _build_view_menu(self) -> None:
+        self._view_menu = self.title_menus.findChild(QMenu, "viewMenu")
+        self._view_menu.clear()
+        self._toggle_source_action = self._view_menu.addAction("Go to source")
+        self._toggle_source_action.triggered.connect(self._toggle_source)
+        self._expand_results_action = self._view_menu.addAction("Expand results")
+        self._expand_results_action.triggered.connect(self._toggle_results_expansion)
+        self._view_menu.aboutToShow.connect(self._update_view_menu)
+        self._update_view_menu()
+
+    @Slot()
+    def _update_view_menu(self) -> None:
+        page = self._document
+        view = page.results_view if page is not None else None
+        self._toggle_source_action.setEnabled(view is not None)
+        self._toggle_source_action.setText(
+            "Go to results" if view is not None and view.source_active else "Go to source"
+        )
+        self._expand_results_action.setEnabled(view is not None)
+        self._expand_results_action.setText(
+            "Restore results" if view is not None and view.is_maximized else "Expand results"
+        )
+
+    @Slot()
+    def _toggle_source(self) -> None:
+        if self._document is not None:
+            self._document.results_view.toggle_source()
+
+    @Slot()
+    def _toggle_results_expansion(self) -> None:
+        if self._document is not None:
+            self._document.results_view.toggle_maximized()
 
     @Slot()
     def _update_title_bar(self) -> None:
@@ -783,6 +818,8 @@ class LogreaderWindow(TitleBarWindow):
         self._loading_status.setText(page.results_view.loading_status if page else "")
         self._present_analysis_busy()
 
+        self._update_view_menu()
+
     def _set_window_title(self, title: str) -> None:
         # Qt appends the application display name to native Windows captions
         # unless it is already at the end of the title.
@@ -914,6 +951,8 @@ class LogreaderWindow(TitleBarWindow):
         page.set_render_active(False)
         page.status_changed.connect(self._present_document_status)
         page.results_view.loading_status_changed.connect(self._present_loading_status)
+        page.results_view.maximized_changed.connect(self._update_view_menu)
+        page.results_view.view_state_changed.connect(self._update_view_menu)
         page.busy_changed.connect(self._present_analysis_busy)
         page.analysis_failed.connect(self._present_analysis_failure)
         page.analysis_finished.connect(self.analysis_finished.emit)

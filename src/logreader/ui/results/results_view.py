@@ -66,6 +66,7 @@ class DecoratedSparseEditor(SparseResultsEditor):
 
 class ResultsView(ResultsControls):
     loading_status_changed = Signal(str)
+    view_state_changed = Signal()
     results_prepared = Signal()
     retired = Signal()
 
@@ -387,6 +388,8 @@ class ResultsView(ResultsControls):
         else:
             self._editor.set_wrapping(enabled)
             self._schedule_decorations()
+        with QSignalBlocker(self._line_wrap_check):
+            self._line_wrap_check.setChecked(enabled)
 
     def _navigation_complete(self, _measurement):
         self._schedule_decorations()
@@ -457,6 +460,7 @@ class ResultsView(ResultsControls):
         self.loader.start()
         self.bookmarks.refresh()
         self.focus_editor()
+        self.view_state_changed.emit()
 
     def _invalidate_search_results(self, query):
         if self.source_active:

@@ -42,7 +42,7 @@ from ..config import (
     TEXT_PATTERN_KEYS,
     LogreaderConfig,
 )
-from .theme import THEME_COLORS, configure_action_button, configure_clear_button
+from .theme import THEME_COLORS, configure_action_button, configure_clear_button, paint_checkmark
 from ..file_loader import DEFAULT_MAX_LINES_SCANNED
 from ..regex_presets import REGEX_PRESET_NAMES, REGEX_PRESETS
 from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
@@ -119,36 +119,9 @@ class VisibleCheckBox(QCheckBox):
             return
 
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        mark_color = (
-            QColor("#ffffff")
-            if self.isEnabled()
-            else QColor(THEME_COLORS["ui_disabled_text"])
-        )
-        painter.setPen(
-            QPen(
-                mark_color,
-                2.0,
-                Qt.PenStyle.SolidLine,
-                Qt.PenCapStyle.RoundCap,
-                Qt.PenJoinStyle.RoundJoin,
-            )
-        )
-
-        if self.checkState() == Qt.CheckState.PartiallyChecked:
-            painter.drawLine(
-                QPointF(indicator.left() + 4, indicator.center().y()),
-                QPointF(indicator.right() - 4, indicator.center().y()),
-            )
-            return
-
-        painter.drawLine(
-            QPointF(indicator.left() + 3.5, indicator.center().y()),
-            QPointF(indicator.left() + 6.5, indicator.bottom() - 3.5),
-        )
-        painter.drawLine(
-            QPointF(indicator.left() + 6.5, indicator.bottom() - 3.5),
-            QPointF(indicator.right() - 3, indicator.top() + 3.5),
+        paint_checkmark(
+            painter, indicator, enabled=self.isEnabled(),
+            partial=self.checkState() == Qt.CheckState.PartiallyChecked,
         )
 
 

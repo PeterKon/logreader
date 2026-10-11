@@ -64,6 +64,20 @@ def configure_action_button(button: QPushButton) -> None:
     button.clicked.connect(button.clearFocus)
 
 
+def paint_checkmark(painter, indicator, *, enabled=True, partial=False) -> None:
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    color = QColor("#ffffff" if enabled else THEME_COLORS["ui_disabled_text"])
+    painter.setPen(QPen(color, 2.0, Qt.PenStyle.SolidLine,
+                        Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    if partial:
+        painter.drawLine(QPointF(indicator.left() + 4, indicator.center().y()),
+                         QPointF(indicator.right() - 4, indicator.center().y()))
+        return
+    corner = QPointF(indicator.left() + 6.5, indicator.bottom() - 3.5)
+    painter.drawLine(QPointF(indicator.left() + 3.5, indicator.center().y()), corner)
+    painter.drawLine(corner, QPointF(indicator.right() - 3, indicator.top() + 3.5))
+
+
 def page_navigation_icon(*, forward: bool = False, boundary: bool = False) -> QIcon:
     """Draw a chevron, optionally against an endpoint bar, at common DPI scales."""
     icon = QIcon()

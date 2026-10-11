@@ -1,4 +1,5 @@
 import os
+import sys
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -66,3 +67,28 @@ class TitleMenuTests(unittest.TestCase):
         self.assertFalse(action.menu().isVisible())
         self.assertLess(brightest_text(), 210)
         self.assertEqual(self.window.statusBar().currentMessage(), "Ready")
+
+    def test_native_dropdowns_keep_small_outer_corners_on_reopening(self):
+        if (sys.platform != "win32" or self.app.platformName() != "windows"
+                or sys.getwindowsversion().build < 22000):
+            self.skipTest("Requires native Windows 11 menus")
+        import ctypes
+        from ctypes import wintypes
+        from logreader.ui.window_frame import DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUNDSMALL
+
+        get_attribute = ctypes.WinDLL("dwmapi").DwmGetWindowAttribute
+        get_attribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+        get_attribute.restype = ctypes.c_long
+        for action in self.menus.actions():
+            menu = action.menu()
+            for attempt in range(2):
+                with self.subTest(menu=action.text(), attempt=attempt):
+                    menu.popup(self.window.mapToGlobal(QPoint(20, 70)))
+                    self.app.processEvents()
+                    preference = wintypes.DWORD()
+                    self.assertEqual(get_attribute(
+                        int(menu.winId()), DWMWA_WINDOW_CORNER_PREFERENCE,
+                        ctypes.byref(preference), ctypes.sizeof(preference),
+                    ), 0)
+                    self.assertEqual(preference.value, DWMWCP_ROUNDSMALL)
+                    menu.close()

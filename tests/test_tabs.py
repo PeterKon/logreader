@@ -63,6 +63,69 @@ class TabTests(unittest.TestCase):
             QTest.qWait(10)
         self.fail("Analysis did not finish")
 
+    def test_view_menu_actions_follow_header_controls_and_empty_state(self):
+        self.window.show()
+        menu = self.window._view_menu
+        navigate, expand = menu.actions()
+        self.assertEqual([item.text() for item in menu.actions()],
+                         ["Go to source", "Expand results"])
+        self.assertTrue(all(not item.isEnabled() for item in menu.actions()))
+        page = self.open_log("view.log")
+        view = page.results_view
+        self.assertTrue(navigate.isEnabled())
+        navigate.trigger()
+        self.assertTrue(view.source_active)
+        self.assertIn("ERROR: example", view.source_view.editor.toPlainText())
+        self.assertEqual(navigate.text(), "Go to results")
+        navigate.trigger()
+        self.assertFalse(view.source_active)
+        self.assertEqual(navigate.text(), "Go to source")
+        view._source_button.click()
+        self.assertEqual(navigate.text(), "Go to results")
+
+        expand.trigger()
+        self.assertTrue(view.is_maximized)
+        self.assertTrue(page.controls_container.isHidden())
+        self.assertTrue(self.window.title_menus.isVisible())
+        self.assertTrue(view._line_wrap_check.isVisible())
+        self.assertEqual(expand.text(), "Restore results")
+        expand.trigger()
+        self.assertFalse(view.is_maximized)
+        self.assertFalse(page.controls_container.isHidden())
+        view._maximize_button.click()
+        self.assertEqual(expand.text(), "Restore results")
+
+        self.window.close_tab(0)
+        self.assertTrue(all(not item.isEnabled() for item in menu.actions()))
+        self.assertEqual(navigate.text(), "Go to source")
+        self.assertEqual(expand.text(), "Expand results")
+
+    def test_view_menu_follows_active_tab_and_ignores_background_changes(self):
+        first = self.open_log("first.log")
+        view = first.results_view
+        navigate, expand = self.window._view_menu.actions()
+
+        second = self.open_log("second.log")
+        self.assertEqual(expand.text(), "Expand results")
+        navigate.trigger()
+        self.assertTrue(second.results_view.source_active)
+        self.assertFalse(view.source_active)
+        # A background tab's controls must not replace the active tab's menu state.
+        view.set_source_active(True)
+        view.set_source_active(False)
+        view.set_maximized(True)
+        self.assertEqual(navigate.text(), "Go to results")
+        self.assertEqual(expand.text(), "Expand results")
+        self.window._select_document(first)
+        self.assertEqual(navigate.text(), "Go to source")
+        self.assertEqual(expand.text(), "Restore results")
+        self.window.close_tab(0)
+        self.assertIs(self.window._document, second)
+        self.assertEqual(navigate.text(), "Go to results")
+        self.assertEqual(expand.text(), "Expand results")
+        navigate.trigger()
+        self.assertFalse(second.results_view.source_active)
+
     def test_empty_state_and_file_picker_open_without_analysis(self):
         self.assertEqual(self.window.size().width(), 975)
         self.assertEqual(self.window.size().height(), 1097)
