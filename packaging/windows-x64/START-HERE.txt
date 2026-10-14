@@ -1,0 +1,13 @@
+Logreader v0.8 - Windows x64 portable
+
+Extract the entire ZIP, open the Logreader folder, and double-click
+Logreader.exe. Keep the _internal folder beside the executable.
+No Python installation is needed.
+
+Choose Open file, select a log, then choose Analyze. Open additional logs
+in tabs. Use the search field to find text in the current view.
+
+LICENSE contains Logreader's GPL v3 license. THIRD-PARTY-NOTICES.txt and
+licenses/ contain the bundled components' copyright and license notices.
+source/ contains this release's Logreader source, including its build files.
+THIRD-PARTY-SOURCES.txt gives exact-version dependency source locations.

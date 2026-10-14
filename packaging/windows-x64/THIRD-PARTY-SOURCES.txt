@@ -1,0 +1,60 @@
+Logreader v0.8 - corresponding source locations
+
+Logreader's matching application source and build files are included in
+source/Logreader-v0.8-source.zip. The same source ZIP is a release asset.
+Its BUILD.txt identifies the Python version and build commands; pinned
+Python package versions are in packaging/windows-x64/build-constraints.txt.
+
+The upstream components below are distributed without project modifications.
+Their exact-version source archives include their build scripts and notices.
+Qt sources include the third-party code embedded in the respective modules.
+These locations were checked when preparing this release on 2026-10-14.
+
+Qt 6.11.2 (including the source of the bundled plugins and Qt PDF):
+https://download.qt.io/archive/qt/6.11/6.11.2/submodules/qtbase-everywhere-src-6.11.2.tar.xz
+https://download.qt.io/archive/qt/6.11/6.11.2/submodules/qtdeclarative-everywhere-src-6.11.2.tar.xz
+https://download.qt.io/archive/qt/6.11/6.11.2/submodules/qtimageformats-everywhere-src-6.11.2.tar.xz
+https://download.qt.io/archive/qt/6.11/6.11.2/submodules/qtsvg-everywhere-src-6.11.2.tar.xz
+https://download.qt.io/archive/qt/6.11/6.11.2/submodules/qttranslations-everywhere-src-6.11.2.tar.xz
+https://download.qt.io/archive/qt/6.11/6.11.2/submodules/qtvirtualkeyboard-everywhere-src-6.11.2.tar.xz
+https://download.qt.io/archive/qt/6.11/6.11.2/submodules/qtwebengine-everywhere-src-6.11.2.tar.xz
+Build-time dependency, Qt Shader Tools 6.11.2:
+https://download.qt.io/archive/qt/6.11/6.11.2/submodules/qtshadertools-everywhere-src-6.11.2.tar.xz
+
+PySide6 / Shiboken6 6.11.2:
+https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.11.2-src/pyside-setup-everywhere-src-6.11.2.tar.xz
+
+CPython 3.14.7 (including HACL*, Unicode support and standard-library code):
+https://www.python.org/ftp/python/3.14.7/Python-3.14.7.tar.xz
+Windows dependency versions and build instructions:
+https://github.com/python/cpython/blob/v3.14.7/PCbuild/get_externals.bat
+https://github.com/python/cpython/blob/v3.14.7/PCbuild/readme.txt
+
+OpenSSL 3.5.7:
+https://github.com/openssl/openssl/archive/refs/tags/openssl-3.5.7.tar.gz
+libffi 3.4.4:
+https://github.com/libffi/libffi/archive/refs/tags/v3.4.4.tar.gz
+bzip2 1.0.8:
+https://github.com/python/cpython-source-deps/archive/refs/tags/bzip2-1.0.8.tar.gz
+mpdecimal 4.0.0:
+https://github.com/python/cpython-source-deps/archive/refs/tags/mpdecimal-4.0.0.tar.gz
+zlib-ng 2.2.4:
+https://github.com/zlib-ng/zlib-ng/archive/refs/tags/2.2.4.tar.gz
+Zstandard 1.5.7 (including xxHash):
+https://github.com/facebook/zstd/archive/refs/tags/v1.5.7.tar.gz
+XZ / liblzma 5.2.5:
+https://github.com/tukaani-project/xz/archive/refs/tags/v5.2.5.tar.gz
+
+Mesa 11.2.2:
+https://archive.mesa3d.org/older-versions/11.x/11.2.2/mesa-11.2.2.tar.xz
+LLVM 3.6.2:
+https://releases.llvm.org/3.6.2/llvm-3.6.2.src.tar.xz
+Qt's software OpenGL build materials:
+https://download.qt.io/development_releases/prebuilt/llvmpipe/windows/
+
+PyInstaller 6.22.3:
+https://github.com/pyinstaller/pyinstaller/archive/refs/tags/v6.22.3.tar.gz
+
+Microsoft Visual C++ runtime DLLs are proprietary system-runtime components.
+Their terms are in licenses/Microsoft-Visual-C-runtime.txt; no Microsoft
+runtime source is provided or offered by this project.

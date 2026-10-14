@@ -1,0 +1,64 @@
+Logreader v0.8 - bundled component notices
+
+Logreader is licensed under GNU GPL version 3 only. See LICENSE.
+Third-party components retain their respective copyrights and licenses.
+The license terms for one component do not apply to unrelated components.
+
+Qt, PySide6 and Shiboken6 6.11.2
+------------------------------
+Copyright (C) The Qt Company Ltd. and other contributors.
+Qt for Python is available under LGPL v3, GPL v2 or GPL v3, or a commercial
+license. This release uses the open-source GPL v3 option. The included Qt
+Virtual Keyboard module is also distributed under GPL v3. GPL v3 and LGPL
+v3 texts are in licenses/GPL-3.0.txt and licenses/LGPL-3.0.txt.
+
+Included Qt libraries: Core, Gui, Network, OpenGL, Pdf, Qml, QmlMeta,
+QmlModels, QmlWorkerScript, Quick, Svg, VirtualKeyboard and Widgets.
+The application also includes Qt platform, input, network, TLS, style,
+icon and image-format plugins, plus Qt translations.
+
+licenses/Qt-third-party.txt contains the upstream attribution and license
+texts for these modules, including PDFium/Chromium, image and font codecs,
+Unicode data, cryptographic helpers and keyboard input methods. The module
+lists also cover some optional or platform-specific upstream code.
+licenses/Shiboken-Python.txt covers Python code adapted by Shiboken.
+
+Qt and Python source locations are listed in THIRD-PARTY-SOURCES.txt.
+The Qt/PySide/Shiboken DLLs are separate files in _internal. They have not
+been modified by this project and may be replaced with compatible builds.
+Logreader imposes no restriction on modification or reverse engineering
+for debugging such modifications, subject to the applicable licenses.
+
+Reference: https://doc.qt.io/qtforpython-6.11/licenses.html
+Reference: https://doc.qt.io/qt-6.11/licenses-used-in-qt.html
+
+Mesa software OpenGL 11.2.2 and LLVM 3.6.2
+---------------------------------------
+_internal/PySide6/opengl32sw.dll contains Mesa llvmpipe and LLVM.
+Mesa, Khronos and C11 emulation notices are in licenses/Qt-third-party.txt.
+LLVM and its support-code notices are in licenses/LLVM-3.6.2.txt,
+licenses/LLVM-OpenBSD-regex.txt and licenses/LLVM-MD5.txt.
+
+CPython 3.14.7 and bundled libraries
+----------------------------------
+Copyright (C) Python Software Foundation and other contributors.
+See licenses/Python-3.14.7.txt for Python's license and included notices.
+Additional notices cover OpenSSL 3.5.7 (Apache 2.0), libffi 3.4.4 (MIT),
+bzip2 1.0.8, mpdecimal 4.0.0 (BSD), zlib-ng 2.2.4 (zlib), Zstandard 1.5.7
+and xxHash (BSD), XZ/liblzma 5.2.5 (public domain), HACL* (MIT), and Unicode.
+Their full texts are in the correspondingly named files in licenses/.
+
+PyInstaller 6.22.3
+-----------------
+Copyright (c) PyInstaller Development Team, Giovanni Bajo and
+McMillan Enterprises, Inc. See licenses/PyInstaller-6.22.3.txt for the
+complete GPL license, bootloader exception and Apache 2.0 runtime terms.
+Only the bootloader and runtime support are included in the application.
+
+Microsoft Visual C++ runtime
+---------------------------
+Copyright (C) Microsoft Corporation. All rights reserved.
+The VCRUNTIME140 and MSVCP140 runtime DLLs supplied with the upstream
+Python/Qt packages are included. They are proprietary Microsoft components,
+separate from the GPL-licensed application and Qt libraries.
+See licenses/Microsoft-Visual-C-runtime.txt for their runtime terms.

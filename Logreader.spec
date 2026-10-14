@@ -5,8 +5,14 @@ import sys
 
 root = Path(SPECPATH)
 icon = root / "src" / "logreader" / "assets" / "logreader.ico"
+datas = [
+    (str(icon), "logreader/assets"),
+    (str(icon.with_suffix(".png")), "logreader/assets"),
+    (str(root / "LICENSE"), "licenses/Logreader"),
+]
 
 if sys.platform == "win32":
+    datas.append((str(Path(sys.base_prefix) / "LICENSE.txt"), "licenses/Python"))
     # Unrelated tools on PATH can supply incompatible ICU or Windows shim DLLs.
     # Keep fallback DLL discovery within this Python installation and Windows.
     windows = Path(os.environ["SystemRoot"])
@@ -21,7 +27,7 @@ if sys.platform == "win32":
 analysis = Analysis(
     [str(root / "src" / "logreader" / "__main__.py")],
     pathex=[str(root / "src")],
-    datas=[(str(icon), "logreader/assets"), (str(icon.with_suffix(".png")), "logreader/assets")],
+    datas=datas,
 )
 archive = PYZ(analysis.pure)
 executable = EXE(
