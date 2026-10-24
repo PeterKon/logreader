@@ -525,10 +525,9 @@ class SparseResultsEditor(ProgressiveResultsEditor):
         identity = self.result_set_id
         # Snapshot only intervals. Repeated/overlapping requests never rewrite
         # retained text, and distant edits use separate native transactions.
-        for left, right in self.ranges.gaps:
+        for a, b in self.ranges.gaps_between(start, end):
             if self.result_set_id is not identity:
                 break
-            a, b = max(start, left), min(end, right)
             if a < b:
                 self._fill_gap(a, b)
                 inserted += b - a
@@ -674,11 +673,23 @@ class SparseResultsEditor(ProgressiveResultsEditor):
         self._trim_layout_cache()
         self._update_ranges()
 
-    def _trim_layout_cache(self, keep_row=None):
+    def _trim_layout_cache(self):
+        if self._cached_units <= self.cache_units and len(self._cached_rows) <= 256:
+            return
+        pending = self.navigation.pending
+        # Every trim path must protect the destination, including an old-view
+        # refresh during navigation application after _ready has been consumed.
+        keep = {pending.point.row} if pending is not None else set()
+        if pending is not None:
+            # EOF and visual movement can prepare an oversized row that is
+            # part of the destination screen but is not the requested point.
+            keep.update(self.navigation.prepared_rows)
+        if pending is not None and (self.navigation._ready or self.navigation._applying):
+            keep.update((self.navigation.resolved_point.row, self.navigation.resolved_top.row))
         for row in list(self._cached_rows):
             if self._cached_units <= self.cache_units and len(self._cached_rows) <= 256:
                 break
-            if row in self._visible_rows or row == keep_row:
+            if row in self._visible_rows or row in keep:
                 continue
             layout = self._block(row).layout()
             layout.setCacheEnabled(False)
@@ -728,12 +739,7 @@ class SparseResultsEditor(ProgressiveResultsEditor):
                     # Superseded requests may never reach a navigation paint.
                     # Bound their layout cache without preparing the old view.
                     if self._cached_units > self.cache_units or len(self._cached_rows) > 256:
-                        pending = self.navigation.pending
-                        destination = self.navigation.resolved_top if self.navigation._ready else (
-                            pending.point if pending else None)
-                        # A single oversized destination must survive until
-                        # navigation, just as an oversized visible row does.
-                        self._trim_layout_cache(destination.row if destination else None)
+                        self._trim_layout_cache()
                         self._update_ranges()
                     self._restore_top_if_changed(point)
                     if self.horizontalScrollBar().value() != horizontal:
@@ -761,7 +767,10 @@ class SparseResultsEditor(ProgressiveResultsEditor):
         if bar.value() != desired or self.firstVisibleBlock() != block:
             viewport = self.viewport()
             enabled = viewport.updatesEnabled()
-            viewport.setUpdatesEnabled(False)
+            # A stacked-view switch may already suppress paints on an ancestor.
+            # Do not turn that inherited pause into an explicit viewport pause.
+            if enabled:
+                viewport.setUpdatesEnabled(False)
             try:
                 if bar.value() == desired:
                     # Replacing two marker blocks with one source row can
@@ -771,7 +780,8 @@ class SparseResultsEditor(ProgressiveResultsEditor):
                     bar.setValue(desired - 1 if desired else min(1, bar.maximum()))
                 bar.setValue(desired)
             finally:
-                viewport.setUpdatesEnabled(enabled)
+                if enabled:
+                    viewport.setUpdatesEnabled(True)
         if refresh:
             self._layout_visible()
             # Suppressing Qt's pixel-scroll path also suppresses its usual

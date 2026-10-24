@@ -604,7 +604,7 @@ class ResultsBookmarks(QObject):
             return
         if self.view.source_active:
             self.view.source_view.target_line = None
-            self.view.source_view.go_to_line(source.line, highlight=False, center_page=True)
+            self.view.source_view.go_to_line(source.line, highlight=False, center=True)
         elif bookmark.source_only:
             self.strip.show_tooltip(source)
             return

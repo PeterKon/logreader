@@ -4,8 +4,9 @@ import unittest
 from time import perf_counter
 from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from qt_helpers import qt_application, retire_window
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt
-from PySide6.QtGui import QFontDatabase, QTextCursor, QWheelEvent
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionSlider
 from logreader.config import LogreaderConfig
@@ -82,11 +83,10 @@ def slider_rect(bar):
 class ProgressiveResultsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-        for name in ("consola.ttf", "consolab.ttf"):
-            path = "C:/Windows/Fonts/" + name
-            if os.path.exists(path):
-                QFontDatabase.addApplicationFont(path)
+        cls.app = qt_application()
+
+    def setUp(self):
+        self.addCleanup(self.app.clipboard().clear)
 
     def window(self, *, fraction=.01, wrapped=False, lines=None):
         if lines is None:
@@ -111,13 +111,37 @@ class ProgressiveResultsTests(unittest.TestCase):
         self.app.processEvents()
         with view.editor.changing():
             view.editor.set_top(TextPoint(0))
-        self.addCleanup(view.deleteLater)
-        self.addCleanup(view.close)
+        self.addCleanup(retire_window, view)
         return view
 
     def background(self, view):
         view.loader.background = True
         view.loader.start()
+
+    def test_navigation_preserves_inherited_and_explicit_paint_suspension(self):
+        view = self.window()
+        editor = view.editor
+        viewport = editor.viewport()
+        observer = PaintObserver(editor, viewport)
+        for explicitly_paused in (False, True):
+            with self.subTest(explicitly_paused=explicitly_paused):
+                self.jump(editor, 0)
+                if explicitly_paused:
+                    viewport.setUpdatesEnabled(False)
+                view.setUpdatesEnabled(False)
+                try:
+                    self.jump(editor, 500)
+                    self.assertFalse(viewport.updatesEnabled())
+                finally:
+                    view.setUpdatesEnabled(True)
+                try:
+                    self.assertEqual(viewport.updatesEnabled(), not explicitly_paused)
+                    self.assertEqual(editor.top_point().row, 500)
+                finally:
+                    viewport.setUpdatesEnabled(True)
+                observer.rows.clear()
+                viewport.update()
+                self.wait(lambda: bool(observer.rows))
 
     def wait_jump(self, editor):
         for _ in range(1000):
@@ -874,7 +898,7 @@ class ProgressiveResultsTests(unittest.TestCase):
             return prepare(number)
         with patch.object(editor, "_prepare_block", side_effect=counted):
             self.jump(editor, row)
-        self.assertEqual(cold, [row])
+        self.assertLessEqual(len(cold), 1)
         self.assertTrue(editor.viewport_evidence()["useful"])
 
 

@@ -21,6 +21,7 @@ class ReadingMove:
 class RangeRequest(NavigationRequest):
     reading: bool = False
     movement: ReadingMove | None = None
+    center: bool = False
 
 
 class SparseNavigation(ProgressiveNavigation):
@@ -29,6 +30,7 @@ class SparseNavigation(ProgressiveNavigation):
         # completed. A pending pointer alone cannot protect that queued work.
         self._sequence += 1
         self.loading_text = False
+        self.prepared_rows = set()
         super().cancel()
 
     def valid(self, request):
@@ -36,7 +38,7 @@ class SparseNavigation(ProgressiveNavigation):
                 and request.sequence == self._sequence)
 
     def request(self, point, *, move_caret=False, anchor=None, reveal_column=False,
-                result_set_id=None, reading=False, movement=None):
+                result_set_id=None, reading=False, movement=None, center=False):
         if self.result_set_id is None or (result_set_id is not None and result_set_id is not self.result_set_id):
             return False
         if not self.editor.presentation.row_count:
@@ -46,7 +48,7 @@ class SparseNavigation(ProgressiveNavigation):
         point = TextPoint(row, max(0, min(self.editor._units(row), point.column)))
         self.editor._cancel_wheel()
         request = RangeRequest(self.result_set_id, self._sequence, point, move_caret,
-                               anchor, reveal_column, perf_counter(), reading, movement)
+                               anchor, reveal_column, perf_counter(), reading, movement, center)
         self.pending = request
         self.loading_text = (not self.editor.ranges.contains(point.row)
                              or (movement is not None and self.editor._movement_gap is not None))
@@ -131,6 +133,7 @@ class SparseLoader(QObject):
         self.paused = self.cancelled = False
         self.error = None
         self.request = self.buffer = None
+        self._buffer_plan = None
         self._end_measurement = None
         self.row = self.height = 0
         self.ticks = []
@@ -354,6 +357,8 @@ class SparseLoader(QObject):
                 self._touched_rows.add(row)
                 self._rows = len(self._touched_rows)
                 self._row_operations += 1
+                if editor.navigation.pending is not None:
+                    editor.navigation.prepared_rows.add(row)
                 return block
         size = block.length() if block.isValid() else editor._units(row) + 1
         if self._rows and self._units + size > self.max_units:
@@ -383,6 +388,8 @@ class SparseLoader(QObject):
         with editor.changing():
             block = editor._prepare_block(row)
         editor.remember_layout(row, block, geometry)
+        if self.valid(generation) and editor.navigation.pending is not None:
+            editor.navigation.prepared_rows.add(row)
         self._record_operation("layout", row, 1, block.length(), started)
         return block if self.valid(generation) else None
 
@@ -476,33 +483,55 @@ class SparseLoader(QObject):
             # Navigate before bounded overscan, so a large adjacent line cannot
             # delay an already useful destination. Superseding input drops it.
             self.buffer = None if self.done else [request.sequence, top.row - 1, self.row, 0, 0, 0]
-            editor.navigation.ready(request, self.target, top=top)
+            editor.navigation.ready(request, request.point if request.center else self.target, top=top)
 
     def _surrounding(self, generation):
         editor = self.editor
-        # Alternate before/after; total text and row limits bound this job,
-        # independently of how long background completion ultimately takes.
+        # Plan the same alternating rows, then commit adjacent rows together.
+        # Each edit still fits the remaining row/text budgets, and each edit
+        # rechecks cancellation. Keep unfinished edits across time-budget yields.
         while self.buffer and not self._spent() and self._rows < self.max_rows and self.valid(generation):
-            _, before, after, count, units, side = self.buffer
-            if count >= self.buffer_rows * 2:
-                self.buffer = None
+            if self._buffer_plan is None or self._buffer_plan[0] is not self.buffer:
+                rows, planned_units, finished = [], 0, False
+                while len(rows) < self.max_rows - self._rows:
+                    _, before, after, count, units, side = self.buffer
+                    if count >= self.buffer_rows * 2:
+                        finished = True
+                        break
+                    row = before if side == 0 else after
+                    missing = 0 <= row < editor.ranges.total and not editor.ranges.contains(row)
+                    size = editor._units(row) + 1 if missing else 0
+                    if units + size > self.max_units:
+                        finished = True
+                        break
+                    if self._units + planned_units + size > self.max_units:
+                        break
+                    self.buffer[1 if side == 0 else 2] += -1 if side == 0 else 1
+                    self.buffer[3] += 1
+                    self.buffer[5] = 1 - side
+                    if missing:
+                        self.buffer[4] += size
+                        rows.append((row, size))
+                        planned_units += size
+                ranges = []
+                for row, size in sorted(rows):
+                    if ranges and ranges[-1][1] == row:
+                        ranges[-1][1] += 1
+                        ranges[-1][2] += size
+                    else:
+                        ranges.append([row, row + 1, size])
+                self._buffer_plan = self.buffer, ranges, finished
+            _, ranges, finished = self._buffer_plan
+            if not ranges:
+                self._buffer_plan = None
+                if finished:
+                    self.buffer = None
                 return
-            row = before if side == 0 else after
-            self.buffer[1 if side == 0 else 2] += -1 if side == 0 else 1
-            self.buffer[3] += 1
-            self.buffer[5] = 1 - side
-            if not 0 <= row < editor.ranges.total or editor.ranges.contains(row):
-                continue
-            size = editor._units(row) + 1
-            if units + size > self.max_units:
-                self.buffer = None
+            start, end, units = ranges[0]
+            if self._rows + end - start > self.max_rows or self._units + units > self.max_units:
                 return
-            if self._units + size > self.max_units:
-                # Try this same row at the next yield, without losing it.
-                self.buffer = [generation, before, after, count, units, side]
-                return
-            self.buffer[4] += size
-            if not self._insert(row, row + 1, generation):
+            ranges.pop(0)
+            if not self._insert(start, end, generation, units=units):
                 return
 
     def _background_fill(self, generation):

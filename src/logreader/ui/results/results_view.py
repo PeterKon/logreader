@@ -92,6 +92,7 @@ class ResultsView(ResultsControls):
         self.loading_status = ""
         self._performance_text = ""
         super().__init__(parent, **options)
+        self.source_view.retired.connect(self.retired.emit)
         self._default_results_font = self._editor.font()
         self._default_source_font = self.source_view.editor.font()
         self._search_matches = LogicalMatches()
@@ -121,12 +122,12 @@ class ResultsView(ResultsControls):
 
     @property
     def has_retiring_results(self):
-        return self._retiring > 0
+        return self._retiring > 0 or self.source_view.has_retiring_editors
 
     @Slot()
     def _retired(self):
         self._retiring -= 1
-        if not self._retiring:
+        if not self.has_retiring_results:
             self.retired.emit()
 
     def _install_presentation(self, presentation):
@@ -394,7 +395,7 @@ class ResultsView(ResultsControls):
 
     def set_line_wrapping(self, enabled):
         if self.source_active:
-            self.source_view.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth if enabled else QPlainTextEdit.LineWrapMode.NoWrap)
+            self.source_view.editor.set_wrapping(enabled)
         else:
             self._editor.set_wrapping(enabled)
             self._schedule_decorations()
@@ -415,10 +416,10 @@ class ResultsView(ResultsControls):
         self._use_viewport_search_anchor()
         return editor.go_to_location(location, result_set_id=editor.result_set_id)
 
-    def show_source_line(self, number, *, highlight=True, center_page=False):
-        self._source_destination = number, highlight, center_page
+    def show_source_line(self, number, *, highlight=True, center=False):
+        self._source_destination = number, highlight, center
         if self.source_active:
-            self.source_view.go_to_line(number, highlight=highlight, center_page=center_page)
+            self.source_view.go_to_line(number, highlight=highlight, center=center)
             self._source_destination = None
         else:
             self.set_source_active(True)
@@ -434,6 +435,8 @@ class ResultsView(ResultsControls):
             editor.navigation.cancel()
             self._pending_navigation = None
             self._visible_timer.stop()
+        else:
+            self.source_view.suspend()
         self._source_active = active
         self._view_stack.setCurrentWidget(self.source_view if active else self.surface)
         self._count_stack.setCurrentWidget(self._source_search_count if active else self._search_count_label)
@@ -449,14 +452,14 @@ class ResultsView(ResultsControls):
             shown_editor = self.source_view.editor if active else editor
             self._line_wrap_check.setChecked(shown_editor.lineWrapMode() != QPlainTextEdit.LineWrapMode.NoWrap)
         self._search_input.setAccessibleName("Search retained source" if active else "Search results")
-        self._search_input.setToolTip("Search for matches in the original file" if active else "Search for matches in the results")
+        self._search_input.setToolTip("Search all loaded source lines" if active else "Search for matches in the results")
         if active:
             destination, self._source_destination = self._source_destination, None
             if destination is None:
-                self.source_view.ensure_page()
+                self.source_view.ensure_view()
             else:
                 number, highlight, center = destination
-                self.source_view.go_to_line(number, highlight=highlight, center_page=center)
+                self.source_view.go_to_line(number, highlight=highlight, center=center)
         else:
             saved, self._return_position = self._return_position, None
             if saved is not None and saved[0] is editor.result_set_id:

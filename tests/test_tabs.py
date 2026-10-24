@@ -7,11 +7,12 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
+    from qt_helpers import qt_application, retire_window, wait_source
     from qt_helpers import wait_for_search, capture_analysis, wait_for_load
-    from PySide6.QtCore import QPoint, QPointF, QThreadPool, Qt
+    from PySide6.QtCore import QPoint, QPointF, Qt
     from PySide6.QtGui import QKeySequence, QTextCursor, QWheelEvent
     from PySide6.QtTest import QSignalSpy, QTest
-    from PySide6.QtWidgets import QApplication, QCheckBox, QLineEdit, QPushButton, QSpinBox, QTabBar
+    from PySide6.QtWidgets import QCheckBox, QLineEdit, QPushButton, QSpinBox, QTabBar
 
     from logreader.config import APP_VERSION, LogreaderConfig
     from logreader.document_session import AnalysisPhase
@@ -26,22 +27,20 @@ else:
 class TabTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+        cls.app = qt_application()
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         self.window = LogreaderWindow()
+        self.addCleanup(retire_window, self.window)
 
     def tearDown(self):
         for index in range(self.window._tabs.count()):
             page = self.window._pages.widget(index)
             page.session.cancel_request()
             page._finish_analysis_request()
-        self.window.close()
-        self.window.deleteLater()
-        self.app.processEvents()
 
     def make_log(self, name, text="ERROR: example\n"):
         path = self.root / name
@@ -77,6 +76,7 @@ class TabTests(unittest.TestCase):
         self.assertTrue(zoom.isEnabled())
         navigate.trigger()
         self.assertTrue(view.source_active)
+        wait_source(view)
         self.assertIn("ERROR: example", view.source_view.editor.toPlainText())
         self.assertEqual(navigate.text(), "Go to results")
         navigate.trigger()
@@ -114,7 +114,9 @@ class TabTests(unittest.TestCase):
         self.assertFalse(view.source_active)
         # A background tab's controls must not replace the active tab's menu state.
         view.set_source_active(True)
+        wait_source(self.window._document.results_view)
         view.set_source_active(False)
+        wait_source(self.window._document.results_view)
         view.set_maximized(True)
         self.assertEqual(navigate.text(), "Go to results")
         self.assertEqual(expand.text(), "Expand results")
@@ -145,6 +147,7 @@ class TabTests(unittest.TestCase):
         zoom_out.trigger()
         self.assertEqual(results.font().pointSizeF(), results_size)
         first.results_view.set_source_active(True)
+        wait_source(self.window._document.results_view)
         zoom_in.trigger()
         self.assertGreater(source.font().pointSizeF(), source_size)
         self.assertEqual(results.font().pointSizeF(), results_size)
@@ -195,6 +198,7 @@ class TabTests(unittest.TestCase):
         results_font, source_font = view.editor.font(), view.source_view.editor.font()
         for active in (False, True):
             view.set_source_active(active)
+            wait_source(self.window._document.results_view)
             editor = view.source_view.editor if active else view.editor
             initial = editor.font().pointSizeF()
             point = QPointF(editor.viewport().rect().center())
@@ -212,6 +216,7 @@ class TabTests(unittest.TestCase):
         self.assertEqual(view.source_view.editor.font(), source_font)
         self.assertEqual(view.editor.font().pointSizeF(), results_zoom)
         view.set_source_active(False)
+        wait_source(self.window._document.results_view)
         self.window._reset_zoom_action.trigger()
         self.assertEqual(view.editor.font(), results_font)
 
@@ -326,6 +331,7 @@ class TabTests(unittest.TestCase):
     def test_performance_option_applies_to_each_document(self):
         self.window.close()
         self.window = LogreaderWindow(show_performance=True)
+        self.addCleanup(retire_window, self.window)
         self.window.show()
         for name in ("first.log", "second.log"):
             page = self.open_log(name)
@@ -442,6 +448,7 @@ class TabTests(unittest.TestCase):
         view.search_results()
         wait_for_search(self.window)
         view.find_next()
+        wait_source(self.window._document.results_view)
         wait_for_search(self.window)
         editor = view.editor
         cursor = editor.textCursor()

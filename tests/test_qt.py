@@ -9,6 +9,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
+    from qt_helpers import qt_application, retire_window
     from qt_helpers import render_results, wait_for_navigation, wait_for_render, wait_for_search, wait_for_load
     from PySide6.QtCore import QEvent, QMimeData, QObject, QPoint, QPointF, Qt, QUrl
     from PySide6.QtGui import (
@@ -65,7 +66,7 @@ class LogreaderQtTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+        cls.app = qt_application()
 
     def setUp(self):
         self.window = LogreaderWindow()
@@ -79,8 +80,7 @@ class LogreaderQtTests(unittest.TestCase):
         wait_for_load(self.window._document)
 
     def tearDown(self):
-        self.window.close()
-        self.app.processEvents()
+        retire_window(self.window)
 
     def _stage_file(self, path):
         self.window._document.stage_loaded_log(Path(path), load_log(path))

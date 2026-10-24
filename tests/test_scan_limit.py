@@ -6,10 +6,9 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QThreadPool
+from qt_helpers import qt_application, retire_window
 from PySide6.QtGui import QValidator
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
 
 from logreader.workers.analysis_worker import AnalysisWorker
 from logreader.document_session import LoadPhase
@@ -22,7 +21,7 @@ from logreader.workers.work_queue import WorkQueue
 class ScanLimitTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+        cls.app = qt_application()
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -36,11 +35,7 @@ class ScanLimitTests(unittest.TestCase):
         self.spin = self.page.filter_panel._limit_spin
 
     def tearDown(self):
-        self.window.close()
-        QThreadPool.globalInstance().waitForDone(5000)
-        self.app.processEvents()
-        self.window.deleteLater()
-        self.app.processEvents()
+        retire_window(self.window)
         self.directory.cleanup()
 
     def wait_until(self, condition):
@@ -104,6 +99,7 @@ class ScanLimitTests(unittest.TestCase):
             self.assertEqual(workers, [])
             self.assertEqual(len(self.page.session.lines), 3)
             self.page.analyze()
+            self.wait_until(lambda: bool(workers))
             self.assertEqual(len(workers), 1)
             load = workers[0]
             self.assertIsInstance(load, LoadWorker)
@@ -158,6 +154,7 @@ class ScanLimitTests(unittest.TestCase):
                 workers = []
                 with patch.object(WorkQueue, "submit", side_effect=workers.append):
                     self.page.analyze()
+                    self.wait_until(lambda: bool(workers))
                     load = workers[0]
                     if close:
                         self.window.close_tab(0)

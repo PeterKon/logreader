@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QFont, QFontDatabase, QTextCursor
+from qt_helpers import qt_application, retire_window, wait_source
+from PySide6.QtGui import QFont, QTextCursor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPlainTextEdit
 
 from qt_helpers import wait_for_search, wait_for_navigation, retire_results
 from logreader.config import LogreaderConfig
@@ -24,18 +24,15 @@ from logreader.ui.theme import THEME_COLORS
 class ResultsViewTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-        # The Windows offscreen plugin needs an explicitly loaded font for QA.
-        if os.path.exists("C:/Windows/Fonts/consola.ttf"):
-            QFontDatabase.addApplicationFont("C:/Windows/Fonts/consola.ttf")
+        cls.app = qt_application()
 
     def setUp(self):
+        self.addCleanup(self.app.clipboard().clear)
         self.view = ResultsView()
         self.view.editor.setFont(QFont("Consolas", 11))
         self.view.resize(900, 550)
         self.view.show()
-        self.addCleanup(self.view.deleteLater)
-        self.addCleanup(self.view.close)
+        self.addCleanup(retire_window, self.view)
 
     def render(self, lines, config=None, *, new_snapshot=True):
         config = config or LogreaderConfig(context=1, enabled_patterns=("error_colon",))
@@ -271,6 +268,7 @@ class ResultsViewTests(unittest.TestCase):
     def test_source_and_results_share_tight_number_and_text_spacing(self):
         results = self.render(("ERROR: sample",))
         self.view.show_source_line(10000001)
+        wait_source(self.view)
         self.app.processEvents()
         source = self.view.source_view.editor
         for editor in (results, source):
@@ -287,6 +285,7 @@ class ResultsViewTests(unittest.TestCase):
         editor = self.render(lines, config)
         target = self.view.model.location(120)  # Source line 41 in the second category.
         self.view.show_source_line(10000002)
+        wait_source(self.view)
         self.assertIsNotNone(self.view._return_position)
         self.assertTrue(self.view.show_result_location(target))
         wait_for_navigation(self.view)
@@ -357,9 +356,11 @@ class ResultsViewTests(unittest.TestCase):
         editor = self.render(("ERROR: old",))
         location = self.view.model.location(0)
         self.view.show_source_line(10000001)
+        wait_source(self.view)
         self.view.set_source(("ERROR: new",), 10000001, snapshot_id="replacement")
         self.assertIsNone(self.view.model)
         self.assertEqual(self.view.editor.toPlainText(), "")
         self.assertFalse(self.view.show_result_location(location))
         self.assertIsNone(self.view._return_position)
-        self.assertEqual(self.view.source_view.editor.toPlainText(), "ERROR: new")
+        wait_source(self.view)
+        self.assertEqual(self.view.source_view.editor._block(0).text(), "ERROR: new")

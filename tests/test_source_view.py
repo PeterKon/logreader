@@ -6,24 +6,24 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QThreadPool, Qt
+from qt_helpers import qt_application, retire_window, wait_source
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QPalette, QTextCursor, QTextDocument
 from PySide6.QtTest import QSignalSpy, QTest
-from PySide6.QtWidgets import QApplication, QPlainTextEdit, QWidget
+from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
 from logreader.file_loader import LoadedLog
 from logreader.ui.qt_app import LogreaderWindow
 from logreader.ui.source_search import iter_source_matches, utf16_length
-from logreader.ui.source_view import SOURCE_PAGE_CHARACTERS, SOURCE_PAGE_LINES
 from logreader.workers.work_queue import WorkQueue
 
 
 class SourceSearchTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+        cls.app = qt_application()
 
     def test_chunked_search_agrees_with_qt_for_unicode_case_and_overlaps(self):
         lines = (
@@ -58,7 +58,7 @@ class SourceSearchTests(unittest.TestCase):
 class SourceViewTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+        cls.app = qt_application()
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -74,11 +74,7 @@ class SourceViewTests(unittest.TestCase):
         self.wait(lambda: self.page.session.has_document)
 
     def tearDown(self):
-        self.window.close()
-        QThreadPool.globalInstance().waitForDone(5000)
-        self.app.processEvents()
-        self.window.deleteLater()
-        self.app.processEvents()
+        retire_window(self.window)
         self.temp.cleanup()
 
     def wait(self, predicate):
@@ -90,8 +86,8 @@ class SourceViewTests(unittest.TestCase):
 
     def wait_source_search(self):
         self.wait(lambda: not self.source.is_searching
-                  and self.source._page_work is None
-                  and not self.source.highlighter._highlight_timer.isActive())
+                  and self.source.editor.navigation.pending is None
+                  and not self.source._visible_timer.isActive())
 
     def stage(self, lines, total=None):
         lines = tuple(lines)
@@ -109,23 +105,25 @@ class SourceViewTests(unittest.TestCase):
     def test_toggle_before_analysis_is_adjacent_and_reuses_bounded_source(self):
         lines = self.stage((f"row {i} " + "x" * 300 for i in range(4000)), total=9000)
         self.assertIs(self.source.lines, lines)
-        self.assertEqual(self.source.editor.toPlainText(), "")
+        self.assertEqual(self.source.editor.ranges.loaded_count, 0)
         self.assertTrue(self.view._source_button.isEnabled())
         self.assertGreater(self.view._source_button.x(), self.view._maximize_button.x())
         self.assertEqual(self.view._source_button.text(), "Go to source")
         self.assertEqual(self.view._source_button.palette().color(QPalette.ColorRole.Button).name(), "#0d1117")
         self.view._source_button.click()
+        wait_source(self.view)
         self.assertTrue(self.view.source_active)
         self.assertEqual(self.view._source_button.text(), "Go to results")
         self.assertEqual(self.view._source_button.palette().color(QPalette.ColorRole.Button).name(), "#2f3e50")
-        self.assertLessEqual(self.source.editor.blockCount(), SOURCE_PAGE_LINES)
-        self.assertLessEqual(len(self.source.editor.toPlainText()), SOURCE_PAGE_CHARACTERS)
-        self.assertEqual(self.source.editor.toPlainText(), "\n".join(lines[:self.source.page_end]))
+        self.assertLess(self.source.editor.ranges.loaded_count, 256)
+        self.assertLess(self.source.editor.ranges.loaded_count, len(lines))
+        self.assertEqual(self.source.editor._block(0).text(), lines[0])
         self.assertTrue(self.source.editor.isReadOnly())
         self.assertFalse(self.source.editor.document().isUndoRedoEnabled())
-        self.assertEqual(self.source.range_label.text(), "5,001-9,000 of 9,000")
+        self.assertEqual(self.source.range_label.text(), "Available lines: 5,001-9,000")
         self.assertIsNone(self.page.session.analysis)
         self.view._source_button.click()
+        wait_source(self.view)
         self.assertFalse(self.view.source_active)
         self.assertEqual(self.view._source_button.palette().color(QPalette.ColorRole.Button).name(), "#0d1117")
         self.assertEqual(self.view.editor.toPlainText(), "")
@@ -136,13 +134,14 @@ class SourceViewTests(unittest.TestCase):
 
         self.assertIsNotNone(controls_bar)
         self.assertIn(background, controls_bar.styleSheet())
-        self.assertIn(background, self.source.page_navigation.styleSheet())
-        self.assertIn(background, self.source.line_navigation.styleSheet())
+        self.assertIs(self.source.goto_input.parentWidget(), controls_bar)
 
     def test_analyze_completes_without_leaving_source_view(self):
         self.stage((f"ERROR: row {i}" for i in range(200)))
         self.view.set_source_active(True)
+        wait_source(self.view)
         self.source.go_to_line(100)
+        wait_source(self.view)
         self.wait_source_search()
         position = self.source.editor.textCursor().position()
         scroll = self.source.editor.verticalScrollBar().value()
@@ -162,6 +161,7 @@ class SourceViewTests(unittest.TestCase):
             self.assertEqual(self.page.status_message, "All 200 lines scanned - UTF-8")
 
         self.view.set_source_active(False)
+        wait_source(self.view)
         self.assertIn("ERROR: row 199", self.view.editor.toPlainText())
 
     def test_switching_to_source_during_rendering_still_completes(self):
@@ -169,9 +169,11 @@ class SourceViewTests(unittest.TestCase):
         workers = []
         with patch.object(WorkQueue, "submit", side_effect=workers.append):
             self.window._analyze_button.click()
+            self.app.processEvents()
             workers[0].run()
         self.assertTrue(self.view.is_rendering)
         self.view.set_source_active(True)
+        wait_source(self.view)
         self.wait(lambda: finished.count() == 1)
         self.assertTrue(self.view.source_active)
         self.assertFalse(self.page.session.is_busy)
@@ -182,17 +184,21 @@ class SourceViewTests(unittest.TestCase):
         with patch.object(WorkQueue, "submit", side_effect=workers.append):
             self.page.load_file(self.path)
             self.view.toggle_source()
+            wait_source(self.view)
             self.assertTrue(self.view._source_button.isEnabled())
             self.assertIn("Loading", self.source.editor.placeholderText())
             self.assertEqual(self.source.range_label.text(), "")
+            self.app.processEvents()
             workers[0].run()
         self.assertTrue(self.view.source_active)
+        wait_source(self.view)
         self.assertIn("ERROR: initial", self.source.editor.toPlainText())
         self.stage(())
         self.assertIn("Empty source", self.source.editor.placeholderText())
         self.assertEqual(self.source.range_label.text(), "")
         self.assertFalse(self.source.go_to_line(1))
         self.view.toggle_source()
+        wait_source(self.view)
         self.assertFalse(self.view.source_active)
 
     def test_mapping_handles_context_duplicates_headers_and_timing_insertion(self):
@@ -223,10 +229,12 @@ class SourceViewTests(unittest.TestCase):
         point = self.view.editor.cursorRect(cursor).center()
         self.assertEqual(self.view.source_line_at(point), 10002)
         self.view.show_source_line(10002)
+        wait_source(self.view)
         self.assertEqual(self.source.target_line, 10002)
         self.assertEqual(self.source.editor.textCursor().block().text(), lines[1])
         self.assertTrue(self.source.editor.extraSelections())
         self.view.toggle_source()
+        wait_source(self.view)
         self.view.reset_for_loaded_file("replacement")
         self.assertIsNone(self.view._source_map.source_line(block.blockNumber()))
 
@@ -243,14 +251,17 @@ class SourceViewTests(unittest.TestCase):
         before = (cursor.position(), cursor.anchor(), self.view.editor.verticalScrollBar().value())
         output = self.view.editor.toPlainText()
         self.view.show_source_line(121)
+        wait_source(self.view)
         self.view._search_input.setText("result 299")
         self.view.search_results()
         self.wait_source_search()
         self.view.find_next()
+        wait_source(self.view)
         self.assertEqual(self.source.current_match, 0)
         self.assertEqual(self.source.target_line, 121)
         self.view.set_line_wrapping(True)
         self.view.toggle_source()
+        wait_source(self.view)
         self.assertEqual(self.view._search_input.text(), "needle")
         self.assertIs(self.view._search_matches, matches)
         self.assertEqual(self.view.editor.toPlainText(), output)
@@ -258,39 +269,46 @@ class SourceViewTests(unittest.TestCase):
         self.assertEqual((cursor.position(), cursor.anchor(), self.view.editor.verticalScrollBar().value()), before)
         self.assertEqual(self.view.editor.lineWrapMode(), QPlainTextEdit.LineWrapMode.NoWrap)
         self.view.toggle_source()
+        wait_source(self.view)
         self.assertEqual(self.view._search_input.text(), "result 299")
         self.assertTrue(self.view._line_wrap_check.isChecked())
 
     def test_search_covers_unshown_source_and_navigates_with_unicode_columns(self):
-        target = SOURCE_PAGE_LINES + 2500
+        target = 102500
         lines = [f"plain row {i}".ljust(120, "x") for i in range(target + 1000)]
         lines[target] = "😀\tNEEDLE needle"
         self.stage(lines, total=len(lines) + 10000)
         self.view.toggle_source()
-        self.assertEqual(self.source.page_end, SOURCE_PAGE_LINES)
+        wait_source(self.view)
+        self.assertFalse(self.source.editor.ranges.contains(target))
         self.view._search_input.setText("needle")
         self.view.search_results()
         self.wait_source_search()
         self.assertEqual(list(self.source.matches.lines), [target, target])
-        self.assertEqual(self.source.page_start, 0)  # Initial Enter never jumps.
+        self.assertEqual(self.source.editor.top_point().row, 0)  # Initial Enter never jumps.
         self.assertEqual(self.source.matches.starts[0], utf16_length("😀\t"))
         self.view.find_next()
-        self.assertTrue(self.source.page_start <= target < self.source.page_end)
+        wait_source(self.view)
+        self.assertTrue(self.source.editor.ranges.contains(target))
         self.wait_source_search()
         selection = self.source.editor.extraSelections()[-1]
         self.assertEqual(selection.cursor.selectedText(), "NEEDLE")
         self.view.find_next()
+        wait_source(self.view)
         selection = self.source.editor.extraSelections()[-1]
         self.assertEqual(selection.cursor.selectedText(), "needle")
         self.view.find_next()
+        wait_source(self.view)
         self.assertEqual(self.source.current_match, 0)
         self.view.find_previous()
+        wait_source(self.view)
         self.assertEqual(self.source.current_match, 1)
-        self.assertEqual(self.source.editor.toPlainText(), "\n".join(lines[self.source.page_start:self.source.page_end]))
+        self.assertEqual(self.source.editor._block(target).text(), lines[target])
 
     def test_go_to_line_formats_on_commit_without_navigating_on_focus_loss(self):
         self.stage(("first", "second"), total=125_000)
         self.view.toggle_source()
+        wait_source(self.view)
         field = self.source.goto_input
         field.setFocus()
         QTest.keyClicks(field, "125000")
@@ -313,18 +331,22 @@ class SourceViewTests(unittest.TestCase):
                 field.editingFinished.emit()
                 self.assertEqual(field.text(), text)
 
-    def test_page_boundaries_and_original_go_to_line_do_not_skip_text(self):
-        line_length = SOURCE_PAGE_CHARACTERS // 1000
+    def test_retained_range_boundaries_and_original_go_to_line_do_not_skip_text(self):
+        line_length = 16000
         lines = self.stage((str(i) + "x" * line_length for i in range(1400)), total=9400)
         self.view.toggle_source()
-        first_end = self.source.page_end
+        wait_source(self.view)
+        first_end = self.source.editor.ranges.loaded_ranges[0][1]
         self.assertLess(first_end, len(lines))
-        self.source.next_page()
-        self.assertEqual(self.source.page_start, first_end)
-        self.source.previous_page()
-        self.assertEqual(self.source.page_end, first_end)
+        self.source.go_to_line(self.source.first_line + first_end)
+        wait_source(self.view)
+        self.assertEqual(self.source.editor._block(first_end).text(), lines[first_end])
+        self.source.go_to_line(self.source.first_line)
+        wait_source(self.view)
+        self.assertEqual(self.source.editor.top_point().row, 0)
         self.source.goto_input.setText("9 350")
         self.source.go_to_input()
+        wait_source(self.view)
         self.assertEqual(self.source.editor.textCursor().block().text(), lines[1349])
         before = self.source.editor.toPlainText()
         before_range = self.source.range_label.text()
@@ -344,7 +366,9 @@ class SourceViewTests(unittest.TestCase):
         self.wait(lambda: not self.view.is_searching)
         self.view._search_input.clear()
         self.view.toggle_source()
+        wait_source(self.view)
         self.view.toggle_source()
+        wait_source(self.view)
         self.assertTrue(self.view._search_count_label.isHidden())
 
     def test_failure_during_source_search_clears_query_and_retry_loads_snapshot(self):
@@ -352,9 +376,11 @@ class SourceViewTests(unittest.TestCase):
         with patch.object(WorkQueue, "submit", side_effect=workers.append):
             self.page.load_file(self.path)
             self.view.toggle_source()
+            wait_source(self.view)
             self.view._search_input.setText("needle")
             self.view.search_results()
             self.path.unlink()
+            self.app.processEvents()
             workers[0].run()
         self.assertFalse(self.source.is_searching)
         self.assertEqual(self.view._search_input.text(), self.source.query)
@@ -363,13 +389,16 @@ class SourceViewTests(unittest.TestCase):
         self.path.write_text("ERROR: replacement\n", encoding="utf-8")
         self.page.analyze()
         self.wait(lambda: self.page.session.analysis is not None)
+        wait_source(self.view)
         self.assertIn("replacement", self.source.editor.toPlainText())
         self.view.toggle_source()
+        wait_source(self.view)
         self.wait(lambda: not self.page.session.is_busy)
 
     def test_query_edit_and_replacement_cancel_search_and_release_snapshot(self):
         self.stage(("needle " * 500 for _ in range(3000)))
         self.view.toggle_source()
+        wait_source(self.view)
         self.view._search_input.setText("needle")
         self.view.search_results()
         self.source._advance_search()
@@ -387,23 +416,27 @@ class SourceViewTests(unittest.TestCase):
         self.window.close_tab(0)
         self.assertFalse(self.source.lines)
         self.assertIsNone(self.source._search_work)
-        self.assertIsNone(self.source._page_work)
+        self.assertIsNone(self.source.editor.navigation.pending)
 
     def test_source_and_results_rendering_switch_without_stranding_session(self):
         self.stage(f"ERROR: row {i}" for i in range(2000))
         self.view.toggle_source()
+        wait_source(self.view)
         self.page.analyze()
         self.wait(lambda: self.page.session.analysis is not None)
         self.assertTrue(self.view.source_active)
         self.assertTrue(self.view.is_rendering)
         self.view.toggle_source()
+        wait_source(self.view)
         self.wait(lambda: not self.page.session.is_busy)
         self.assertIn("row 1999", self.view.editor.toPlainText())
 
-    def test_each_document_owns_source_query_page_and_mode(self):
+    def test_each_document_owns_source_query_position_and_mode(self):
         self.stage(f"first needle {i}" for i in range(2500))
         self.view.toggle_source()
+        wait_source(self.view)
         self.source.go_to_line(2200)
+        wait_source(self.view)
         self.view._search_input.setText("needle")
         other = Path(self.temp.name) / "other.log"
         other.write_text("second\n", encoding="utf-8")
@@ -411,7 +444,8 @@ class SourceViewTests(unittest.TestCase):
         second = self.window._document
         self.wait(lambda: second.session.has_document)
         second.results_view.toggle_source()
-        self.assertEqual(second.results_view.source_view.editor.toPlainText(), "second")
+        wait_source(second.results_view)
+        self.assertEqual(second.results_view.source_view.editor._block(0).text(), "second")
         self.window._select_document(self.page)
         self.assertTrue(self.view.source_active)
         self.assertEqual(self.source.target_line, 2200)

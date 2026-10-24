@@ -268,6 +268,7 @@ class DocumentPage(QWidget):
         if self._render_active == active:
             return
         self._render_active = active
+        self.results_view.source_view.set_active(active)
         self._update_rendering_activity()
 
     def _update_rendering_activity(self) -> None:

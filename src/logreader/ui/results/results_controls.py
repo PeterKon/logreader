@@ -11,10 +11,11 @@ from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget, QStackedLayout, QVBoxLayout, QWidget
 
 from ..bookmarks import ResultsBookmarks
-from ..widgets.search_widgets import SearchMatchHighlighter, SearchMarkerScrollBar
+from ..widgets.search_widgets import SearchMarkerScrollBar
 from .results_style import _results_editor_style_sheet
 from .results_model import ResultLocation, SourceLocation
 from ..source_view import SourceView
+from .result_coordinates import TextPoint
 from ..widgets.input_menus import InputContextMenu, ScrollbarContextMenu
 from ..theme import THEME_COLORS, configure_action_button, configure_clear_button, vertical_resize_icon
 
@@ -113,6 +114,7 @@ class ResultsControls(QWidget):
         self._source_search_count = QLabel()
         self._source_search_count.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._source_search_count.setMinimumWidth(84)
+        self._source_search_count.setStyleSheet(f"color: {THEME_COLORS['ui_muted']};")
         self._count_stack = QStackedWidget()
         self._count_stack.setObjectName("searchCountStack")
         self._count_stack.addWidget(self._search_count_label)
@@ -228,10 +230,7 @@ class ResultsControls(QWidget):
             scrollbar.actionTriggered.connect(self._use_viewport_search_anchor)
         self._editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._editor.customContextMenuRequested.connect(self._results_context_menu)
-        self.source_view = SourceView(
-            self, highlighter_factory=SearchMatchHighlighter,
-            scrollbar_factory=SearchMarkerScrollBar, editor_style=_results_editor_style_sheet(),
-        )
+        self.source_view = SourceView(self)
         self.source_view.search_status_changed.connect(self._source_search_count.setText)
         self._view_stack = QStackedLayout()
         self._view_stack.addWidget(self._editor)
@@ -239,7 +238,10 @@ class ResultsControls(QWidget):
         panel_layout.addLayout(self._view_stack, 1)
         self.bookmarks = ResultsBookmarks(self)
         panel_layout.insertWidget(1, self.bookmarks.bar)
-        source_editor = self.source_view.editor
+        self.source_view.editor_changed.connect(self._connect_source_editor)
+        self._connect_source_editor(self.source_view.editor)
+
+    def _connect_source_editor(self, source_editor):
         source_editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         source_editor.customContextMenuRequested.connect(self._source_context_menu)
         source_editor.gutter.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -260,9 +262,9 @@ class ResultsControls(QWidget):
         if self._snapshot_id != snapshot_id:
             self.reset_for_loaded_file("")
         self._snapshot_id = snapshot_id
-        self.source_view.set_source(lines, total_line_count)
+        self.source_view.set_source(lines, total_line_count, snapshot_id=snapshot_id)
         if self._source_active:
-            self.source_view.ensure_page()
+            self.source_view.ensure_view()
         self.bookmarks.refresh()
 
     def toggle_source(self) -> None:
@@ -309,10 +311,10 @@ class ResultsControls(QWidget):
         rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
         if not rect.top() <= point.y() < rect.bottom():
             return None
-        number = editor.source_number(block.blockNumber())
-        if not (self.source_view.first_line + self.source_view.page_start <= number <
-                self.source_view.first_line + self.source_view.page_end):
+        position = editor.location_at(block.position())
+        if not isinstance(position, TextPoint) or not 0 <= position.row < len(self.source_view.lines):
             return None
+        number = self.source_view.first_line + position.row
         return SourceLocation(self._snapshot_id, number)
 
     def _source_context_menu(self, point) -> None:

@@ -1,14 +1,57 @@
 """Event-loop helpers for tests that need a loaded document or held analysis."""
 
 from contextlib import contextmanager
+import os
+from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, QThreadPool
+from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
 from logreader.document_session import LoadPhase
 from logreader.workers.load_worker import LoadWorker
 from logreader.workers.work_queue import WorkQueue
+
+
+def qt_application():
+    app = QApplication.instance() or QApplication([])
+    if os.name == "nt" and app.platformName() == "offscreen" and not app.property("testFontsLoaded"):
+        # Windows' offscreen plugin does not discover the desktop fonts.
+        for name in ("segoeui.ttf", "segoeuib.ttf", "cour.ttf", "consola.ttf", "consolab.ttf"):
+            path = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / name
+            if path.exists():
+                QFontDatabase.addApplicationFont(str(path))
+        app.setFont(QFont("Segoe UI", 9))
+        app.setProperty("testFontsLoaded", True)
+    return app
+
+
+def retire_window(window):
+    app = QApplication.instance()
+    app.removeEventFilter(window)
+    window.close()
+    QThreadPool.globalInstance().waitForDone(5000)
+    app.processEvents()
+    window.deleteLater()
+    retire_results()
+
+
+def wait_source(view):
+    source = view.source_view
+    if not view.source_active or not source.isVisible():
+        return
+    for _ in range(2000):
+        QTest.qWait(2)
+        loader = source.loader
+        if loader.error:
+            raise AssertionError(loader.error)
+        if (source.editor.navigation.pending is None and not loader.timer.isActive()
+                and loader.buffer is None and not source.is_searching
+                and not source._visible_timer.isActive()):
+            return
+    raise AssertionError("Source did not settle")
 
 
 def wait_for_load(page):

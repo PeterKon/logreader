@@ -1,13 +1,13 @@
 import os
 import unittest
-from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from qt_helpers import qt_application, wait_source
 from PySide6.QtCore import QPoint, QTimer, Qt
 from PySide6.QtGui import QContextMenuEvent, QTextCursor
 from PySide6.QtTest import QSignalSpy, QTest
-from PySide6.QtWidgets import QApplication, QAbstractSlider, QMenu, QStyle, QStyleOptionSlider, QStyleOptionSpinBox
+from PySide6.QtWidgets import QAbstractSlider, QMenu, QStyle, QStyleOptionSlider, QStyleOptionSpinBox
 
 from logreader.ui.filter_panel import FilterPanel
 from logreader.ui.widgets.input_menus import InputContextMenu, ScrollbarContextMenu
@@ -18,7 +18,7 @@ from qt_helpers import render_results, wait_for_navigation
 class InputMenuTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+        cls.app = qt_application()
 
     def setUp(self):
         self.panel = FilterPanel()
@@ -26,6 +26,7 @@ class InputMenuTests(unittest.TestCase):
         self.panel.show()
         self.view.show()
         self.app.processEvents()
+        wait_source(self.view)
         self.app.clipboard().clear()
         for widget in (self.panel, self.view):
             self.addCleanup(widget.deleteLater)
@@ -55,6 +56,7 @@ class InputMenuTests(unittest.TestCase):
         self.view.set_source(("source",), 1)
         for source_active in (False, True):
             self.view.set_source_active(source_active)
+            wait_source(self.view)
             self.assertEqual(self.labels(self.menu(self.view._search_input)),
                              ["Undo", None, "Copy", "Paste", "Select all"])
 
@@ -82,6 +84,7 @@ class InputMenuTests(unittest.TestCase):
     def test_go_to_line_menu_pastes_and_navigates_without_losing_shortcuts(self):
         self.view.set_source(("first", "second", "third"), 103)
         self.view.set_source_active(True)
+        wait_source(self.view)
         editor = self.view.source_view.goto_input
         self.assertEqual(self.send_context_menu(editor, editor.rect().center()),
                          [["Copy", "Paste", "Select all"]])
@@ -143,6 +146,7 @@ class InputMenuTests(unittest.TestCase):
         event = QContextMenuEvent(reason, point, widget.mapToGlobal(point))
         self.app.sendEvent(widget, event)
         self.app.processEvents()
+        wait_source(self.view)
         return captured
 
     def test_numeric_text_mouse_and_keyboard_context_menus_use_the_short_menu(self):
@@ -170,11 +174,11 @@ class InputMenuTests(unittest.TestCase):
     def scrollbars(self):
         for widget, vertical_labels in (
             (self.view.editor, ["Top", "Bottom"]),
-            (self.view.source_view.editor, ["Top of page", "Bottom of page"]),
+            (self.view.source_view.editor, ["Top", "Bottom"]),
             (self.panel._custom_pattern_list, ["Top", "Bottom"]),
             (self.panel._regex_pattern_list, ["Top", "Bottom"]),
         ):
-            yield (self.view.global_scroll if widget is self.view.editor else widget.verticalScrollBar()), vertical_labels
+            yield (self.view.global_scroll if widget is self.view.editor else self.view.source_view.global_scroll if widget is self.view.source_view.editor else widget.verticalScrollBar()), vertical_labels
             yield widget.horizontalScrollBar(), ["Left edge", "Right edge"]
 
     def scrollbar_menu(self, scrollbar):
@@ -195,13 +199,15 @@ class InputMenuTests(unittest.TestCase):
         self.view.resize(700, 400)
         self.view.set_source(lines, len(lines))
         render_results(self.view, lines)
-        self.view.source_view.ensure_page()
+        self.view.set_source_active(True)
+        wait_source(self.view)
         for index in range(20):
             self.panel._custom_pattern.setText(f"pattern {index}")
             self.panel.add_custom_pattern()
             self.panel._regex_pattern.setText(f"pattern {index}")
             self.panel.add_regex_pattern()
         self.app.processEvents()
+        wait_source(self.view)
         for scrollbar, labels in self.scrollbars():
             with self.subTest(labels=labels):
                 minimum, maximum = scrollbar.minimum(), scrollbar.maximum()
@@ -214,12 +220,14 @@ class InputMenuTests(unittest.TestCase):
                 actions = QSignalSpy(scrollbar.actionTriggered)
                 menu.actions()[1].trigger()
                 wait_for_navigation(self.view)
-                self.assertEqual(scrollbar.value(), maximum)
+                wait_source(self.view)
+                self.assertEqual(scrollbar.value(), scrollbar.maximum())
                 self.assertEqual(actions.at(0)[0], QAbstractSlider.SliderAction.SliderToMaximum.value)
                 menu = self.scrollbar_menu(scrollbar)
                 self.assertEqual([a.isEnabled() for a in menu.actions()], [True, False])
                 menu.actions()[0].trigger()
                 wait_for_navigation(self.view)
+                wait_source(self.view)
                 self.assertEqual(scrollbar.value(), minimum)
                 self.assertEqual(actions.at(1)[0], QAbstractSlider.SliderAction.SliderToMinimum.value)
 
@@ -230,12 +238,14 @@ class InputMenuTests(unittest.TestCase):
         render_results(self.view, lines)
         for source in (False, True):
             self.view.set_source_active(source)
+            wait_source(self.view)
             editor = self.view.source_view.editor if source else self.view.editor
             self.app.processEvents()
+            wait_source(self.view)
             cursor = QTextCursor(editor.document().firstBlock())
             cursor.select(QTextCursor.SelectionType.WordUnderCursor)
             editor.setTextCursor(cursor)
-            for scrollbar in (self.view.global_scroll if not source else editor.verticalScrollBar(), editor.horizontalScrollBar()):
+            for scrollbar in (self.view.global_scroll if not source else self.view.source_view.global_scroll, editor.horizontalScrollBar()):
                 with self.subTest(source=source, axis=scrollbar.orientation()):
                     self.assertGreater(scrollbar.maximum(), 0)
                     scrollbar.setValue(0)
@@ -243,33 +253,38 @@ class InputMenuTests(unittest.TestCase):
                     self.view.source_view._from_viewport = False
                     self.scrollbar_menu(scrollbar).actions()[1].trigger()
                     wait_for_navigation(self.view)
+                    wait_source(self.view)
                     self.assertEqual(scrollbar.value(), scrollbar.maximum())
                     self.assertEqual(editor.textCursor().position(), cursor.position())
                     self.assertEqual(editor.textCursor().anchor(), cursor.anchor())
                     anchored = self.view.source_view._from_viewport if source else self.view._search_from_viewport
                     self.assertTrue(anchored)
 
-    def test_source_scrollbar_endpoints_stay_within_the_displayed_page(self):
+    def test_source_scrollbar_endpoints_cover_retained_snapshot(self):
         lines = tuple(f"Line {i}" for i in range(200))
         self.view.resize(700, 400)
         self.view.set_source(lines, 1200)
         self.view.set_source_active(True)
         source = self.view.source_view
-        with patch("logreader.ui.source_view.SOURCE_PAGE_LINES", 60):
-            source._load_page(60, align="start")
-        self.app.processEvents()
-        self.assertEqual((source.page_start, source.page_end), (60, 120))
-        scrollbar = source.editor.verticalScrollBar()
+        source.go_to_line(1061)
+        wait_source(self.view)
+        scrollbar = source.global_scroll
         for endpoint in (1, 0):
             self.scrollbar_menu(scrollbar).actions()[endpoint].trigger()
+            wait_source(self.view)
             self.assertEqual(scrollbar.value(), scrollbar.maximum() if endpoint else scrollbar.minimum())
-            self.assertEqual((source.page_start, source.page_end), (60, 120))
-            self.assertEqual(source.editor.document().firstBlock().text(), "Line 60")
+            if endpoint:
+                self.assertTrue(source.editor.at_bottom())
+                self.assertEqual(source.editor._block(199).text(), "Line 199")
+            else:
+                self.assertEqual(source.editor.top_point().row, 0)
+                self.assertEqual(source.editor._block(0).text(), "Line 0")
 
     def test_scrollbar_left_click_behavior_is_unchanged(self):
         self.view.resize(700, 400)
         render_results(self.view, ("wide text " * 100 for _ in range(200)))
         self.app.processEvents()
+        wait_source(self.view)
         for scrollbar in (self.view.global_scroll, self.view.editor.horizontalScrollBar()):
             controller = scrollbar.findChild(ScrollbarContextMenu)
             option = QStyleOptionSlider()

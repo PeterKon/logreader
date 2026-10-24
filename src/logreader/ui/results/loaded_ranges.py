@@ -67,6 +67,13 @@ class RangeIndex:
             raise IndexError(row)
         return bisect_right(self.starts, row) - 1
 
+    def gaps_between(self, start, end):
+        if start == end:
+            return []
+        first, last = self.span_at(start), self.span_at(end - 1)
+        return [(max(start, s.start), min(end, s.end))
+                for s in self.spans[first:last + 1] if not s.loaded]
+
     def contains(self, row):
         return 0 <= row < self.total and self.spans[self.span_at(row)].loaded
 
@@ -99,11 +106,12 @@ class RangeIndex:
         if end < gap.end:
             parts.append(Span(end, gap.end, False))
         merged = []
-        for span in self.spans[:i] + parts + self.spans[i + 1:]:
+        left, right = max(0, i - 1), min(len(self.spans), i + 2)
+        for span in self.spans[left:i] + parts + self.spans[i + 1:right]:
             if merged and merged[-1].loaded == span.loaded and not span.guard_before:
                 merged[-1] = Span(merged[-1].start, span.end, span.loaded, merged[-1].guard_before)
             else:
                 merged.append(span)
-        self.spans = merged
+        self.spans[left:right] = merged
         self._index()
         return parts

@@ -899,7 +899,7 @@ class LogreaderWindow(TitleBarWindow):
         self.statusBar().showMessage(
             page.status_message if page else "Ready"
         )
-        self._loading_status.setText(page.results_view.loading_status if page else "")
+        self._refresh_loading_status()
         self._present_analysis_busy()
 
         self._update_view_menu()
@@ -926,7 +926,13 @@ class LogreaderWindow(TitleBarWindow):
     def _present_loading_status(self, message: str) -> None:
         page = self._document
         if page is not None and self.sender() is page.results_view:
-            self._loading_status.setText(message)
+            self._refresh_loading_status()
+
+    @Slot()
+    def _refresh_loading_status(self) -> None:
+        page = self._document
+        self._loading_status.setText(page.results_view.loading_status
+                                     if page and not page.results_view.source_active else "")
 
     def _refresh_tab_labels(self) -> None:
         pages = [self._pages.widget(index) for index in range(self._tabs.count())]
@@ -1037,6 +1043,7 @@ class LogreaderWindow(TitleBarWindow):
         page.results_view.loading_status_changed.connect(self._present_loading_status)
         page.results_view.maximized_changed.connect(self._update_view_menu)
         page.results_view.view_state_changed.connect(self._update_view_menu)
+        page.results_view.view_state_changed.connect(self._refresh_loading_status)
         page.busy_changed.connect(self._present_analysis_busy)
         page.analysis_failed.connect(self._present_analysis_failure)
         page.analysis_finished.connect(self.analysis_finished.emit)

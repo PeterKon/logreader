@@ -6,8 +6,9 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from qt_helpers import qt_application, retire_window, wait_source
 from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
-from PySide6.QtGui import QContextMenuEvent, QFont, QFontDatabase, QTextCursor, QWheelEvent
+from PySide6.QtGui import QContextMenuEvent, QFont, QTextCursor, QWheelEvent
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QInputDialog, QLineEdit, QMenu, QStyle, QStyleOptionSlider, QTabBar, QToolTip
 
@@ -26,19 +27,17 @@ from logreader.ui.theme import THEME_COLORS
 class BookmarkTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-        if os.path.exists("C:/Windows/Fonts/consola.ttf"):
-            QFontDatabase.addApplicationFont("C:/Windows/Fonts/consola.ttf")
+        cls.app = qt_application()
 
     def setUp(self):
+        self.addCleanup(self.app.clipboard().clear)
         self.view = ResultsView()
         self.view.resize(900, 550)
         for editor in (self.view.editor, self.view.source_view.editor):
             editor.setFont(QFont("Consolas", 11))
         self.view.show()
         self.addCleanup(QToolTip.hideText)
-        self.addCleanup(self.view.deleteLater)
-        self.addCleanup(self.view.close)
+        self.addCleanup(retire_window, self.view)
         self.bookmarks = self.view.bookmarks
 
     def render(self, lines, config=None, *, load=True):
@@ -57,11 +56,13 @@ class BookmarkTests(unittest.TestCase):
             QTest.qWait(5)
         self.assertFalse(self.view.is_rendering)
         self.app.processEvents()
+        wait_source(self.view)
 
     def add(self, row=0, name="Important"):
         location = self.view.model.location(row)
         self.assertTrue(self.bookmarks.add(location, name))
         self.app.processEvents()
+        wait_source(self.view)
         return location
 
     def selected_row(self):
@@ -132,6 +133,7 @@ class BookmarkTests(unittest.TestCase):
                 self.addCleanup(dialog.close)
                 dialog.show()
                 self.app.processEvents()
+                wait_source(self.view)
                 QTest.keyClicks(dialog.editor, "First")
                 QTest.keyClick(dialog.editor, Qt.Key.Key_Return)
                 QTest.keyClicks(dialog.editor, "Second")
@@ -239,6 +241,7 @@ class BookmarkTests(unittest.TestCase):
         delete = next(a for a in menu.actions() if a.text() == "Delete note")
         menu.popup(strip.mapToGlobal(strip.rect().bottomLeft()))
         self.app.processEvents()
+        wait_source(self.view)
         with patch("logreader.ui.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
             QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(delete).center())
         self.assertFalse(menu.isVisible())
@@ -357,6 +360,7 @@ class BookmarkTests(unittest.TestCase):
         self.render(lines, LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("first",)), load=False)
         self.bookmarks.reorder()
         self.app.processEvents()
+        wait_source(self.view)
         strip = self.bookmarks.strip
         for index, location in enumerate((full, converted, source)):
             icon = strip.tabButton(index, QTabBar.ButtonPosition.RightSide)
@@ -379,20 +383,22 @@ class BookmarkTests(unittest.TestCase):
         for source_active in (False, True):
             with self.subTest(source_active=source_active):
                 self.view.set_source_active(source_active)
+                wait_source(self.view)
                 editor = self.view.source_view.editor if source_active else self.view.editor
-                scrollbar = editor.verticalScrollBar() if source_active else self.view.global_scroll
+                scrollbar = self.view.source_view.global_scroll if source_active else self.view.global_scroll
                 self.view._search_input.setText("needle")
                 self.view.search_results()
                 for _ in range(1000):
                     if (not self.view.is_searching and not self.view.source_view.is_searching
-                            and self.view.source_view._page_work is None):
+                            and self.view.source_view.editor.navigation.pending is None):
                         break
                     QTest.qWait(5)
                 self.assertFalse(self.view.is_searching)
                 self.assertFalse(self.view.source_view.is_searching)
                 scrollbar.setValue(0)
                 self.app.processEvents()
-                marks = scrollbar._bookmark_blocks if source_active else scrollbar.bookmark_rows
+                wait_source(self.view)
+                marks = scrollbar.bookmark_rows
                 self.assertEqual(len(marks), 4 if source_active else 3)
                 option = QStyleOptionSlider()
                 scrollbar.initStyleOption(option)
@@ -416,15 +422,15 @@ class BookmarkTests(unittest.TestCase):
                     else:
                         self.assertEqual(image.pixelColor(groove.center().x(), row).name(), THEME_COLORS["bookmark_marker"])
                 self.view._search_input.clear()
-                self.assertFalse(scrollbar._match_blocks if source_active else scrollbar.match_rows)
+                self.assertFalse(scrollbar.match_rows)
                 self.assertEqual(scrollbar._marker_rows_for_groove(groove, bookmarks=True), bookmarks)
                 image = scrollbar.grab().toImage()
                 for row in bookmarks:
                     if not slider.top() <= row <= slider.bottom():
                         self.assertEqual(image.pixelColor(groove.center().x(), row).name(), THEME_COLORS["bookmark_marker"])
         self.bookmarks.clear()
-        for editor in (self.view.editor, self.view.source_view.editor):
-            self.assertFalse(editor.verticalScrollBar()._bookmark_blocks)
+        for scrollbar in (self.view.global_scroll, self.view.source_view.global_scroll):
+            self.assertFalse(scrollbar.bookmark_rows)
 
     def test_bookmark_scrollbar_pips_follow_wrapping_and_resize(self):
         lines = tuple("ERROR: " + ("long line " * 400 if i == 100 else str(i)) for i in range(201))
@@ -433,30 +439,29 @@ class BookmarkTests(unittest.TestCase):
             self.add(row)
         for source_active in (False, True):
             self.view.set_source_active(source_active)
+            wait_source(self.view)
             self.view.set_line_wrapping(True)
             self.bookmarks.activate(SourceLocation("snapshot", 1101))
+            wait_source(self.view)
             editor = self.view.source_view.editor if source_active else self.view.editor
             for width in (900, 700):
                 with self.subTest(source_active=source_active, width=width):
                     self.view.resize(width, 400)
                     self.app.processEvents()
+                    wait_source(self.view)
                     editor.ensureCursorVisible()
                     self.app.processEvents()
-                    scrollbar = editor.verticalScrollBar() if source_active else self.view.global_scroll
+                    wait_source(self.view)
+                    scrollbar = self.view.source_view.global_scroll if source_active else self.view.global_scroll
                     option = QStyleOptionSlider()
                     scrollbar.initStyleOption(option)
                     groove = scrollbar.style().subControlRect(QStyle.ComplexControl.CC_ScrollBar, option,
                                                              QStyle.SubControl.SC_ScrollBarGroove, scrollbar)
                     extent = scrollbar.maximum() + scrollbar.pageStep()
-                    if source_active:
-                        self.assertGreater(extent, editor.blockCount())
-                    expected = tuple(sorted({groove.top() + editor.document().findBlockByNumber(block).firstLineNumber()
-                                             * (groove.height() - 1) // (extent - 1)
-                                             for block in editor._bookmark_blocks}))
-                    if not source_active:
-                        expected = tuple(sorted({groove.top() + row * (groove.height() - 1)
-                                                 // max(1, editor.presentation.row_count - 1)
-                                                 for row in scrollbar.bookmark_rows}))
+                    self.assertGreater(extent, 0)
+                    expected = tuple(sorted({groove.top() + row * (groove.height() - 1)
+                                             // max(1, editor.presentation.row_count - 1)
+                                             for row in scrollbar.bookmark_rows}))
                     self.assertEqual(scrollbar._marker_rows_for_groove(groove, bookmarks=True), expected)
 
     def test_bookmark_markers_update_on_reanalysis_removal_and_source_replacement(self):
@@ -469,13 +474,14 @@ class BookmarkTests(unittest.TestCase):
         self.render(lines, LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("absent",)), load=False)
         self.assertFalse(self.view.global_scroll.bookmark_rows)
         self.view.set_source_active(True)
-        self.assertEqual(self.view.source_view.marker._bookmark_blocks.tolist(), [50])
+        wait_source(self.view)
+        self.assertEqual(self.view.source_view.global_scroll.bookmark_rows.tolist(), [50])
         self.bookmarks.remove(location.source)
-        self.assertFalse(self.view.source_view.marker._bookmark_blocks)
+        self.assertFalse(self.view.source_view.global_scroll.bookmark_rows)
         self.bookmarks.add(location.source, "Source only")
         self.view.set_source(("replacement",), 1, snapshot_id="replacement")
         self.assertFalse(self.view.global_scroll.bookmark_rows)
-        self.assertFalse(self.view.source_view.marker._bookmark_blocks)
+        self.assertFalse(self.view.source_view.global_scroll.bookmark_rows)
 
 
     def test_reorder_sorts_all_bookmark_types_without_changing_selection_or_metadata(self):
@@ -499,7 +505,9 @@ class BookmarkTests(unittest.TestCase):
         self.assertEqual(list(self.bookmarks.items), [full, native, converted])
         for source_active in (False, True):
             self.view.set_source_active(source_active)
+            wait_source(self.view)
             self.bookmarks.activate(full)
+            wait_source(self.view)
             editor = self.view.source_view.editor if source_active else self.view.editor
             position = editor.textCursor().position()
             scroll = editor.verticalScrollBar().value()
@@ -536,6 +544,7 @@ class BookmarkTests(unittest.TestCase):
             self.add(row, f"Bookmark {row}: a long name")
         self.view.resize(700, 500)
         self.app.processEvents()
+        wait_source(self.view)
         strip = self.bookmarks.strip
         button = self.bookmarks.reorder_button
         self.assertTrue(button.isEnabled())
@@ -552,7 +561,9 @@ class BookmarkTests(unittest.TestCase):
     def test_source_menu_adds_renames_and_removes_without_analysis(self):
         self.view.set_source(("before", "", "after"), 1003, snapshot_id="source")
         self.view.set_source_active(True)
+        wait_source(self.view)
         self.app.processEvents()
+        wait_source(self.view)
         editor = self.view.source_view.editor
         block = editor.document().findBlockByNumber(1)
         rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
@@ -574,6 +585,7 @@ class BookmarkTests(unittest.TestCase):
                     editor.gutter.customContextMenuRequested.emit(QPoint(2, point.y()))
                 else:
                     editor.customContextMenuRequested.emit(point)
+            wait_source(self.view)
             if name is not None:
                 self.assertEqual(self.bookmarks.items[source].name, name)
                 self.assertEqual(self.bookmarks.items[source].location, source)
@@ -591,14 +603,18 @@ class BookmarkTests(unittest.TestCase):
         for _ in range(2):
             self.assertFalse(self.view.editor._bookmark_blocks)
             self.bookmarks.activate(location.source)
+            wait_source(self.view)
             self.assertFalse(self.view.source_active)
             self.view.set_source_active(True)
+            wait_source(self.view)
             self.bookmarks.activate(location.source)
+            wait_source(self.view)
             self.assertTrue(self.view.source_active)
-            self.assertEqual(self.view.source_view.editor.textCursor().blockNumber(), 1)
+            self.assertEqual(self.view.source_view.editor.caret.row, 1)
             self.assertEqual(self.bookmarks.strip.tabText(0), "Source only")
             self.assertNotIn("Converted", self.bookmarks.strip.tabToolTip(0))
             self.view.set_source_active(False)
+            wait_source(self.view)
             self.render(lines, load=False)
         self.assertEqual(self.bookmarks.items[location.source].location, location.source)
 
@@ -612,11 +628,14 @@ class BookmarkTests(unittest.TestCase):
         self.assertTrue(self.bookmarks.add(source, "During analysis"))
         self.assertTrue(self.bookmarks.strip.isTabEnabled(0))
         self.bookmarks.activate(source)
+        wait_source(self.view)
         self.assertFalse(self.view.source_active)
         self.view.set_source_active(True)
+        wait_source(self.view)
         self.bookmarks.activate(source)
+        wait_source(self.view)
         self.assertTrue(self.view.source_active)
-        self.assertEqual(self.view.source_view.editor.textCursor().blockNumber(), 9)
+        self.assertEqual(self.view.source_view.editor.caret.row, 9)
         self.wait_render()
         self.assertTrue(self.bookmarks.items[source].source_only)
         self.assertFalse(self.bookmarks.items[source].converted)
@@ -633,22 +652,25 @@ class BookmarkTests(unittest.TestCase):
             self.bookmarks.prompt(source)
         self.assertFalse(self.bookmarks.items)
 
-    @patch("logreader.ui.source_view.SOURCE_PAGE_LINES", 10_000)
-    def test_source_only_bookmark_tracks_line_numbers_across_pages(self):
+    def test_source_only_bookmark_tracks_line_numbers_across_retained_ranges(self):
         self.view.set_source(tuple(str(i) for i in range(12000)), 13000, snapshot_id="source")
         self.view.set_source_active(True)
+        wait_source(self.view)
         source = SourceLocation("source", 12001)
-        self.assertTrue(self.bookmarks.add(source, "Later page"))
+        self.assertTrue(self.bookmarks.add(source, "Distant line"))
         self.bookmarks.activate(source)
+        wait_source(self.view)
         editor = self.view.source_view.editor
         self.assertEqual(editor.source_number(editor.textCursor().blockNumber()), source.line)
         self.assertEqual(self.view.source_location_at(editor.cursorRect().center()), source)
-        self.view.source_view.first_page()
+        self.view.source_view.go_to_line(self.view.source_view.first_line)
+        wait_source(self.view)
         self.assertFalse(editor._bookmark_blocks)
-        self.assertFalse(self.view.source_view.marker._bookmark_blocks)
+        self.assertEqual(self.view.source_view.global_scroll.bookmark_rows.tolist(), [11000])
         self.bookmarks.activate(source)
+        wait_source(self.view)
         self.assertEqual(editor._bookmark_blocks, {editor.textCursor().blockNumber(): True})
-        self.assertEqual(self.view.source_view.marker._bookmark_blocks.tolist(), [editor.textCursor().blockNumber()])
+        self.assertEqual(self.view.source_view.global_scroll.bookmark_rows.tolist(), [11000])
 
     def test_bookmark_types_render_distinct_text_with_shared_background_and_borders(self):
         from logreader.ui.qt_app import INTERFACE_STYLE_SHEET
@@ -665,6 +687,7 @@ class BookmarkTests(unittest.TestCase):
         QTest.mouseMove(self.view.editor.viewport(), QPoint(200, 100))
         QTest.qWait(30)
         self.app.processEvents()
+        wait_source(self.view)
         image = strip.grab().toImage()
         for index, role in enumerate(("bookmark_text", "bookmark_source_text", "bookmark_source_text")):
             rect = strip.tabRect(index)
@@ -754,6 +777,7 @@ class BookmarkTests(unittest.TestCase):
         self.assertFalse(self.view.model.line(rows[0]).is_match)
         self.assertTrue(self.view.model.line(self.view.model.resolve(bookmark.location)).is_match)
         self.bookmarks.activate(source)
+        wait_source(self.view)
         self.assertFalse(self.view.source_active)
         self.assertEqual(self.selected_row(), self.view.model.resolve(bookmark.location))
 
@@ -809,6 +833,7 @@ class BookmarkTests(unittest.TestCase):
         toggle = next(a for a in menu.actions() if a.isCheckable())
         menu.popup(self.bookmarks.strip.mapToGlobal(self.bookmarks.strip.rect().bottomLeft()))
         self.app.processEvents()
+        wait_source(self.view)
         for checked in (True, False):
             QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(toggle).center())
             self.assertTrue(menu.isVisible())
@@ -828,6 +853,7 @@ class BookmarkTests(unittest.TestCase):
         self.assertEqual(self.bookmarks.items[source].name, "Renamed")
         menu.popup(self.bookmarks.strip.mapToGlobal(self.bookmarks.strip.rect().bottomLeft()))
         self.app.processEvents()
+        wait_source(self.view)
         remove = next(a for a in menu.actions() if a.text() == "Delete bookmark")
         with patch("logreader.ui.bookmarks.BookmarkDeletionDialog.exec", return_value=QDialog.DialogCode.Accepted):
             QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(remove).center())
@@ -857,6 +883,7 @@ class BookmarkTests(unittest.TestCase):
         self.assertEqual(bookmark.location, self.view.model.location(rows[0]))
         self.assertFalse(bookmark.source_only)
         self.bookmarks.activate(source)
+        wait_source(self.view)
         self.assertEqual(self.selected_row(), rows[0])
         location = bookmark.location
         self.render(lines, config, load=False)
@@ -959,15 +986,18 @@ class BookmarkTests(unittest.TestCase):
         blocks = self.view.editor._bookmark_blocks
         self.assertEqual(list(blocks.values()), [False, True])
         self.bookmarks.activate(location.source)
+        wait_source(self.view)
         self.assertEqual(self.selected_row(), rows[-1])
         for changed in (replace(config, custom_patterns=(), custom_pattern_match_case=(),
                                 custom_pattern_exclude=()), replace(config, combined_view=True)):
             self.render(lines, changed, load=False)
             self.bookmarks.activate(location.source)
+            wait_source(self.view)
             self.assertEqual(self.selected_row(), self.view.model.resolve(location))
             self.assertEqual(self.bookmarks.items[location.source].location, location)
         self.render(lines, config, load=False)
         self.bookmarks.activate(location.source)
+        wait_source(self.view)
         self.assertEqual(self.selected_row(), rows[-1])
 
     def test_identical_custom_categories_keep_distinct_preferred_occurrence(self):
@@ -977,10 +1007,12 @@ class BookmarkTests(unittest.TestCase):
         location = self.add(1)
         self.assertNotEqual(self.view.model.location(0), location)
         self.bookmarks.activate(location.source)
+        wait_source(self.view)
         self.assertEqual(self.selected_row(), 1)
         self.render(("needle",), replace(config, custom_patterns=("unrelated", "needle", "needle"),
                                          custom_pattern_match_case=(), custom_pattern_exclude=()), load=False)
         self.bookmarks.activate(location.source)
+        wait_source(self.view)
         self.assertEqual(self.selected_row(), 1)
 
     def test_context_line_can_disappear_and_return_as_match(self):
@@ -995,17 +1027,22 @@ class BookmarkTests(unittest.TestCase):
                          "Re-analysis needed.")
         self.assertTrue(self.bookmarks.items[location.source].source_only)
         self.bookmarks.activate(location.source)
+        wait_source(self.view)
         self.assertFalse(self.view.source_active)
         self.view.set_source_active(True)
+        wait_source(self.view)
         self.bookmarks.activate(location.source)
+        wait_source(self.view)
         self.assertTrue(self.view.source_active)
         source = self.view.source_view
-        self.assertEqual(source.editor.first_source_line + source.editor.textCursor().blockNumber(), 1001)
+        self.assertEqual(source.first_line + source.editor.caret.row, 1001)
         self.view.set_source_active(False)
+        wait_source(self.view)
         self.render(lines, LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("needle",)), load=False)
         self.assertEqual(self.bookmarks.strip.tabText(0), "Important")
         self.assertFalse(self.bookmarks.items[location.source].source_only)
         self.bookmarks.activate(location.source)
+        wait_source(self.view)
         self.assertEqual(self.selected_row(), 0)
         self.assertEqual(self.bookmarks.items[location.source].location, location)
 
@@ -1017,12 +1054,14 @@ class BookmarkTests(unittest.TestCase):
         strip = self.bookmarks.strip
         for source_active in (False, True):
             self.view.set_source_active(source_active)
+            wait_source(self.view)
             editor = self.view.source_view.editor if source_active else self.view.editor
             for _ in range(2):
                 editor.moveCursor(QTextCursor.MoveOperation.Start)
                 editor.verticalScrollBar().setValue(0)
                 QTest.mouseClick(strip, Qt.MouseButton.LeftButton, pos=strip.tabRect(0).center())
                 wait_for_navigation(self.view)
+                wait_source(self.view)
                 self.assertEqual(editor.source_number(editor.textCursor().blockNumber()), location.source.line)
                 if source_active:
                     self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2), editor.fontMetrics().height() * 2)
@@ -1037,10 +1076,12 @@ class BookmarkTests(unittest.TestCase):
         for source_active in (False, True):
             with self.subTest(source_active=source_active):
                 self.view.set_source_active(source_active)
+                wait_source(self.view)
                 editor = self.view.source_view.editor if source_active else self.view.editor
                 QTest.mouseMove(editor.viewport(), QPoint(200, 100))
                 QTest.mouseMove(strip, point)
                 self.app.processEvents()
+                wait_source(self.view)
                 self.assertEqual(strip.grab().toImage().pixelColor(3, 3).name(),
                                  THEME_COLORS["bookmark_hover"])
 
@@ -1054,15 +1095,18 @@ class BookmarkTests(unittest.TestCase):
                 QTimer.singleShot(50, dismiss_menu)
                 strip.customContextMenuRequested.emit(point)
                 self.app.processEvents()
+                wait_source(self.view)
                 self.assertEqual(strip.grab().toImage().pixelColor(3, 3).name(),
                                  THEME_COLORS["background"])
                 QTest.mouseMove(strip, point)
                 self.app.processEvents()
+                wait_source(self.view)
                 self.assertEqual(strip.grab().toImage().pixelColor(3, 3).name(),
                                  THEME_COLORS["bookmark_hover"])
 
                 QTest.mouseMove(editor.viewport(), QPoint(200, 100))
                 self.app.processEvents()
+                wait_source(self.view)
 
     def test_right_click_opens_actions_without_navigating(self):
         self.render(tuple(f"ERROR: {i}" for i in range(300)))
@@ -1089,6 +1133,7 @@ class BookmarkTests(unittest.TestCase):
         for source_active in (False, True):
             with self.subTest(source_active=source_active):
                 self.view.set_source_active(source_active)
+                wait_source(self.view)
                 editor = self.view.source_view.editor if source_active else self.view.editor
                 editor.moveCursor(QTextCursor.MoveOperation.Start)
                 editor.verticalScrollBar().setValue(0)
@@ -1106,23 +1151,27 @@ class BookmarkTests(unittest.TestCase):
                 self.assertEqual(renamed.at(renamed.count() - 1)[0], location.source)
                 self.assertEqual(removed.at(removed.count() - 1)[0], location.source)
 
-    @patch("logreader.ui.source_view.SOURCE_PAGE_LINES", 10_000)
-    def test_source_page_edge_reload_and_markers_follow_original_numbers(self):
+    def test_source_distant_navigation_and_markers_follow_original_numbers(self):
         lines = tuple(f"ERROR: {i}" for i in range(15000))
         self.render(lines, LogreaderConfig(context=0, enabled_patterns=("error_colon",)))
         location = self.add(9999)
         self.view.set_source_active(True)
+        wait_source(self.view)
         source = self.view.source_view
-        source.first_page()
-        old_start = source.page_start
-        self.assertEqual(source.page_end, 10000)
+        source.go_to_line(source.first_line)
+        wait_source(self.view)
+        old_count = source.editor.ranges.loaded_count
+        self.assertLess(old_count, 10000)
         self.bookmarks.activate(location.source)
-        self.assertGreater(source.page_start, old_start)
-        row = location.source.line - source.first_line - source.page_start
+        wait_source(self.view)
+        self.assertGreater(source.editor.ranges.loaded_count, old_count)
+        row = source.editor.ranges.block_for(location.source.line - source.first_line)
         self.assertEqual(source.editor._bookmark_blocks, {row: True})
         self.assertLess(abs(source.editor.cursorRect().center().y() - source.editor.viewport().height() / 2), 40)
-        source.first_page()
-        self.assertEqual(source.editor._bookmark_blocks, {9999: True})
+        source.go_to_line(source.first_line)
+        wait_source(self.view)
+        self.assertFalse(source.editor._bookmark_blocks)
+        self.assertEqual(source.global_scroll.bookmark_rows.tolist(), [9999])
 
     def test_search_and_copy_preserve_bookmarks_and_native_text_colors(self):
         self.render(("before", "prefix ERROR: needle 😀", "after"))
@@ -1142,6 +1191,7 @@ class BookmarkTests(unittest.TestCase):
         self.assertEqual(self.view.editor.createMimeDataFromSelection().text(),
                          "before\nprefix ERROR: needle 😀\nafter\n")
         self.view.show_source_line(location.source.line)
+        wait_source(self.view)
         self.view._search_input.setText("needle")
         self.view.search_results()
         for _ in range(1000):
@@ -1150,10 +1200,13 @@ class BookmarkTests(unittest.TestCase):
             QTest.qWait(5)
         self.assertFalse(self.view.source_view.is_searching)
         self.view.source_view.navigate(True)
+        wait_source(self.view)
         self.assertEqual(len(self.view.source_view.editor.extraSelections()), 3)
         self.view._search_input.clear()
+        wait_source(self.view)
         self.assertEqual(len(self.view.source_view.editor.extraSelections()), 2)
-        self.assertEqual(self.view.source_view.editor._bookmark_blocks, {1: True})
+        self.assertEqual(self.view.source_view.editor._bookmark_blocks,
+                         {self.view.source_view.editor.ranges.block_for(1): True})
 
     def test_full_width_wrapped_background_and_gutter_keep_original_width(self):
         self.render(("before", "ERROR: " + "long line " * 40, "after"))
@@ -1162,6 +1215,7 @@ class BookmarkTests(unittest.TestCase):
         self.view.set_line_wrapping(True)
         self.add(1)
         self.app.processEvents()
+        wait_source(self.view)
         block = editor.document().findBlockByNumber(self.view._source_map.block(1))
         self.assertGreater(block.layout().lineCount(), 1)
         rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
@@ -1195,6 +1249,7 @@ class BookmarkTests(unittest.TestCase):
         after = next(iter(self.view.editor._bookmark_blocks))
         self.assertEqual(after, before)
         self.bookmarks.activate(location.source)
+        wait_source(self.view)
         wait_for_navigation(self.view)
         self.assertEqual(self.view.editor.textCursor().blockNumber(), after)
 
@@ -1208,8 +1263,10 @@ class BookmarkTests(unittest.TestCase):
         self.wait_render()
         self.assertEqual(self.bookmarks.strip.tabText(0), "(c) Important")
         self.view.set_source_active(True)
+        wait_source(self.view)
         self.bookmarks.activate(location.source)
-        self.assertEqual(self.view.source_view.editor.textCursor().blockNumber(), 5)
+        wait_source(self.view)
+        self.assertEqual(self.view.source_view.editor.caret.row, 5)
         self.assertEqual(len(self.view.source_view.lines), 50)
 
 
@@ -1237,14 +1294,18 @@ class BookmarkTests(unittest.TestCase):
         self.view.start_rendering(2, "sample.log", analysis, config)
         self.assertTrue(self.bookmarks.strip.isTabEnabled(0))
         self.view.set_source_active(True)
+        wait_source(self.view)
         self.assertTrue(self.bookmarks.strip.isTabEnabled(0))
         self.bookmarks.activate(location.source)
-        self.assertEqual(self.view.source_view.editor.textCursor().blockNumber(), 20)
+        wait_source(self.view)
+        self.assertEqual(self.view.source_view.editor.caret.row, 20)
         self.view.cancel_rendering()
         self.assertEqual(len(self.bookmarks.items), 1)
         self.assertEqual(self.bookmarks.strip.tabText(0), "Important")
         self.view.set_source_active(False)
+        wait_source(self.view)
         self.bookmarks.activate(location.source)
+        wait_source(self.view)
         self.assertFalse(self.view.source_active)
 
     def test_source_replacement_clears_bookmarks_even_without_result_model(self):
@@ -1274,6 +1335,7 @@ class BookmarkTests(unittest.TestCase):
         self.add()
         for active in (False, True):
             self.view.set_source_active(active)
+            wait_source(self.view)
             editor = self.view.source_view.editor if active else self.view.editor
             before = editor.font().pointSizeF()
             point = QPointF(editor.viewport().rect().center())

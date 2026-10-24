@@ -4,10 +4,11 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from qt_helpers import qt_application, retire_window, wait_source
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QContextMenuEvent, QFont, QFontDatabase, QTextCursor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QInputDialog, QMenu
+from PySide6.QtWidgets import QInputDialog, QMenu
 
 from qt_helpers import wait_for_search
 from logreader.config import LogreaderConfig
@@ -21,18 +22,18 @@ from logreader.ui.results.results_view import ResultsView
 class ContextTargetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+        cls.app = qt_application()
         if os.path.exists("C:/Windows/Fonts/consola.ttf"):
             QFontDatabase.addApplicationFont("C:/Windows/Fonts/consola.ttf")
 
     def setUp(self):
+        self.addCleanup(self.app.clipboard().clear)
         self.view = ResultsView()
         self.view.resize(720, 500)
         for editor in (self.view.editor, self.view.source_view.editor):
             editor.setFont(QFont("Consolas", 11))
         self.view.show()
-        self.addCleanup(self.view.deleteLater)
-        self.addCleanup(self.view.close)
+        self.addCleanup(retire_window, self.view)
         lines = ("ERROR: keep selected", "ERROR: adjacent", "ERROR: " + "wrapped text " * 35,
                  "", "ERROR: last")
         self.view.set_source(lines, 1005, snapshot_id="snapshot")
@@ -45,9 +46,11 @@ class ContextTargetTests(unittest.TestCase):
             QTest.qWait(5)
         self.assertFalse(self.view.is_rendering)
         self.app.processEvents()
+        wait_source(self.view)
 
     def editor_and_block(self, source, row):
         self.view.set_source_active(source)
+        wait_source(self.view)
         editor = self.view.source_view.editor if source else self.view.editor
         number = row if source else self.view._source_map.block(row)
         return editor, editor.document().findBlockByNumber(number)
@@ -127,6 +130,7 @@ class ContextTargetTests(unittest.TestCase):
             editor, _ = self.editor_and_block(source, 0)
             self.view.set_line_wrapping(True)
             self.app.processEvents()
+            wait_source(self.view)
             for row, gutter in ((2, False), (3, True)):
                 with self.subTest(source=source, row=row):
                     _, block = self.editor_and_block(source, row)
@@ -134,6 +138,7 @@ class ContextTargetTests(unittest.TestCase):
                     editor.setTextCursor(cursor)
                     editor.centerCursor()
                     self.app.processEvents()
+                    wait_source(self.view)
                     point = self.point_for(editor, block, last_visual_row=True)
 
                     def inspect(menu):
@@ -176,6 +181,7 @@ class ContextTargetTests(unittest.TestCase):
                 with editor.changing():
                     editor.set_top(TextPoint(row))
                 self.app.processEvents()
+                wait_source(self.view)
                 target = editor._block(row + 1)
                 selection = QTextCursor(editor._block(row))
                 selection.select(QTextCursor.SelectionType.BlockUnderCursor)
@@ -189,6 +195,7 @@ class ContextTargetTests(unittest.TestCase):
                     for start, end in ((row + 30, row + 50), (0, 30)):
                         editor.insert_range(start, end)
                         self.app.processEvents()
+                        wait_source(self.view)
                         self.assertEqual(editor._context_target, target)
                         self.assertEqual(target.text(), "ERROR: row 201")
                         self.assertEqual(editor.selected_text(), selected_text)
@@ -275,16 +282,19 @@ class ContextTargetTests(unittest.TestCase):
 
         self.right_click(editor, self.point_for(editor, target), inspect)
 
-    def test_source_page_replacement_and_view_switch_clear_target(self):
+    def test_source_replacement_and_view_switch_clear_target(self):
         editor, target = self.editor_and_block(True, 1)
 
         def inspect(menu):
-            self.view.source_view._load_page(0)
+            self.view.set_source(("replacement",), 1, snapshot_id="replacement")
             self.assertIsNone(editor._context_target)
 
         self.right_click(editor, self.point_for(editor, target), inspect)
+        editor = self.view.source_view.editor
+        wait_source(self.view)
         editor.set_context_target(editor.document().firstBlock())
         self.view.set_source_active(False)
+        wait_source(self.view)
         self.assertIsNone(editor._context_target)
 
 
