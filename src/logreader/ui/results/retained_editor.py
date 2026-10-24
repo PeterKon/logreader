@@ -78,10 +78,12 @@ class StyledWindowEditor(WindowedResultsEditor):
             if not isinstance(self.model.entry(row), int):
                 continue
             text = self.model.line(row).text
-            left = start.column if row == start.row else 0
-            right = end.column if row == end.row else self._units(row)
-            fragments.append(text.encode("utf-16-le", errors="surrogatepass")[left * 2:right * 2]
-                             .decode("utf-16-le", errors="surrogatepass"))
+            if row == start.row or row == end.row:
+                left = start.column * 2 if row == start.row else 0
+                right = end.column * 2 if row == end.row else None
+                text = text.encode("utf-16-le", errors="surrogatepass")[left:right].decode(
+                    "utf-16-le", errors="surrogatepass")
+            fragments.append(text)
             if row < end.row:
                 fragments.append("\n")
         return "".join(fragments)

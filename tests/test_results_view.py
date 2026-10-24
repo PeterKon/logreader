@@ -143,6 +143,16 @@ class ResultsViewTests(unittest.TestCase):
                     self.assertFalse(mime.hasHtml())
                     self.assertIn("needle\n\n", mime.text())
                     self.assertIn("-------->", mime.text())  # Actual source text survives.
+                    # Partial copy through the final structural row keeps raw
+                    # interior lines, duplicates, blanks and the trailing newline.
+                    start = self.cursor(0, 1).position()
+                    stop = editor.document().characterCount() - 1
+                    for anchor, caret in ((start, stop), (stop, start)):
+                        cursor = QTextCursor(editor.document())
+                        cursor.setPosition(anchor)
+                        cursor.setPosition(caret, QTextCursor.MoveMode.KeepAnchor)
+                        editor.setTextCursor(cursor)
+                        self.assertEqual(editor.createMimeDataFromSelection().text(), expected[1:])
                     cursor = editor.document().find("Performance results")
                     editor.setTextCursor(cursor)
                     self.assertEqual(editor.createMimeDataFromSelection().text(), "")
