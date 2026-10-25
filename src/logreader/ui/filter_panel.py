@@ -56,6 +56,27 @@ EXCLUSIVE_TOOLTIP = 'Only lines that match an "exclusive" item will qualify.'
 EXCLUDE_TOOLTIP = "Lines that match this item will not qualify."
 
 
+class SearchPatternMenu(TitleMenu):
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setStyleSheet(
+            TITLE_MENU_STYLE_SHEET
+            + "QMenu { min-width: 0; }"
+            + "QMenu::item { min-width: 140px; padding: 5px 30px 5px 10px; }"
+            + "QMenu::indicator { width: 0; height: 0; }"
+        )
+        self.setToolTipsVisible(True)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QPainter(self)
+        for action in self.actions():
+            if action.isVisible() and action.isChecked():
+                bounds = self.actionGeometry(action)
+                indicator = QRectF(bounds.right() - 25, bounds.center().y() - 8, 16, 16)
+                paint_checkmark(painter, indicator, enabled=action.isEnabled())
+
+
 class SearchPatternRow(QWidget):
     def __init__(self) -> None:
         super().__init__()
@@ -1175,11 +1196,7 @@ class FilterPanel(QGroupBox):
         self, row: SearchPatternRow, item: QListWidgetItem, position: QPoint,
         update_mode: Callable[[int, bool], None],
     ) -> None:
-        menu = TitleMenu(row)
-        menu.setStyleSheet(TITLE_MENU_STYLE_SHEET +
-                           "QMenu { min-width: 0; }"
-                           "QMenu::item { min-width: 160px; }")
-        menu.setToolTipsVisible(True)
+        menu = SearchPatternMenu(row)
         for label, role, tooltip in (
             ("Exclusive matching", EXCLUSIVE_ROLE, EXCLUSIVE_TOOLTIP),
             ("Exclude", EXCLUDE_ROLE, EXCLUDE_TOOLTIP),

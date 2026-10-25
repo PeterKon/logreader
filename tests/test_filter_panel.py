@@ -135,7 +135,7 @@ class FilterPanelTests(unittest.TestCase):
 
             point = QPoint(3, 3)
             event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, target.mapToGlobal(point))
-            with patch("logreader.ui.filter_panel.TitleMenu.exec", new=inspect):
+            with patch("logreader.ui.filter_panel.SearchPatternMenu.exec", new=inspect):
                 if via_button:
                     QTest.mouseMove(row, QPoint(row.width() // 2, row.height() // 2))
                     QTest.mouseClick(row.menu_button, Qt.MouseButton.LeftButton)

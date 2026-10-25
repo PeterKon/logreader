@@ -25,7 +25,7 @@ def trigger_pattern_action(pattern_list, index, text):
                 action.trigger()
 
     row = pattern_list.itemWidget(pattern_list.item(index))
-    with patch("logreader.ui.filter_panel.TitleMenu.exec", new=choose):
+    with patch("logreader.ui.filter_panel.SearchPatternMenu.exec", new=choose):
         row.customContextMenuRequested.emit(QPoint(3, 3))
     if chosen != [text]:
         raise AssertionError(f"Pattern menu did not offer {text!r}")
