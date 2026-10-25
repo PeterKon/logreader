@@ -839,7 +839,7 @@ class LogreaderWindow(TitleBarWindow):
         page = self._pages.widget(index)
         menu = DocumentTabMenu(self.title_menus)
         menu.setStyleSheet(
-            "QMenu { min-width: 0; padding-right: 3px; }"
+            "QMenu { min-width: 0; }"
             "QMenu::item { min-width: 160px; }"
         )
         close = menu.addAction("Close tab")

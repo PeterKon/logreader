@@ -1144,7 +1144,7 @@ class FilterPanel(QGroupBox):
     ) -> None:
         menu = TitleMenu(row)
         menu.setStyleSheet(TITLE_MENU_STYLE_SHEET +
-                           "QMenu { min-width: 0; padding-right: 3px; }"
+                           "QMenu { min-width: 0; }"
                            "QMenu::item { min-width: 160px; }")
         menu.setToolTipsVisible(True)
         action = menu.addAction("Exclusive matching")

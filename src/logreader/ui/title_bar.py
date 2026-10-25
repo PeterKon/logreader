@@ -24,10 +24,10 @@ TITLE_MENU_STYLE_SHEET = f"""
     QMenu {{
         background: {COLORS['ui_button']}; color: {COLORS['ui_text']};
         border: 1px solid {COLORS['ui_border']};
-        padding-left: 3px;
+        padding: 0;
         min-width: 180px;
     }}
-    QMenu::item {{ margin: 2px 0; padding: 3px 10px; border-radius: 3px; }}
+    QMenu::item {{ margin: 0; padding: 5px 10px; border-radius: 0; }}
     QMenu::item:selected:enabled {{ background: {COLORS['ui_button_hover']}; }}
     QMenu::item:disabled {{ color: {COLORS['ui_muted']}; }}
     QMenu::separator {{
