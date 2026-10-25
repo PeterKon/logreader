@@ -31,7 +31,7 @@ TITLE_MENU_STYLE_SHEET = f"""
     QMenu::item:selected:enabled {{ background: {COLORS['ui_button_hover']}; }}
     QMenu::item:disabled {{ color: {COLORS['ui_muted']}; }}
     QMenu::separator {{
-        height: 1px; background: rgba(255, 255, 255, 55); margin: 2px 6px;
+        height: 1px; background: rgba(255, 255, 255, 55); margin: 0 6px;
     }}
 """
 
