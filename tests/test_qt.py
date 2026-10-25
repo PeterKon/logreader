@@ -9,7 +9,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import qt_application, retire_window
+    from qt_helpers import qt_application, retire_window, trigger_pattern_action
     from qt_helpers import render_results, wait_for_navigation, wait_for_render, wait_for_search, wait_for_load
     from PySide6.QtCore import QEvent, QMimeData, QObject, QPoint, QPointF, Qt, QUrl
     from PySide6.QtGui import (
@@ -1395,15 +1395,13 @@ class LogreaderQtTests(unittest.TestCase):
             entry.setText(text)
             entry.returnPressed.emit()
         row = pattern_list.itemWidget(pattern_list.item(1))
-        exclude = row.findChild(QPushButton, "customPatternExcludeButton")
         case = row.findChild(QPushButton, "customPatternMatchCaseButton")
-        self.assertFalse(exclude.isChecked())
-        self.assertEqual(exclude.focusPolicy(), Qt.FocusPolicy.NoFocus)
-        exclude.click()
+        self.assertFalse(self.window.build_config().custom_pattern_exclude[1])
+        trigger_pattern_action(pattern_list, 1, "Exclude")
         self.assertFalse(case.isChecked())
         self.window.show()
         self.app.processEvents()
-        self.assertLess(exclude.geometry().right(), case.geometry().left())
+        self.assertLess(row.findChild(QLabel, "patternModeLabel").mapTo(row, QPoint()).x(), case.x())
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "exclude.log"
             path.write_text("ERROR: keep\nERROR: Skip\nERROR: skip\n", encoding="utf-8")
@@ -1415,13 +1413,13 @@ class LogreaderQtTests(unittest.TestCase):
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             self.assertEqual(self.window._document.session.analysis.category_match_counts["error_colon"], 2)
-            exclude.click()
+            trigger_pattern_action(pattern_list, 1, "Exclude")
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual(counts["error_colon"], 3)
             self.assertEqual(counts["custom_2"], 1)
-        exclude.click()
+        trigger_pattern_action(pattern_list, 1, "Exclude")
         first_row = pattern_list.itemWidget(pattern_list.item(0))
         first_row.findChild(QPushButton, "customPatternRemoveButton").click()
         config = self.window.build_config()
@@ -1436,23 +1434,19 @@ class LogreaderQtTests(unittest.TestCase):
             entry.setText(text)
             entry.returnPressed.emit()
         row = pattern_list.itemWidget(pattern_list.item(1))
-        exclude = row.findChild(QPushButton, "regexPatternExcludeButton")
         case = row.findChild(QPushButton, "regexPatternMatchCaseButton")
         self.assertFalse(case.isChecked())
-        self.assertFalse(exclude.isChecked())
-        self.assertEqual(exclude.focusPolicy(), Qt.FocusPolicy.NoFocus)
-        self.assertEqual(exclude.toolTip(), "Click for this pattern to exclude matches")
+        self.assertFalse(self.window.build_config().regex_pattern_exclude[1])
         self.window.show()
         self.app.processEvents()
         remove = row.findChild(QPushButton, "regexPatternRemoveButton")
-        self.assertLess(exclude.geometry().right(), remove.geometry().left())
+        self.assertLess(case.geometry().right(), remove.geometry().left())
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "regex-exclude.log"
             path.write_text("ERROR: keep\nERROR: skip42\nERROR: SKIP42\n", encoding="utf-8")
             self._stage_file(path)
-            QTest.mouseClick(exclude, Qt.MouseButton.LeftButton)
-            self.assertFalse(exclude.hasFocus())
-            self.assertEqual(exclude.toolTip(), "Click for this pattern to not exclude matches")
+            trigger_pattern_action(pattern_list, 1, "Exclude")
+            self.assertEqual(row.findChild(QLabel, "patternModeLabel").text(), "(excluded)")
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             counts = self.window._document.session.analysis.category_match_counts
@@ -1463,13 +1457,13 @@ class LogreaderQtTests(unittest.TestCase):
             counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual(counts["error_colon"], 2)
             case.click()
-            exclude.click()
+            trigger_pattern_action(pattern_list, 1, "Exclude")
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual(counts["error_colon"], 3)
             self.assertEqual(counts["regex_2"], 2)
-        exclude.click()
+        trigger_pattern_action(pattern_list, 1, "Exclude")
         pattern_list.itemWidget(pattern_list.item(0)).findChild(
             QPushButton, "regexPatternRemoveButton",
         ).click()

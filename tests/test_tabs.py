@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import qt_application, retire_window, wait_source
+    from qt_helpers import qt_application, retire_window, wait_source, trigger_pattern_action
     from qt_helpers import wait_for_search, capture_analysis, wait_for_load
     from PySide6.QtCore import QPoint, QPointF, Qt
     from PySide6.QtGui import QKeySequence, QTextCursor, QWheelEvent
@@ -439,10 +439,10 @@ class TabTests(unittest.TestCase):
         first.findChild(QPushButton, "customPatternAddButton").click()
         # Exercise the per-item match-case and exclusion flags as well.
         first.findChild(QPushButton, "customPatternMatchCaseButton").setChecked(True)
-        first.findChild(QPushButton, "customPatternExcludeButton").setChecked(True)
+        trigger_pattern_action(first.filter_panel._custom_pattern_list, 0, "Exclude")
         first.findChild(QLineEdit, "regexPattern").setText("ignored.*")
         first.findChild(QPushButton, "regexPatternAddButton").click()
-        first.findChild(QPushButton, "regexPatternExcludeButton").setChecked(True)
+        trigger_pattern_action(first.filter_panel._regex_pattern_list, 0, "Exclude")
         first.findChild(QLineEdit, "customPattern").setText("unfinished text")
         first.findChild(QLineEdit, "regexPattern").setText("unfinished [")
         before_config = first.build_config()

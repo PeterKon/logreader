@@ -53,6 +53,7 @@ MATCH_CASE_ROLE = Qt.ItemDataRole.UserRole + 1
 EXCLUDE_ROLE = Qt.ItemDataRole.UserRole + 2
 EXCLUSIVE_ROLE = Qt.ItemDataRole.UserRole + 3
 EXCLUSIVE_TOOLTIP = 'Only lines that match an "exclusive" item will qualify.'
+EXCLUDE_TOOLTIP = "Lines that match this item will not qualify."
 
 
 class SearchPatternRow(QWidget):
@@ -103,12 +104,6 @@ class SearchOptionButton(QPushButton):
         self._update_tooltip(False)
 
     def _update_tooltip(self, checked: bool) -> None:
-        if self._action == "excluding matches":
-            self.setToolTip(
-                "Click for this pattern to not exclude matches"
-                if checked else "Click for this pattern to exclude matches"
-            )
-            return
         self.setToolTip(
             f"Click to disable {self._action}"
             if checked else f"Click to enable {self._action}"
@@ -1050,6 +1045,8 @@ class FilterPanel(QGroupBox):
         item.setData(Qt.ItemDataRole.UserRole, pattern)
         item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
         item.setData(EXCLUSIVE_ROLE, False)
+        item.setData(EXCLUDE_ROLE, False)
+        item.setData(MATCH_CASE_ROLE, False)
         item.setSizeHint(QSize(0, 18))
         pattern_list.addItem(item)
 
@@ -1079,47 +1076,40 @@ class FilterPanel(QGroupBox):
             preset_label.setObjectName("regexPresetLabel")
             preset_label.setToolTip(pattern)
             text_layout.addWidget(preset_label)
-        exclusive_label = QLabel("(exclusive)")
-        exclusive_label.setObjectName("exclusivePatternLabel")
-        exclusive_label.setToolTip(EXCLUSIVE_TOOLTIP)
-        exclusive_label.hide()
-        text_layout.addWidget(exclusive_label)
+        mode_label = QLabel()
+        mode_label.setObjectName("patternModeLabel")
+        text_layout.addWidget(mode_label)
 
-        def update_exclusive(checked: bool) -> None:
-            item.setData(EXCLUSIVE_ROLE, checked)
-            exclusive_label.setVisible(checked)
+        def update_mode(role: int, checked: bool) -> None:
+            if checked:
+                item.setData(EXCLUDE_ROLE if role == EXCLUSIVE_ROLE else EXCLUSIVE_ROLE, False)
+            item.setData(role, checked)
+            exclusive = bool(item.data(EXCLUSIVE_ROLE))
+            excluded = bool(item.data(EXCLUDE_ROLE))
+            annotation = "(exclusive)" if exclusive else "(excluded)" if excluded else ""
+            mode_label.setText(annotation)
+            color = THEME_COLORS["ui_exclusive" if exclusive else "ui_excluded"]
+            mode_label.setStyleSheet(f"color: {color};")
+            mode_label.setToolTip(EXCLUSIVE_TOOLTIP if exclusive else EXCLUDE_TOOLTIP)
+            mode_label.setVisible(bool(annotation))
             item.setData(Qt.ItemDataRole.AccessibleTextRole,
-                         f"{label} (exclusive)" if checked else label)
+                         f"{label} {annotation}" if annotation else label)
             text_row.setMaximumWidth(
                 item_label.sizeHint().width()
                 + (preset_label.sizeHint().width() + 4 if preset_name else 0)
-                + (exclusive_label.sizeHint().width() + 4 if checked else 0)
+                + (mode_label.sizeHint().width() + 4 if annotation else 0)
             )
-            if checked:
-                exclude_button.setChecked(False)
 
         prefix = "customPattern" if is_custom else "regexPattern"
-        options = [
-            ("Exclude", EXCLUDE_ROLE, "excluding matches", f"{prefix}ExcludeButton"),
-            ("Case", MATCH_CASE_ROLE, "matching case", f"{prefix}MatchCaseButton"),
-        ]
-        for text, role, action, object_name in options:
-            item.setData(role, False)
-            button = SearchOptionButton(text, label, action, object_name)
-            button.toggled.connect(
-                lambda checked, list_item=item, data_role=role:
-                list_item.setData(data_role, checked)
-            )
-            item_layout.addWidget(button)
-            if role == EXCLUDE_ROLE:
-                exclude_button = button
-                item_row._first_option = button
-                button.toggled.connect(lambda checked: update_exclusive(False) if checked else None)
+        case_button = SearchOptionButton("Case", label, "matching case", f"{prefix}MatchCaseButton")
+        case_button.toggled.connect(lambda checked: item.setData(MATCH_CASE_ROLE, checked))
+        item_layout.addWidget(case_button)
+        item_row._first_option = case_button
 
-        update_exclusive(False)
+        update_mode(EXCLUSIVE_ROLE, False)
         item_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         item_row.customContextMenuRequested.connect(
-            lambda position: self._show_pattern_menu(item_row, item, position, update_exclusive)
+            lambda position: self._show_pattern_menu(item_row, item, position, update_mode)
         )
 
         remove_button = QPushButton("-")
@@ -1140,18 +1130,22 @@ class FilterPanel(QGroupBox):
 
     def _show_pattern_menu(
         self, row: SearchPatternRow, item: QListWidgetItem, position: QPoint,
-        update_exclusive: Callable[[bool], None],
+        update_mode: Callable[[int, bool], None],
     ) -> None:
         menu = TitleMenu(row)
         menu.setStyleSheet(TITLE_MENU_STYLE_SHEET +
                            "QMenu { min-width: 0; }"
                            "QMenu::item { min-width: 160px; }")
         menu.setToolTipsVisible(True)
-        action = menu.addAction("Exclusive matching")
-        action.setCheckable(True)
-        action.setChecked(bool(item.data(EXCLUSIVE_ROLE)))
-        action.setToolTip(EXCLUSIVE_TOOLTIP)
-        action.triggered.connect(update_exclusive)
+        for label, role, tooltip in (
+            ("Exclusive matching", EXCLUSIVE_ROLE, EXCLUSIVE_TOOLTIP),
+            ("Exclude", EXCLUDE_ROLE, EXCLUDE_TOOLTIP),
+        ):
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(bool(item.data(role)))
+            action.setToolTip(tooltip)
+            action.triggered.connect(lambda checked, role=role: update_mode(role, checked))
         row.set_context_target(True)
         try:
             menu.exec(row.mapToGlobal(position))

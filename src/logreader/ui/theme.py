@@ -18,6 +18,8 @@ THEME_COLORS = {
     "ui_menu_text": "#c5cdd5",
     "ui_muted": "#9aa7b5",
     "ui_accent": "#79c0ff",
+    "ui_exclusive": "#7ee787",
+    "ui_excluded": "#ff7b72",
     "ui_button": "#263445",
     "ui_button_hover": "#32445a",
     "ui_button_pressed": "#1d2937",

@@ -7,6 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
+    from qt_helpers import trigger_pattern_action
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtGui import QColor, QContextMenuEvent
     from PySide6.QtTest import QTest
@@ -93,7 +94,7 @@ class FilterPanelTests(unittest.TestCase):
         self.assertTrue(config.combined_view)
 
     def test_exclusive_context_menu_targets_rows_and_coordinates_with_exclude(self):
-        from logreader.ui.filter_panel import EXCLUSIVE_TOOLTIP
+        from logreader.ui.filter_panel import EXCLUDE_TOOLTIP, EXCLUSIVE_TOOLTIP
         from logreader.ui.theme import THEME_COLORS
 
         self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
@@ -107,7 +108,7 @@ class FilterPanelTests(unittest.TestCase):
         self.panel.show()
         self.app.processEvents()
 
-        def toggle_from(target, expected_checked, *, activate=True):
+        def toggle_from(target, expected_checked, *, activate=True, action_name="Exclusive matching"):
             observed = []
             borders = []
             border_ends = []
@@ -121,9 +122,9 @@ class FilterPanelTests(unittest.TestCase):
                 return image.pixelColor(0, image.height() // 2) == accent
 
             def inspect(menu, position):
-                action = menu.actions()[0]
+                action = next(action for action in menu.actions() if action.text() == action_name)
                 observed.append((action.text(), action.isChecked(), action.toolTip(),
-                                 menu.toolTipsVisible()))
+                                 menu.toolTipsVisible(), [a.text() for a in menu.actions()]))
                 borders.append([candidate for candidate in rows if outlined(candidate)])
                 image = row.grab().toImage()
                 border_ends.append(max(x for x in range(image.width())
@@ -135,9 +136,11 @@ class FilterPanelTests(unittest.TestCase):
             event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, target.mapToGlobal(point))
             with patch("logreader.ui.filter_panel.TitleMenu.exec", new=inspect):
                 self.app.sendEvent(target, event)
-            self.assertEqual(observed, [("Exclusive matching", expected_checked, EXCLUSIVE_TOOLTIP, True)])
+            tooltip = EXCLUSIVE_TOOLTIP if action_name == "Exclusive matching" else EXCLUDE_TOOLTIP
+            self.assertEqual(observed, [(action_name, expected_checked, tooltip, True,
+                                         ["Exclusive matching", "Exclude"])])
             self.assertEqual(borders, [[row]])
-            self.assertTrue(all(0 < exclude.x() - end <= row.layout().spacing()
+            self.assertTrue(all(0 < case.x() - end <= row.layout().spacing()
                                 for end in border_ends))
             self.assertFalse(any(outlined(candidate) for candidate in rows))
 
@@ -149,11 +152,19 @@ class FilterPanelTests(unittest.TestCase):
                 item = pattern_list.item(index)
                 row = pattern_list.itemWidget(item)
                 label = row.findChild(QLabel)
-                annotation = row.findChild(QLabel, "exclusivePatternLabel")
-                exclude = row.findChild(QPushButton, prefix + "ExcludeButton")
-                exclude.click()
+                annotation = row.findChild(QLabel, "patternModeLabel")
+                case = row.findChild(QPushButton, prefix + "MatchCaseButton")
+                self.assertEqual([button.text() for button in row.findChildren(QPushButton)], ["Case", "-"])
+                toggle_from(label, False, action_name="Exclude")
+                self.assertEqual(annotation.text(), "(excluded)")
+                self.assertFalse(annotation.isHidden())
+                self.assertEqual(annotation.toolTip(), EXCLUDE_TOOLTIP)
+                self.assertIn("(excluded)", item.data(Qt.ItemDataRole.AccessibleTextRole))
+                self.assertEqual(self.panel._exclusions_label.text(), "1 exclusion")
+                self.assertFalse(self.panel._exclusions_label.isHidden())
                 toggle_from(label, False)
-                self.assertFalse(exclude.isChecked())
+                self.assertFalse(getattr(self.panel.build_config(), f"{kind}_pattern_exclude")[index])
+                self.assertTrue(self.panel._exclusions_label.isHidden())
                 self.assertFalse(annotation.isHidden())
                 self.assertEqual(annotation.text(), "(exclusive)")
                 self.assertEqual(annotation.toolTip(), EXCLUSIVE_TOOLTIP)
@@ -161,13 +172,16 @@ class FilterPanelTests(unittest.TestCase):
                 self.assertIn("(exclusive)", item.data(Qt.ItemDataRole.AccessibleTextRole))
                 if kind == "regex":
                     self.assertFalse(row.findChild(QLabel, "regexPresetLabel").isHidden())
-                toggle_from(exclude, True)
+                toggle_from(case, True)
                 self.assertTrue(annotation.isHidden())
                 toggle_from(row, False)
                 toggle_from(label, True, activate=False)
-                exclude.click()
-                self.assertTrue(annotation.isHidden())
+                toggle_from(row, False, action_name="Exclude")
+                self.assertEqual(annotation.text(), "(excluded)")
                 self.assertFalse(getattr(self.panel.build_config(), f"{kind}_pattern_exclusive")[index])
+                toggle_from(row, True, action_name="Exclude")
+                self.assertTrue(annotation.isHidden())
+                self.assertFalse(getattr(self.panel.build_config(), f"{kind}_pattern_exclude")[index])
                 toggle_from(row, False)
 
         self.assertEqual(self.panel.build_config().custom_pattern_exclusive, (False, True))
@@ -332,7 +346,7 @@ class FilterPanelTests(unittest.TestCase):
         self.panel._custom_pattern.setText("CaseSensitive")
         QTest.keyClick(self.panel._custom_pattern, Qt.Key.Key_Return)
         self.panel.findChild(QPushButton, "customPatternMatchCaseButton").click()
-        self.panel.findChild(QPushButton, "customPatternExcludeButton").click()
+        trigger_pattern_action(self.panel._custom_pattern_list, 0, "Exclude")
         self.panel._regex_pattern.setText(r"^ERROR\b")
         self.panel.add_regex_pattern()
         self.panel.findChild(QPushButton, "regexPatternMatchCaseButton").click()

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, QThreadPool
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QThreadPool
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -13,6 +13,22 @@ from PySide6.QtWidgets import QApplication
 from logreader.document_session import LoadPhase
 from logreader.workers.load_worker import LoadWorker
 from logreader.workers.work_queue import WorkQueue
+
+
+def trigger_pattern_action(pattern_list, index, text):
+    chosen = []
+
+    def choose(menu, position):
+        for action in menu.actions():
+            if action.text() == text:
+                chosen.append(text)
+                action.trigger()
+
+    row = pattern_list.itemWidget(pattern_list.item(index))
+    with patch("logreader.ui.filter_panel.TitleMenu.exec", new=choose):
+        row.customContextMenuRequested.emit(QPoint(3, 3))
+    if chosen != [text]:
+        raise AssertionError(f"Pattern menu did not offer {text!r}")
 
 
 def qt_application():
