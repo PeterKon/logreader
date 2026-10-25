@@ -14,6 +14,8 @@ try:
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
+        QDialog,
+        QDialogButtonBox,
         QGroupBox,
         QLabel,
         QLineEdit,
@@ -33,7 +35,7 @@ try:
         SYSTEM_RUNTIME_PATTERN_KEYS,
         TEXT_PATTERN_KEYS,
     )
-    from logreader.ui.filter_panel import FilterPanel
+    from logreader.ui.filter_panel import FilterPanel, PatternEditDialog
     from logreader.ui.qt_app import INTERFACE_STYLE_SHEET
     from logreader.core import analyze_lines
 except ModuleNotFoundError:
@@ -144,7 +146,7 @@ class FilterPanelTests(unittest.TestCase):
                     self.app.sendEvent(target, event)
             tooltip = EXCLUSIVE_TOOLTIP if action_name == "Exclusive matching" else EXCLUDE_TOOLTIP
             self.assertEqual(observed, [(action_name, expected_checked, tooltip, True,
-                                         ["Exclusive matching", "Exclude"])])
+                                         ["Exclusive matching", "Exclude", "", "Edit"])])
             self.assertEqual(borders, [[row]])
             self.assertTrue(all(row.menu_button.geometry().right() < end < case.x()
                                 and case.x() - end <= row.layout().spacing()
@@ -206,6 +208,152 @@ class FilterPanelTests(unittest.TestCase):
         result = analyze_lines(["beta ERROR", "other ERROR"], self.panel.build_config().search_patterns())
         self.assertEqual(result.category_match_counts["custom_1"], 1)
         self.assertEqual(result.category_match_counts["error"], 1)
+
+    def test_edit_preserves_position_options_and_drafts(self):
+        for kind, entry, pattern_list, add, prefix in (
+            ("custom", self.panel._custom_pattern, self.panel._custom_pattern_list,
+             self.panel.add_custom_pattern, "customPattern"),
+            ("regex", self.panel._regex_pattern, self.panel._regex_pattern_list,
+             self.panel.add_regex_pattern, "regexPattern"),
+        ):
+            for pattern in ("first", "typo", "last"):
+                entry.setText(pattern)
+                add()
+            entry.setText("unfinished draft")
+            item = pattern_list.item(1)
+            pattern_list.itemWidget(item).findChild(QPushButton, prefix + "MatchCaseButton").click()
+            for mode in ("Exclusive matching", "Exclude"):
+                with self.subTest(kind=kind, mode=mode):
+                    trigger_pattern_action(pattern_list, 1, mode)
+                    before = self.panel.build_config()
+                    replacement = "corrected" if mode == "Exclusive matching" else "<refined>"
+
+                    def edit(dialog):
+                        self.assertEqual(dialog.editor.toPlainText(), getattr(before, kind + "_patterns")[1])
+                        dialog.editor.setPlainText(replacement)
+                        self.assertEqual(self.panel.build_config(), before)
+                        dialog.accept()
+                        return dialog.result()
+
+                    with patch.object(PatternEditDialog, "exec", new=edit):
+                        trigger_pattern_action(pattern_list, 1, "Edit")
+                    after = self.panel.build_config()
+                    self.assertIs(pattern_list.item(1), item)
+                    self.assertEqual(getattr(after, kind + "_patterns"), ("first", replacement, "last"))
+                    for option in ("match_case", "exclude", "exclusive"):
+                        field = kind + "_pattern_" + option
+                        self.assertEqual(getattr(after, field), getattr(before, field))
+                    row = pattern_list.itemWidget(item)
+                    self.assertEqual(row.findChild(QLabel).text(), replacement)
+                    self.assertEqual(row.findChild(QLabel).textFormat(), Qt.TextFormat.PlainText)
+                    self.assertEqual(row.findChild(QLabel).toolTip(), replacement)
+                    self.assertTrue(row.findChild(QPushButton, prefix + "MatchCaseButton").isChecked())
+                    self.assertIn(replacement, item.data(Qt.ItemDataRole.AccessibleTextRole))
+                    self.assertEqual(row.menu_button.accessibleName(), "Options for " + replacement)
+                    self.assertEqual(row.findChild(QPushButton, prefix + "RemoveButton").toolTip(),
+                                     "Remove " + replacement)
+                    self.assertEqual(entry.text(), "unfinished draft")
+                    self.assertEqual(after.label_for(kind + "_2"), replacement)
+                    result = analyze_lines([replacement, replacement.upper()], after.search_patterns())
+                    if mode == "Exclusive matching":
+                        self.assertEqual(result.category_match_counts[kind + "_2"], 1)
+
+    def test_edit_preset_names_follow_expression_including_collisions(self):
+        menu = self.panel.findChild(QPushButton, "regexPresetButton").menu()
+        preset_action = menu.actions()[0]
+        preset_action.trigger()
+        pattern_list = self.panel._regex_pattern_list
+        item = pattern_list.item(0)
+        original = self.panel.build_config().regex_patterns[0]
+        for replacement in (original, r"custom\d+", original, menu.actions()[1].data()):
+            with self.subTest(replacement=replacement):
+                def edit(dialog):
+                    dialog.editor.setPlainText(replacement)
+                    dialog.accept()
+                    return dialog.result()
+
+                with patch.object(PatternEditDialog, "exec", new=edit):
+                    trigger_pattern_action(pattern_list, 0, "Edit")
+                from logreader.regex_presets import REGEX_PRESET_NAMES
+                name = REGEX_PRESET_NAMES.get(replacement)
+                row = pattern_list.itemWidget(item)
+                self.assertEqual(row.findChild(QLabel).text(), name or replacement)
+                self.assertEqual(row.findChild(QLabel, "regexPresetLabel") is not None, name is not None)
+                self.assertEqual(self.panel.build_config().label_for("regex_1"),
+                                 f"{name} (regex)" if name else replacement)
+                menu.aboutToShow.emit()
+                self.assertEqual(preset_action.isEnabled(), replacement != original)
+
+    def test_edit_validation_and_cancel_leave_original_intact(self):
+        self.panel._regex_pattern.setText(r"valid\d+")
+        self.panel.add_regex_pattern()
+        before = self.panel.build_config()
+        row = self.panel._regex_pattern_list.itemWidget(self.panel._regex_pattern_list.item(0))
+
+        def cancel(dialog):
+            dialog.show()
+            buttons = dialog.findChild(QDialogButtonBox)
+            for invalid, message in (("  ", "Pattern cannot be empty."), ("[", "Invalid regex:")):
+                dialog.editor.setPlainText(invalid)
+                buttons.button(QDialogButtonBox.StandardButton.Save).click()
+                self.assertTrue(dialog.isVisible())
+                self.assertTrue(dialog.error_label.text().startswith(message))
+                self.assertEqual(self.panel.build_config(), before)
+            dialog.editor.setPlainText("changed")
+            buttons.button(QDialogButtonBox.StandardButton.Cancel).click()
+            return dialog.result()
+
+        with patch.object(PatternEditDialog, "exec", new=cancel):
+            trigger_pattern_action(self.panel._regex_pattern_list, 0, "Edit")
+        self.assertEqual(self.panel.build_config(), before)
+        self.assertIs(self.panel._regex_pattern_list.itemWidget(self.panel._regex_pattern_list.item(0)), row)
+
+        def correct(dialog):
+            dialog.editor.setPlainText("[")
+            dialog.accept()
+            dialog.editor.setPlainText(r"  fixed\d+  ")
+            dialog.accept()
+            self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
+            return dialog.result()
+
+        with patch.object(PatternEditDialog, "exec", new=correct):
+            trigger_pattern_action(self.panel._regex_pattern_list, 0, "Edit")
+        self.assertEqual(self.panel.build_config().regex_patterns, (r"fixed\d+",))
+
+    def test_pattern_editor_rejects_line_breaks_but_accepts_regex_escapes(self):
+        dialog = PatternEditDialog("original", is_regex=True, parent=self.panel)
+        dialog.show()
+        editor = dialog.editor
+        clipboard = self.app.clipboard()
+        previous_text = clipboard.text()
+        try:
+            for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                for modifier in (Qt.KeyboardModifier.NoModifier, Qt.KeyboardModifier.ShiftModifier,
+                                 Qt.KeyboardModifier.ControlModifier):
+                    QTest.keyClick(editor, key, modifier)
+                    self.assertEqual(editor.toPlainText(), "original")
+                    self.assertTrue(dialog.isVisible())
+            for line_break in ("\n", "\r", "\r\n", "\u2028", "\u2029"):
+                with self.subTest(line_break=repr(line_break)):
+                    editor.selectAll()
+                    clipboard.setText("first" + line_break + "second")
+                    editor.paste()
+                    self.assertEqual(editor.toPlainText(), "original")
+                    editor.setPlainText("first" + line_break + "second")
+                    dialog.accept()
+                    self.assertTrue(dialog.isVisible())
+                    self.assertEqual(dialog.error_label.text(), "Pattern must be on one line.")
+                    editor.setPlainText("original")
+            editor.selectAll()
+            clipboard.setText(r"first\nsecond")
+            editor.paste()
+            self.assertEqual(editor.toPlainText(), r"first\nsecond")
+            dialog.accept()
+            self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
+        finally:
+            clipboard.setText(previous_text)
+            dialog.close()
+            dialog.deleteLater()
 
     def test_pattern_hover_reveals_menu_without_moving_controls(self):
         self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)

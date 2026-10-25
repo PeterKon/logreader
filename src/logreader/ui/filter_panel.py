@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from typing import Callable
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen, QRegion, QValidator
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPalette, QPen, QRegion, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -17,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -54,6 +58,87 @@ EXCLUDE_ROLE = Qt.ItemDataRole.UserRole + 2
 EXCLUSIVE_ROLE = Qt.ItemDataRole.UserRole + 3
 EXCLUSIVE_TOOLTIP = 'Only lines that match an "exclusive" item will qualify.'
 EXCLUDE_TOOLTIP = "Lines that match this item will not qualify."
+
+
+class PatternEditor(QPlainTextEdit):
+    @staticmethod
+    def has_line_break(text: str) -> bool:
+        return any(character in text for character in "\r\n\u2028\u2029")
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def canInsertFromMimeData(self, source) -> bool:  # noqa: N802
+        return not self.has_line_break(source.text()) and super().canInsertFromMimeData(source)
+
+    def insertFromMimeData(self, source) -> None:  # noqa: N802
+        if self.canInsertFromMimeData(source):
+            super().insertFromMimeData(source)
+
+
+class PatternEditDialog(QDialog):
+    def __init__(self, pattern: str, *, is_regex: bool, parent: QWidget) -> None:
+        super().__init__(parent)
+        self._is_regex = is_regex
+        self.setObjectName("patternEditDialog")
+        self.setWindowTitle("Edit regex" if is_regex else "Edit pattern")
+        self.resize(680, 300)
+        self.setMinimumSize(400, 220)
+        self.setStyleSheet(f"""
+            QDialog#patternEditDialog {{ background: {THEME_COLORS['ui_canvas']}; }}
+            QPlainTextEdit {{
+                background: {THEME_COLORS['ui_field']}; color: {THEME_COLORS['ui_text']};
+                border: 1px solid {THEME_COLORS['ui_border_strong']};
+                border-radius: 4px; padding: 6px;
+                selection-background-color: {THEME_COLORS['selection']};
+                selection-color: #ffffff;
+            }}
+            QPlainTextEdit:focus {{ border-color: {THEME_COLORS['ui_accent']}; }}
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+        self.editor = PatternEditor(pattern)
+        self.editor.setAccessibleName("Regex" if is_regex else "Pattern")
+        self.editor.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.editor.setTabChangesFocus(True)
+        layout.addWidget(self.editor)
+        self.error_label = QLabel()
+        self.error_label.setWordWrap(True)
+        self.error_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.error_label.setStyleSheet(f"color: {THEME_COLORS['ui_excluded']};")
+        self.error_label.hide()
+        layout.addWidget(self.error_label)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.editor.setFocus()
+
+    def pattern(self) -> str:
+        return self.editor.toPlainText().strip()
+
+    def accept(self) -> None:
+        pattern = self.pattern()
+        error = "Pattern cannot be empty." if not pattern else ""
+        if self.editor.has_line_break(self.editor.toPlainText()):
+            error = "Pattern must be on one line."
+        if not error and self._is_regex:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                error = f"Invalid regex: {exc}"
+        if error:
+            self.error_label.setText(error)
+            self.error_label.show()
+            self.editor.setFocus()
+            return
+        super().accept()
 
 
 class SearchPatternMenu(TitleMenu):
@@ -1094,17 +1179,28 @@ class FilterPanel(QGroupBox):
         if not pattern:
             return
 
-        is_custom = pattern_list is self._custom_pattern_list
-        preset_name = None if is_custom else REGEX_PRESET_NAMES.get(pattern)
-        label = preset_name or pattern
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, pattern)
-        item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
         item.setData(EXCLUSIVE_ROLE, False)
         item.setData(EXCLUDE_ROLE, False)
         item.setData(MATCH_CASE_ROLE, False)
         item.setSizeHint(QSize(0, 18))
         pattern_list.addItem(item)
+        self._set_search_list_item_widget(pattern_list, item, remove_button_object_name, remove_handler)
+
+        if from_draft:
+            input_box.clear()
+        input_box.setFocus()
+        self._update_summary()
+
+    def _set_search_list_item_widget(
+        self, pattern_list: QListWidget, item: QListWidgetItem,
+        remove_button_object_name: str, remove_handler: Callable[[QListWidgetItem], None],
+    ) -> None:
+        pattern = str(item.data(Qt.ItemDataRole.UserRole))
+        is_custom = pattern_list is self._custom_pattern_list
+        preset_name = None if is_custom else REGEX_PRESET_NAMES.get(pattern)
+        label = preset_name or pattern
 
         item_row = SearchPatternRow()
         item_row.setFixedHeight(18)
@@ -1112,6 +1208,7 @@ class FilterPanel(QGroupBox):
         item_layout.setContentsMargins(4, 0, 2, 0)
         item_layout.setSpacing(4)
         item_label = QLabel(label)
+        item_label.setTextFormat(Qt.TextFormat.PlainText)
         item_label_font = item_label.font()
         item_label_font.setBold(False)
         item_label_font.setWeight(QFont.Weight.Normal)
@@ -1158,21 +1255,33 @@ class FilterPanel(QGroupBox):
 
         prefix = "customPattern" if is_custom else "regexPattern"
         case_button = SearchOptionButton("Case", label, "matching case", f"{prefix}MatchCaseButton")
+        case_button.setChecked(bool(item.data(MATCH_CASE_ROLE)))
         case_button.toggled.connect(lambda checked: item.setData(MATCH_CASE_ROLE, checked))
         item_layout.addWidget(item_row.menu_button)
         item_layout.addWidget(case_button)
         item_row._first_option = case_button
 
-        update_mode(EXCLUSIVE_ROLE, False)
+        def edit_pattern() -> None:
+            dialog = PatternEditDialog(pattern, is_regex=not is_custom, parent=self)
+            try:
+                if dialog.exec() == QDialog.DialogCode.Accepted and dialog.pattern() != pattern:
+                    item.setData(Qt.ItemDataRole.UserRole, dialog.pattern())
+                    self._set_search_list_item_widget(
+                        pattern_list, item, remove_button_object_name, remove_handler,
+                    )
+            finally:
+                dialog.deleteLater()
+
+        update_mode(EXCLUSIVE_ROLE, bool(item.data(EXCLUSIVE_ROLE)))
         item_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         item_row.customContextMenuRequested.connect(
-            lambda position: self._show_pattern_menu(item_row, item, position, update_mode)
+            lambda position: self._show_pattern_menu(item_row, item, position, update_mode, edit_pattern)
         )
         item_row.menu_button.setAccessibleName(f"Options for {label}")
         item_row.menu_button.clicked.connect(
             lambda: self._show_pattern_menu(
                 item_row, item,
-                item_row.menu_button.geometry().bottomLeft() + QPoint(0, 1), update_mode,
+                item_row.menu_button.geometry().bottomLeft() + QPoint(0, 1), update_mode, edit_pattern,
             )
         )
 
@@ -1187,14 +1296,10 @@ class FilterPanel(QGroupBox):
         item_layout.addWidget(remove_button)
         pattern_list.setItemWidget(item, item_row)
 
-        if from_draft:
-            input_box.clear()
-        input_box.setFocus()
-        self._update_summary()
-
     def _show_pattern_menu(
         self, row: SearchPatternRow, item: QListWidgetItem, position: QPoint,
         update_mode: Callable[[int, bool], None],
+        edit_pattern: Callable[[], None],
     ) -> None:
         menu = SearchPatternMenu(row)
         for label, role, tooltip in (
@@ -1206,12 +1311,22 @@ class FilterPanel(QGroupBox):
             action.setChecked(bool(item.data(role)))
             action.setToolTip(tooltip)
             action.triggered.connect(lambda checked, role=role: update_mode(role, checked))
+        menu.addSeparator()
+        edit_requested = False
+
+        def request_edit() -> None:
+            nonlocal edit_requested
+            edit_requested = True
+
+        menu.addAction("Edit").triggered.connect(request_edit)
         row.set_context_target(True)
         try:
             menu.exec(row.mapToGlobal(position))
         finally:
             row.set_context_target(False)
             menu.deleteLater()
+        if edit_requested:
+            edit_pattern()
 
     def _update_regex_preset_menu(self, menu: QMenu) -> None:
         expressions = set(self._list_values(self._regex_pattern_list))
