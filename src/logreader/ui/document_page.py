@@ -246,7 +246,7 @@ class DocumentPage(QWidget):
             return
         patterns = config.search_patterns()
         request = self.session.begin_analysis(
-            config, sum(not pattern.exclude for pattern in patterns),
+            config, sum(not (pattern.exclude or pattern.exclusive) for pattern in patterns),
         )
         lines = self.session.lines[-config.max_lines_scanned:]
         worker = AnalysisWorker(

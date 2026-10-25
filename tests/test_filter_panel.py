@@ -206,7 +206,8 @@ class FilterPanelTests(unittest.TestCase):
         self.panel.remove_custom_pattern(self.panel._custom_pattern_list.item(0))
         self.assertEqual(self.panel.build_config().custom_pattern_exclusive, (True,))
         result = analyze_lines(["beta ERROR", "other ERROR"], self.panel.build_config().search_patterns())
-        self.assertEqual(result.category_match_counts["custom_1"], 1)
+        self.assertNotIn("custom_1", result.category_match_counts)
+        self.assertNotIn("regex_1", result.category_match_counts)
         self.assertEqual(result.category_match_counts["error"], 1)
 
     def test_edit_preserves_position_options_and_drafts(self):
@@ -254,9 +255,11 @@ class FilterPanelTests(unittest.TestCase):
                                      "Remove " + replacement)
                     self.assertEqual(entry.text(), "unfinished draft")
                     self.assertEqual(after.label_for(kind + "_2"), replacement)
-                    result = analyze_lines([replacement, replacement.upper()], after.search_patterns())
+                    result = analyze_lines([replacement + " ERROR", replacement.upper() + " ERROR"],
+                                           after.search_patterns())
                     if mode == "Exclusive matching":
-                        self.assertEqual(result.category_match_counts[kind + "_2"], 1)
+                        self.assertNotIn(kind + "_2", result.category_match_counts)
+                        self.assertEqual(result.category_match_counts["error"], 1)
 
     def test_disable_suspends_matching_modes_and_restores_settings(self):
         for checkbox in self.panel._pattern_checkboxes.values():

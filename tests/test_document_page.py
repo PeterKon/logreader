@@ -6,7 +6,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import capture_analysis
+    from qt_helpers import capture_analysis, trigger_pattern_action
     from PySide6.QtCore import QThreadPool
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox
@@ -50,6 +50,26 @@ class DocumentPageTests(unittest.TestCase):
                 return
             QTest.qWait(10)
         self.fail("Document did not finish rendering")
+
+    def test_exclusive_filters_are_omitted_from_request_and_result_counts(self):
+        panel = self.first.filter_panel
+        for checkbox in panel._pattern_checkboxes.values():
+            checkbox.setChecked(False)
+        for pattern in ("first", "ERROR", "skip"):
+            panel._custom_pattern.setText(pattern)
+            panel.add_custom_pattern()
+        trigger_pattern_action(panel._custom_pattern_list, 0, "Exclusive matching")
+        trigger_pattern_action(panel._custom_pattern_list, 2, "Exclude")
+        workers = []
+        done = QSignalSpy(self.first.analysis_finished)
+        with capture_analysis(workers):
+            self.first.analyze()
+        self.assertEqual(self.first.session.active_request.pattern_count, 1)
+        workers[0].run()
+        self.wait_for_completion(done)
+        self.assertEqual(self.first.session.analysis.pattern_count, 1)
+        self.assertEqual(self.first.session.analysis.category_match_counts, {"custom_2": 1})
+        self.assertIn("ERROR: first", self.first.results_view.editor.toPlainText())
 
     def test_equal_request_numbers_complete_in_their_own_pages(self):
         first_done = QSignalSpy(self.first.analysis_finished)

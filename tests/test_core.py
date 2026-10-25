@@ -5,7 +5,7 @@ from logreader.core import COMBINED_CATEGORY_KEY, SearchPattern, analyze_lines
 
 class AnalyzeLinesTests(unittest.TestCase):
 
-    def test_exclusive_matches_restrict_counts_and_spans_in_both_scan_paths(self):
+    def test_exclusive_filters_counts_and_spans_without_producing_results_in_both_scan_paths(self):
         lines = ["alpha ERROR", "beta ERROR", "other ERROR", "alpha skip ERROR", "ALPHA ready"]
         for regex in (False, True):
             for combined in (False, True):
@@ -16,16 +16,17 @@ class AnalyzeLinesTests(unittest.TestCase):
                         SearchPattern("error", "ERROR"),
                         SearchPattern("skip", "skip", exclude=True),
                     ), combined=combined, line_offset=100)
-                    self.assertEqual(result.category_match_counts, {"alpha": 2, "beta": 1, "error": 2})
-                    self.assertEqual(result.pattern_count, 3)
+                    self.assertEqual(result.category_match_counts, {"error": 2})
+                    self.assertEqual(result.pattern_count, 1)
+                    self.assertEqual(set(result.categories), {"combined" if combined else "error"})
                     if combined:
                         category = result.category("combined")
                         accepted = [line for excerpt in category.excerpts for line in excerpt.lines]
-                        self.assertEqual([line.number for line in accepted], [101, 102, 105])
+                        self.assertEqual([line.number for line in accepted], [101, 102])
                         self.assertEqual([(s.start, s.end) for s in accepted[0].match_spans],
-                                         [(0, 5), (6, 11)])
-                        self.assertEqual(category.matched_line_count, 3)
-                        self.assertEqual(category.match_count, 5)
+                                         [(6, 11)])
+                        self.assertEqual(category.matched_line_count, 2)
+                        self.assertEqual(category.match_count, 2)
                     else:
                         accepted = result.category("error").excerpts[0].lines
                         self.assertEqual([line.number for line in accepted], [101, 102])
@@ -38,7 +39,7 @@ class AnalyzeLinesTests(unittest.TestCase):
                 SearchPattern("error", "ERROR", context=2),
                 SearchPattern("skip", "skip", exclude=True),
             ), combined=combined)
-            category = result.category("combined" if combined else "alpha")
+            category = result.category("combined" if combined else "error")
             self.assertEqual([line.is_match for line in category.excerpts[0].lines], [True, False, False])
             result = analyze_lines(["ERROR"], (
                 SearchPattern("alpha", "alpha", exclusive=True), SearchPattern("error", "ERROR"),
@@ -57,9 +58,32 @@ class AnalyzeLinesTests(unittest.TestCase):
                 result = analyze_lines(["alpha ERROR", "ALPHA ERROR"], (
                     pattern, SearchPattern("error", "ERROR"),
                 ))
-                self.assertEqual(result.category_match_counts, {"only": expected, "error": expected})
+                self.assertEqual(result.category_match_counts, {"error": expected})
         with self.assertRaises(ValueError):
             SearchPattern("invalid", "alpha", exclusive=True, exclude=True)
+
+    def test_exclusive_only_returns_no_results_but_an_identical_ordinary_pattern_matches(self):
+        for regex in (False, True):
+            for combined in (False, True):
+                with self.subTest(regex=regex, combined=combined):
+                    exclusive = SearchPattern("only", "alpha", exclusive=True,
+                                              is_regex=regex, context=5)
+                    lines = ["alpha ready", "other", "alpha done"]
+                    result = analyze_lines(lines, (exclusive,), combined=combined)
+                    self.assertEqual(result.pattern_count, 0)
+                    self.assertEqual(result.category_match_counts, {})
+                    self.assertTrue(all(not category.excerpts for category in result.categories.values()))
+
+                    result = analyze_lines(lines, (
+                        exclusive, SearchPattern("ordinary", "alpha", is_regex=regex),
+                    ), combined=combined)
+                    self.assertEqual(result.pattern_count, 1)
+                    self.assertEqual(result.category_match_counts, {"ordinary": 2})
+                    category = result.category("combined" if combined else "ordinary")
+                    accepted = [line for excerpt in category.excerpts for line in excerpt.lines]
+                    self.assertEqual([line.number for line in accepted], [1, 3])
+                    self.assertEqual([[(s.start, s.end) for s in line.match_spans] for line in accepted],
+                                     [[(0, 5)], [(0, 5)]])
 
     def test_global_exclusions_override_all_matches_but_remain_context(self):
         lines = ["ERROR keep", "ERROR Skip code=500", "ERROR SKIP code=500"]

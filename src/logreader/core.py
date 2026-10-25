@@ -165,6 +165,7 @@ def analyze_lines(
             index for state in exclusive_states
             for index in checked(state.match_spans_by_index, cancellation)
         }
+        states = [state for state in states if not state.pattern.exclusive]
         for state in checked(states, cancellation):
             state.match_spans_by_index = {
                 index: spans
