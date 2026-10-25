@@ -231,6 +231,8 @@ class ResultsControls(QWidget):
         self._editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._editor.customContextMenuRequested.connect(self._results_context_menu)
         self.source_view = SourceView(self)
+        header_layout.insertWidget(2, self.source_view.navigation_controls)
+        self.source_view.navigation_controls.hide()
         self.source_view.search_status_changed.connect(self._source_search_count.setText)
         self._view_stack = QStackedLayout()
         self._view_stack.addWidget(self._editor)

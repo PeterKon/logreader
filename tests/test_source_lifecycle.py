@@ -49,7 +49,7 @@ class SourceLifecycleTests(SourceViewCase):
         self.assertTrue(self.source.is_ready)
         self.assertFalse(self.source.loader.done)
         self.assertEqual(self.window._loading_status.text(), "")
-        self.assertEqual(self.source.activity_label.text(), "")
+        self.assertEqual(self.window.statusBar().currentMessage(), "5,000 of 12,000 lines shown - UTF-8")
         self.assertTrue(self.window._analyze_button.isEnabled())
 
         # Results still owns its loading status when selected.
@@ -144,7 +144,7 @@ class SourceLifecycleTests(SourceViewCase):
         self.assertIsNone(self.source.editor.navigation.pending)
         self.assertFalse(self.source.loader.timer.isActive())
         self.assertFalse(self.source._search_timer.isActive())
-        self.assertEqual(self.source.activity_label.text(), "")
+        self.assertEqual(self.window.statusBar().currentMessage(), "0 lines shown - UTF-8")
 
     def test_hidden_tabs_pause_work_resume_reading_and_close_during_search(self):
         line = SourceText("needle " * 100)

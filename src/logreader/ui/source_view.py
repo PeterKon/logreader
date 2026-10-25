@@ -8,7 +8,7 @@ from uuid import uuid4
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QToolTip,
+    QFrame, QHBoxLayout, QLineEdit, QPushButton, QTextEdit, QToolTip,
     QVBoxLayout, QWidget,
 )
 
@@ -23,6 +23,7 @@ from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
 
 
 class SourceView(QWidget):
+    status_changed = Signal()
     search_status_changed = Signal(str)
     editor_changed = Signal(object)
     retired = Signal()
@@ -59,27 +60,23 @@ class SourceView(QWidget):
         self._active = True
         self._has_snapshot = self._ready = False
         self._materialized = False
+        self.status_message = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        header = QWidget(self)
-        header.setObjectName("sourceNavigationHeader")
-        header.setStyleSheet(
-            f"QWidget#sourceNavigationHeader {{ background: {THEME_COLORS['background']}; }}"
+        self.navigation_controls = QWidget(self)
+        self.navigation_controls.setObjectName("sourceNavigationControls")
+        controls = QHBoxLayout(self.navigation_controls)
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(8)
+        separator = QFrame()
+        separator.setObjectName("sourceNavigationSeparator")
+        separator.setFixedSize(1, 22)
+        separator.setStyleSheet(
+            f"background-color: {THEME_COLORS['ui_border_strong']}; border: none;"
         )
-        controls = QHBoxLayout(header)
-        controls.setContentsMargins(8, 4, 4, 4)
-        self.range_label = QLabel()
-        self.range_label.setObjectName("sourceRange")
-        self.range_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.range_label.setStyleSheet(f"color: {THEME_COLORS['ui_muted']};")
-        controls.addWidget(self.range_label)
-        controls.addStretch(1)
-        self.activity_label = QLabel()
-        self.activity_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.activity_label.setStyleSheet(f"color: {THEME_COLORS['ui_muted']};")
-        controls.addWidget(self.activity_label)
+        controls.addWidget(separator)
         self.goto_input = QLineEdit()
         self.goto_input.setObjectName("sourceGoToLine")
         self.goto_input.setAccessibleName("Original source line number")
@@ -95,7 +92,6 @@ class SourceView(QWidget):
         self.goto_input.returnPressed.connect(self.go_to_input)
         self.goto_input.editingFinished.connect(self._format_line_input)
         self.goto_button.clicked.connect(self.go_to_input)
-        layout.addWidget(header)
 
         self._install_editor(SourcePresentation((), 0, uuid4().hex))
         self.reset()
@@ -207,8 +203,7 @@ class SourceView(QWidget):
         self.loader = SparseLoader(self.editor, background=False)
         self.loader.is_active = lambda: self._active and self.editor.isVisible()
         self.loader.progressed.connect(self._refresh)
-        self.loader.failed.connect(self.activity_label.setText)
-        self.range_label.setText(self._retained_range() if lines else "")
+        self.loader.failed.connect(self._refresh)
         self.goto_input.setEnabled(bool(lines))
         self.goto_button.setEnabled(bool(lines))
         self._refresh()
@@ -306,9 +301,18 @@ class SourceView(QWidget):
 
     def _refresh(self, *_args):
         if self.loader is not None and self.loader.error:
-            self.activity_label.setText(self.loader.error)
+            message = self.loader.error
+        elif not self._has_snapshot:
+            message = self.editor.placeholderText()
+        elif self.editor.navigation.pending is not None:
+            message = "Preparing view..."
         else:
-            self.activity_label.setText("Preparing view..." if self.editor.navigation.pending else "")
+            count = len(self.lines)
+            shown = f"{count:,}" if count == self.total_line_count else f"{count:,} of {self.total_line_count:,}"
+            message = f"{shown} {'line' if self.total_line_count == 1 else 'lines'} shown"
+        if message != self.status_message:
+            self.status_message = message
+            self.status_changed.emit()
         if not self._has_snapshot or self.editor.navigation.pending is not None:
             self._set_ready(False)
         elif not self.lines:

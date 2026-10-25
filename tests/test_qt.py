@@ -662,26 +662,28 @@ class LogreaderQtTests(unittest.TestCase):
         header_layout = results_header.layout()
         self.assertIs(header_layout.itemAt(0).widget(), button)
         self.assertEqual(header_layout.itemAt(1).widget().text(), "Go to source")
-        self.assertIsNone(header_layout.itemAt(2).widget())
-        self.assertEqual(header_layout.stretch(2), 1)
+        self.assertIs(header_layout.itemAt(2).widget(), results_panel.source_view.navigation_controls)
+        self.assertTrue(header_layout.itemAt(2).widget().isHidden())
+        self.assertIsNone(header_layout.itemAt(3).widget())
+        self.assertEqual(header_layout.stretch(3), 1)
         self.assertEqual(
-            header_layout.itemAt(3).widget().objectName(),
+            header_layout.itemAt(4).widget().objectName(),
             "searchCountStack",
         )
         self.assertEqual(
-            header_layout.itemAt(4).widget().objectName(),
+            header_layout.itemAt(5).widget().objectName(),
             "resultsSearchControls",
         )
         self.assertEqual(
-            header_layout.itemAt(5).widget().objectName(),
+            header_layout.itemAt(6).widget().objectName(),
             "resultsSearchSeparator",
         )
         self.assertEqual(
-            header_layout.itemAt(6).widget().objectName(),
+            header_layout.itemAt(7).widget().objectName(),
             "lineWrapLabel",
         )
         self.assertEqual(
-            header_layout.itemAt(7).widget().objectName(),
+            header_layout.itemAt(8).widget().objectName(),
             "lineWrapCheck",
         )
 

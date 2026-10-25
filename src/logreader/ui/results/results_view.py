@@ -438,6 +438,7 @@ class ResultsView(ResultsControls):
         else:
             self.source_view.suspend()
         self._source_active = active
+        self.source_view.navigation_controls.setVisible(active)
         self._view_stack.setCurrentWidget(self.source_view if active else self.surface)
         self._count_stack.setCurrentWidget(self._source_search_count if active else self._search_count_label)
         self._search_count_label.setVisible(bool(self._searched_query) and not active)

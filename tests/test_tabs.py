@@ -103,6 +103,7 @@ class TabTests(unittest.TestCase):
         self.assertEqual(expand.text(), "Expand results")
 
     def test_view_menu_follows_active_tab_and_ignores_background_changes(self):
+        self.window.show()
         first = self.open_log("first.log")
         view = first.results_view
         navigate, expand = self.window._view_menu.actions()[:2]
@@ -115,6 +116,7 @@ class TabTests(unittest.TestCase):
         # A background tab's controls must not replace the active tab's menu state.
         view.set_source_active(True)
         wait_source(self.window._document.results_view)
+        self.assertEqual(self.window.statusBar().currentMessage(), "1 line shown - UTF-8")
         view.set_source_active(False)
         wait_source(self.window._document.results_view)
         view.set_maximized(True)
@@ -123,12 +125,16 @@ class TabTests(unittest.TestCase):
         self.window._select_document(first)
         self.assertEqual(navigate.text(), "Go to source")
         self.assertEqual(expand.text(), "Restore results")
+        self.assertEqual(self.window.statusBar().currentMessage(), first.status_message)
         self.window.close_tab(0)
         self.assertIs(self.window._document, second)
         self.assertEqual(navigate.text(), "Go to results")
         self.assertEqual(expand.text(), "Expand results")
+        wait_source(second.results_view)
+        self.assertEqual(self.window.statusBar().currentMessage(), "1 line shown - UTF-8")
         navigate.trigger()
         self.assertFalse(second.results_view.source_active)
+        self.assertEqual(self.window.statusBar().currentMessage(), second.status_message)
 
     def test_zoom_menu_targets_only_the_active_editor_and_tab(self):
         zoom_in, zoom_out, separator, reset = self.window._zoom_menu.actions()

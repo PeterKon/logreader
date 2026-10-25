@@ -897,7 +897,7 @@ class LogreaderWindow(TitleBarWindow):
         self._workspace.setCurrentWidget(self._pages if page else self._empty_page)
         self._update_file_controls_visibility()
         self.statusBar().showMessage(
-            page.status_message if page else "Ready"
+            page.active_status_message if page else "Ready"
         )
         self._refresh_loading_status()
         self._present_analysis_busy()

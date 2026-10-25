@@ -40,7 +40,7 @@ class SourceRetentionTests(SourceViewCase):
         counts = editor.ranges.loaded_count, editor.insertion_count, loader.tick_count
         QTest.qWait(250)
         self.assertEqual((editor.ranges.loaded_count, editor.insertion_count, loader.tick_count), counts)
-        self.assertEqual(self.source.activity_label.text(), "")
+        self.assertEqual(self.window.statusBar().currentMessage(), "120,000 of 170,000 lines shown - UTF-8")
         self.assertFalse(self.page.session.is_busy)
         self.assertIsNone(self.page.session.analysis)
 
@@ -93,7 +93,7 @@ class SourceRetentionTests(SourceViewCase):
         self.assertEqual(self.source.editor.ranges.total, 0)
         self.assertEqual(self.source.editor.ranges.loaded_count, 0)
         self.assertEqual(self.source.editor.placeholderText(), "Empty source file")
-        self.assertEqual(self.source.range_label.text(), "")
+        self.assertEqual(self.window.statusBar().currentMessage(), "0 lines shown - UTF-8")
         self.assertFalse(self.source.goto_button.isEnabled())
         self.assertFalse(self.source.global_scroll.isVisible())
         self.assertEqual(self.source.editor.toPlainText(), "")

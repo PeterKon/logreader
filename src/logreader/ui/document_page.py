@@ -77,6 +77,8 @@ class DocumentPage(QWidget):
         self.results_view.maximized_changed.connect(self._set_results_maximized)
         self.results_view.bookmarks_cleared.connect(self._bookmarks_cleared)
         self.results_view.retired.connect(self._submit_waiting_load)
+        self.results_view.view_state_changed.connect(self._emit_active_status)
+        self.results_view.source_view.status_changed.connect(self._emit_active_status)
         root_layout.addWidget(self.results_view, 1)
 
     @Slot(bool)
@@ -92,7 +94,19 @@ class DocumentPage(QWidget):
         if self._bookmark_reset_notice:
             message += "  •  Bookmarks cleared: file replaced"
         self.status_message = message
-        self.status_changed.emit(message)
+        self._emit_active_status()
+
+    @property
+    def active_status_message(self) -> str:
+        if self.results_view.source_active:
+            message = self.results_view.source_view.status_message
+            if self.session.encoding:
+                message += f" - {self.session.encoding}"
+            return message
+        return self.status_message
+
+    def _emit_active_status(self) -> None:
+        self.status_changed.emit(self.active_status_message)
 
     def build_config(self) -> LogreaderConfig:
         """Snapshot the current document's committed filter settings."""
