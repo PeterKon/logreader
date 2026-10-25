@@ -12,6 +12,23 @@ GUTTER_RIGHT_PADDING = 4
 BOOKMARK_MARKER_GAP = 3
 
 
+def full_width_selections(block: QTextBlock, background: QColor) -> list:
+    selection = QTextEdit.ExtraSelection()
+    selection.cursor = QTextCursor(block)
+    selection.cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock,
+                                  QTextCursor.MoveMode.KeepAnchor)
+    selection.format.setBackground(background)
+    selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
+    # A nonempty Qt selection stops at the final character, even with
+    # FullWidthSelection. An empty selection there fills the last
+    # visual row too, including after a wrapped line's final character.
+    tail = QTextEdit.ExtraSelection()
+    tail.cursor = QTextCursor(selection.cursor)
+    tail.cursor.clearSelection()
+    tail.format = selection.format
+    return [selection, tail]
+
+
 class LineNumberArea(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         self.parent().paint_line_numbers(event)
@@ -64,23 +81,9 @@ class LineNumberEditor(QPlainTextEdit):
             block = self.document().findBlockByNumber(number)
             if not block.isValid():
                 continue
-            selection = QTextEdit.ExtraSelection()
-            selection.cursor = QTextCursor(block)
-            selection.cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock,
-                                          QTextCursor.MoveMode.KeepAnchor)
-            selection.format.setBackground(QColor(THEME_COLORS[
+            self._bookmark_selections.extend(full_width_selections(block, QColor(THEME_COLORS[
                 "bookmark" if preferred else "bookmark_related"
-            ]))
-            selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
-            self._bookmark_selections.append(selection)
-            # A nonempty Qt selection stops at the final character, even with
-            # FullWidthSelection. An empty selection there fills the last
-            # visual row too, including after a wrapped line's final character.
-            tail = QTextEdit.ExtraSelection()
-            tail.cursor = QTextCursor(selection.cursor)
-            tail.cursor.clearSelection()
-            tail.format = selection.format
-            self._bookmark_selections.append(tail)
+            ])))
         self.setExtraSelections(self._transient_selections)
         self.gutter.update()
 

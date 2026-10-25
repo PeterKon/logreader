@@ -1,11 +1,13 @@
 import unittest
 
 from source_test_case import SourceViewCase
+from qt_helpers import wait_source
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionSlider, QPushButton
 from logreader.ui.results.result_coordinates import TextPoint
 from logreader.ui.source_search import utf16_length
+from logreader.ui.theme import THEME_COLORS
 import test_progressive_results as existing
 
 
@@ -29,6 +31,35 @@ class SourceInteractionTests(SourceViewCase):
     def at(self, point):
         self.source.editor.navigate_to(point, move_caret=True)
         self.settle_source()
+
+    def test_go_to_line_highlights_every_wrapped_row_after_wrap_toggles(self):
+        editor = self.open_source(("before", "long line 😀 " * 40, "after"), wrapped=True)
+        self.source.goto_input.setText("2")
+        self.source.goto_button.click()
+        wait_source(self.view)
+        for wrapped in (True, False, True):
+            with self.subTest(wrapped=wrapped):
+                self.view.set_line_wrapping(wrapped)
+                wait_source(self.view)
+                block = editor.document().findBlockByNumber(editor.ranges.block_for(1))
+                layout = block.layout()
+                if wrapped:
+                    self.assertGreater(layout.lineCount(), 1)
+                else:
+                    self.assertEqual(layout.lineCount(), 1)
+                rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
+                image = editor.viewport().grab().toImage()
+                for visual_line in range(layout.lineCount()):
+                    y = int(rect.top() + layout.lineAt(visual_line).y() + 2)
+                    self.assertTrue(0 <= y < image.height())
+                    self.assertEqual(image.pixelColor(image.width() - 10, y).name(),
+                                     THEME_COLORS["selection"])
+                after = block.next()
+                y = int(editor.blockBoundingGeometry(after).translated(editor.contentOffset()).top() + 2)
+                self.assertNotEqual(image.pixelColor(image.width() - 10, y).name(),
+                                    THEME_COLORS["selection"])
+                self.assertEqual(editor.caret, TextPoint(1))
+                self.assertFalse(editor.textCursor().hasSelection())
 
     def test_copy_all_and_unloaded_endpoints_keep_exact_snapshot_text(self):
         lines = tuple("" if i % 11 == 0 else f"row {i:04} \tα😀\u00a0omega  " for i in range(800))

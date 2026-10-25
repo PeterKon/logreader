@@ -6,7 +6,7 @@ from time import perf_counter
 from uuid import uuid4
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QTextCursor, QTextFormat
+from PySide6.QtGui import QColor, QTextCursor
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLineEdit, QPushButton, QTextEdit, QToolTip,
     QVBoxLayout, QWidget,
@@ -20,6 +20,7 @@ from .source_model import SourcePresentation
 from .source_search import SourceMatches, iter_source_matches
 from .theme import THEME_COLORS, configure_action_button
 from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
+from .widgets.line_number_editor import full_width_selections
 
 
 class SourceView(QWidget):
@@ -376,11 +377,7 @@ class SourceView(QWidget):
                 editor.set_bookmarked_blocks(bookmarks)
             selections = []
             if target is not None:
-                selection = QTextEdit.ExtraSelection()
-                selection.cursor = QTextCursor(target)
-                selection.format.setBackground(QColor(THEME_COLORS["selection"]))
-                selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
-                selections.append(selection)
+                selections.extend(full_width_selections(target, QColor(THEME_COLORS["selection"])))
             for block, start, end in spans:
                 selection = self._match_selection(block, start, end, "ui_primary", "#ffffff")
                 if block.blockNumber() in bookmarks:
