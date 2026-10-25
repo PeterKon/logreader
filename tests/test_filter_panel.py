@@ -146,7 +146,7 @@ class FilterPanelTests(unittest.TestCase):
                     self.app.sendEvent(target, event)
             tooltip = EXCLUSIVE_TOOLTIP if action_name == "Exclusive matching" else EXCLUDE_TOOLTIP
             self.assertEqual(observed, [(action_name, expected_checked, tooltip, True,
-                                         ["Exclusive matching", "Exclude", "", "Edit"])])
+                                         ["Exclusive matching", "Exclude", "", "Disable", "Edit"])])
             self.assertEqual(borders, [[row]])
             self.assertTrue(all(row.menu_button.geometry().right() < end < case.x()
                                 and case.x() - end <= row.layout().spacing()
@@ -257,6 +257,120 @@ class FilterPanelTests(unittest.TestCase):
                     result = analyze_lines([replacement, replacement.upper()], after.search_patterns())
                     if mode == "Exclusive matching":
                         self.assertEqual(result.category_match_counts[kind + "_2"], 1)
+
+    def test_disable_suspends_matching_modes_and_restores_settings(self):
+        for checkbox in self.panel._pattern_checkboxes.values():
+            checkbox.setChecked(False)
+        for kind, entry, pattern_list, add, prefix in (
+            ("custom", self.panel._custom_pattern, self.panel._custom_pattern_list,
+             self.panel.add_custom_pattern, "customPattern"),
+            ("regex", self.panel._regex_pattern, self.panel._regex_pattern_list,
+             self.panel.add_regex_pattern, "regexPattern"),
+        ):
+            for pattern in ("ERROR", "Target", "other"):
+                entry.setText(pattern)
+                add()
+            item = pattern_list.item(1)
+            row = pattern_list.itemWidget(item)
+            case = row.findChild(QPushButton, prefix + "MatchCaseButton")
+            case.click()
+            lines = ["ERROR Target", "ERROR other", "ERROR target"]
+            for mode, expected in ((None, 3), ("Exclude", 2), ("Exclusive matching", 1)):
+                with self.subTest(kind=kind, mode=mode):
+                    if mode:
+                        trigger_pattern_action(pattern_list, 1, mode)
+                    before = self.panel.build_config()
+                    result = analyze_lines(lines, before.search_patterns())
+                    self.assertEqual(result.category_match_counts[kind + "_1"], expected)
+                    trigger_pattern_action(pattern_list, 1, "Disable")
+                    config = self.panel.build_config()
+                    self.assertEqual(getattr(config, kind + "_patterns"), ("ERROR", "other"))
+                    self.assertEqual(getattr(config, kind + "_pattern_match_case"), (False, False))
+                    self.assertEqual(getattr(config, kind + "_pattern_exclude"), (False, False))
+                    self.assertEqual(getattr(config, kind + "_pattern_exclusive"), (False, False))
+                    self.assertEqual(config.label_for(kind + "_2"), "other")
+                    result = analyze_lines(lines, config.search_patterns())
+                    self.assertEqual(result.category_match_counts, {kind + "_1": 3, kind + "_2": 1})
+                    self.assertEqual(self.panel._tab_counts[2].text(), "(2/3)")
+                    self.assertTrue(self.panel._exclusions_label.isHidden())
+                    self.assertEqual(row.findChild(QLabel, "patternModeLabel").text(), "(disabled)")
+                    self.assertEqual(item.data(Qt.ItemDataRole.AccessibleTextRole), "Target (disabled)")
+                    self.assertFalse(case.isEnabled())
+                    self.assertTrue(case.isChecked())
+                    self.assertTrue(row.menu_button.isEnabled())
+                    self.assertTrue(row.findChild(QPushButton, prefix + "RemoveButton").isEnabled())
+
+                    def inspect(menu, position):
+                        actions = {action.text(): action for action in menu.actions()}
+                        for name in ("Exclusive matching", "Exclude"):
+                            self.assertFalse(actions[name].isEnabled())
+                            self.assertEqual(actions[name].isChecked(), name == mode)
+                        self.assertTrue(actions["Edit"].isEnabled())
+                        self.assertTrue(actions["Enable"].isEnabled())
+
+                    with patch("logreader.ui.filter_panel.SearchPatternMenu.exec", new=inspect):
+                        row.menu_button.click()
+                    trigger_pattern_action(pattern_list, 1, "Enable")
+                    self.assertIs(pattern_list.item(1), item)
+                    self.assertEqual(self.panel.build_config(), before)
+                    self.assertTrue(case.isEnabled())
+                    self.assertEqual(self.panel._tab_counts[2].text(), "(3/3)")
+                    self.assertEqual(self.panel._exclusions_label.isHidden(), mode != "Exclude")
+                    result = analyze_lines(lines, self.panel.build_config().search_patterns())
+                    self.assertEqual(result.category_match_counts[kind + "_1"], expected)
+            pattern_list.clear()
+            self.panel._update_summary()
+
+    def test_disabled_preset_stays_present_and_editable_until_enabled_or_removed(self):
+        menu = self.panel.findChild(QPushButton, "regexPresetButton").menu()
+        preset_action = menu.actions()[0]
+        preset_action.trigger()
+        pattern_list = self.panel._regex_pattern_list
+        item = pattern_list.item(0)
+        trigger_pattern_action(pattern_list, 0, "Exclude")
+        trigger_pattern_action(pattern_list, 0, "Disable")
+        row = pattern_list.itemWidget(item)
+        self.assertEqual(row.findChild(QLabel).text(), preset_action.text())
+        self.assertTrue(row.findChild(QLabel, "regexPresetLabel").isHidden())
+        menu.aboutToShow.emit()
+        self.assertFalse(preset_action.isEnabled())
+        self.panel._add_regex_preset(preset_action.data())
+        self.assertEqual(pattern_list.count(), 1)
+
+        def edit(dialog):
+            dialog.editor.setPlainText(r"changed\d+")
+            dialog.accept()
+            return dialog.result()
+
+        with patch.object(PatternEditDialog, "exec", new=edit):
+            trigger_pattern_action(pattern_list, 0, "Edit")
+        self.assertEqual(self.panel.build_config().regex_patterns, ())
+        self.assertEqual(self.panel._tab_counts[2].text(), "(0/1)")
+        row = pattern_list.itemWidget(item)
+        self.assertEqual(row.findChild(QLabel).text(), r"changed\d+")
+        self.assertEqual(row.findChild(QLabel, "patternModeLabel").text(), "(disabled)")
+        self.assertIsNone(row.findChild(QLabel, "regexPresetLabel"))
+        menu.aboutToShow.emit()
+        self.assertTrue(preset_action.isEnabled())
+        trigger_pattern_action(pattern_list, 0, "Enable")
+        self.assertEqual(self.panel.build_config().regex_patterns, (r"changed\d+",))
+        self.assertEqual(self.panel.build_config().regex_pattern_exclude, (True,))
+        self.assertEqual(row.findChild(QLabel, "patternModeLabel").text(), "(excluded)")
+        trigger_pattern_action(pattern_list, 0, "Disable")
+        row.findChild(QPushButton, "regexPatternRemoveButton").click()
+        self.assertEqual(pattern_list.count(), 0)
+        self.assertEqual(self.panel._tab_counts[2].text(), "(0/0)")
+
+    def test_disabled_invalid_regex_does_not_block_analysis(self):
+        self.panel._regex_pattern.setText("[")
+        self.panel.add_regex_pattern()
+        trigger_pattern_action(self.panel._regex_pattern_list, 0, "Disable")
+        config = self.panel.build_config()
+        result = analyze_lines(["ERROR"], config.search_patterns())
+        self.assertEqual(result.category_match_counts["error"], 1)
+        trigger_pattern_action(self.panel._regex_pattern_list, 0, "Enable")
+        with self.assertRaisesRegex(ValueError, "Invalid search pattern regex"):
+            self.panel.build_config().search_patterns()
 
     def test_edit_preset_names_follow_expression_including_collisions(self):
         menu = self.panel.findChild(QPushButton, "regexPresetButton").menu()
@@ -605,7 +719,7 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(before.custom_pattern_exclude, (True,))
         self.assertEqual(self.panel._tab_counts[0].text(), "(10/22)")
         self.assertEqual(self.panel._tab_counts[1].text(), "(14/15)")
-        self.assertEqual(self.panel._tab_counts[2].text(), "(2)")
+        self.assertEqual(self.panel._tab_counts[2].text(), "(2/2)")
         self.assertEqual(self.panel._custom_heading.text(), "Plain text matches")
         self.assertEqual(self.panel._regex_heading.text(), "Regex matches")
         analysis = analyze_lines(["service UNAVAILABLE", "HTTP 503",
@@ -632,7 +746,7 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(self.panel._exclusions_label.text(), "1 exclusion")
         self.assertTrue(self.panel._exclusions_label.isVisible())
         self.panel.findChild(QPushButton, "customPatternRemoveButton").click()
-        self.assertEqual(self.panel._tab_counts[2].text(), "(1)")
+        self.assertEqual(self.panel._tab_counts[2].text(), "(1/1)")
         self.assertFalse(self.panel._exclusions_label.isVisible())
 
     def test_system_runtime_island_follows_database_and_fits_its_controls(self):
@@ -786,7 +900,7 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(len(expressions), 2)
         self.assertEqual(expressions[0], r"code=\d+")
         self.assertEqual(self.panel._regex_pattern.text(), "unfinished [")
-        self.assertEqual(self.panel._tab_counts[2].text(), "(2)")
+        self.assertEqual(self.panel._tab_counts[2].text(), "(2/2)")
         button.menu().aboutToShow.emit()
         self.assertFalse(actions[0].isEnabled())
         self.assertTrue(all(action.isEnabled() for action in actions[1:]))
@@ -835,7 +949,7 @@ class FilterPanelTests(unittest.TestCase):
             )
             self.assertEqual(preset_label.text(), "(preset)")
             self.assertEqual(preset_label.toolTip(), expression)
-        self.assertEqual(self.panel._tab_counts[2].text(), "(8)")
+        self.assertEqual(self.panel._tab_counts[2].text(), "(8/8)")
 
 
 if __name__ == "__main__":

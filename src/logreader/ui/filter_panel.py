@@ -56,6 +56,7 @@ from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
 MATCH_CASE_ROLE = Qt.ItemDataRole.UserRole + 1
 EXCLUDE_ROLE = Qt.ItemDataRole.UserRole + 2
 EXCLUSIVE_ROLE = Qt.ItemDataRole.UserRole + 3
+DISABLED_ROLE = Qt.ItemDataRole.UserRole + 4
 EXCLUSIVE_TOOLTIP = 'Only lines that match an "exclusive" item will qualify.'
 EXCLUDE_TOOLTIP = "Lines that match this item will not qualify."
 
@@ -240,6 +241,9 @@ class SearchOptionButton(QPushButton):
             f"QPushButton:checked {{ background: {THEME_COLORS['ui_primary']};"
             f" border-color: {THEME_COLORS['ui_accent']}; color: #ffffff; }}"
             f"QPushButton:checked:hover {{ background: {THEME_COLORS['ui_primary_hover']}; }}"
+            f"QPushButton:disabled, QPushButton:checked:disabled {{"
+            f" background: {THEME_COLORS['ui_disabled']}; color: {THEME_COLORS['ui_muted']};"
+            f" border-color: {THEME_COLORS['ui_border']}; }}"
         )
         self.toggled.connect(self._update_tooltip)
         self._update_tooltip(False)
@@ -846,11 +850,15 @@ class FilterPanel(QGroupBox):
         custom_count = self._custom_pattern_list.count()
         regex_count = self._regex_pattern_list.count()
         search_count = custom_count + regex_count
-        self._set_tab_count(2, f"({search_count})", f"{search_count} searches")
+        enabled_items = (
+            self._enabled_list_items(self._custom_pattern_list)
+            + self._enabled_list_items(self._regex_pattern_list)
+        )
+        enabled_count = len(enabled_items)
+        self._set_tab_count(2, f"({enabled_count}/{search_count})",
+                            f"{enabled_count} of {search_count} searches enabled")
         excluded = sum(
-            bool(pattern_list.item(index).data(EXCLUDE_ROLE))
-            for pattern_list in (self._custom_pattern_list, self._regex_pattern_list)
-            for index in range(pattern_list.count())
+            bool(item.data(EXCLUDE_ROLE)) for item in enabled_items
         )
         self._exclusions_label.setText(f"{excluded} exclusion{'s' if excluded != 1 else ''}")
         self._exclusions_label.setVisible(excluded > 0)
@@ -1097,6 +1105,8 @@ class FilterPanel(QGroupBox):
         """Build the shared configuration represented by the controls."""
 
         self._limit_spin.interpretText()
+        custom_items = self._enabled_list_items(self._custom_pattern_list)
+        regex_items = self._enabled_list_items(self._regex_pattern_list)
         return LogreaderConfig(
             context=self._context_spin.value(),
             max_lines_scanned=self._limit_spin.value(),
@@ -1105,34 +1115,35 @@ class FilterPanel(QGroupBox):
                 for key in PATTERN_KEYS
                 if self._pattern_checkboxes[key].isChecked()
             ),
-            custom_patterns=self._list_values(self._custom_pattern_list),
+            custom_patterns=tuple(str(item.data(Qt.ItemDataRole.UserRole)) for item in custom_items),
             custom_pattern_match_case=tuple(
-                bool(self._custom_pattern_list.item(index).data(MATCH_CASE_ROLE))
-                for index in range(self._custom_pattern_list.count())
+                bool(item.data(MATCH_CASE_ROLE)) for item in custom_items
             ),
             custom_pattern_exclude=tuple(
-                bool(self._custom_pattern_list.item(index).data(EXCLUDE_ROLE))
-                for index in range(self._custom_pattern_list.count())
+                bool(item.data(EXCLUDE_ROLE)) for item in custom_items
             ),
             custom_pattern_exclusive=tuple(
-                bool(self._custom_pattern_list.item(index).data(EXCLUSIVE_ROLE))
-                for index in range(self._custom_pattern_list.count())
+                bool(item.data(EXCLUSIVE_ROLE)) for item in custom_items
             ),
-            regex_patterns=self._list_values(self._regex_pattern_list),
+            regex_patterns=tuple(str(item.data(Qt.ItemDataRole.UserRole)) for item in regex_items),
             regex_pattern_match_case=tuple(
-                bool(self._regex_pattern_list.item(index).data(MATCH_CASE_ROLE))
-                for index in range(self._regex_pattern_list.count())
+                bool(item.data(MATCH_CASE_ROLE)) for item in regex_items
             ),
             regex_pattern_exclude=tuple(
-                bool(self._regex_pattern_list.item(index).data(EXCLUDE_ROLE))
-                for index in range(self._regex_pattern_list.count())
+                bool(item.data(EXCLUDE_ROLE)) for item in regex_items
             ),
             regex_pattern_exclusive=tuple(
-                bool(self._regex_pattern_list.item(index).data(EXCLUSIVE_ROLE))
-                for index in range(self._regex_pattern_list.count())
+                bool(item.data(EXCLUSIVE_ROLE)) for item in regex_items
             ),
             separate_entries=self._separate_entries.isChecked(),
             combined_view=self._combined_view.isChecked(),
+        )
+
+    @staticmethod
+    def _enabled_list_items(pattern_list: QListWidget) -> tuple[QListWidgetItem, ...]:
+        return tuple(
+            item for index in range(pattern_list.count())
+            if not (item := pattern_list.item(index)).data(DISABLED_ROLE)
         )
 
     @staticmethod
@@ -1184,6 +1195,7 @@ class FilterPanel(QGroupBox):
         item.setData(EXCLUSIVE_ROLE, False)
         item.setData(EXCLUDE_ROLE, False)
         item.setData(MATCH_CASE_ROLE, False)
+        item.setData(DISABLED_ROLE, False)
         item.setSizeHint(QSize(0, 18))
         pattern_list.addItem(item)
         self._set_search_list_item_widget(pattern_list, item, remove_button_object_name, remove_handler)
@@ -1234,22 +1246,32 @@ class FilterPanel(QGroupBox):
         text_layout.addWidget(mode_label)
 
         def update_mode(role: int, checked: bool) -> None:
-            if checked:
+            if checked and role in (EXCLUSIVE_ROLE, EXCLUDE_ROLE):
                 item.setData(EXCLUDE_ROLE if role == EXCLUSIVE_ROLE else EXCLUSIVE_ROLE, False)
             item.setData(role, checked)
+            disabled = bool(item.data(DISABLED_ROLE))
             exclusive = bool(item.data(EXCLUSIVE_ROLE))
             excluded = bool(item.data(EXCLUDE_ROLE))
-            annotation = "(exclusive)" if exclusive else "(excluded)" if excluded else ""
+            annotation = ("(disabled)" if disabled else "(exclusive)" if exclusive
+                          else "(excluded)" if excluded else "")
             mode_label.setText(annotation)
-            color = THEME_COLORS["ui_exclusive" if exclusive else "ui_excluded"]
+            color = THEME_COLORS["ui_muted" if disabled else "ui_exclusive" if exclusive else "ui_excluded"]
             mode_label.setStyleSheet(f"color: {color};")
-            mode_label.setToolTip(EXCLUSIVE_TOOLTIP if exclusive else EXCLUDE_TOOLTIP)
+            mode_label.setToolTip("" if disabled else EXCLUSIVE_TOOLTIP if exclusive else EXCLUDE_TOOLTIP)
             mode_label.setVisible(bool(annotation))
+            item_label.setStyleSheet(f"color: {THEME_COLORS['ui_muted']};" if disabled else "")
+            if preset_name:
+                preset_label.setVisible(not disabled)
+            case_button.setEnabled(not disabled)
+            if disabled:
+                case_button.setToolTip("")
+            else:
+                case_button._update_tooltip(case_button.isChecked())
             item.setData(Qt.ItemDataRole.AccessibleTextRole,
                          f"{label} {annotation}" if annotation else label)
             text_row.setMaximumWidth(
                 item_label.sizeHint().width()
-                + (preset_label.sizeHint().width() + 4 if preset_name else 0)
+                + (preset_label.sizeHint().width() + 4 if preset_name and not disabled else 0)
                 + (mode_label.sizeHint().width() + 4 if annotation else 0)
             )
 
@@ -1302,6 +1324,7 @@ class FilterPanel(QGroupBox):
         edit_pattern: Callable[[], None],
     ) -> None:
         menu = SearchPatternMenu(row)
+        disabled = bool(item.data(DISABLED_ROLE))
         for label, role, tooltip in (
             ("Exclusive matching", EXCLUSIVE_ROLE, EXCLUSIVE_TOOLTIP),
             ("Exclude", EXCLUDE_ROLE, EXCLUDE_TOOLTIP),
@@ -1309,9 +1332,13 @@ class FilterPanel(QGroupBox):
             action = menu.addAction(label)
             action.setCheckable(True)
             action.setChecked(bool(item.data(role)))
+            action.setEnabled(not disabled)
             action.setToolTip(tooltip)
             action.triggered.connect(lambda checked, role=role: update_mode(role, checked))
         menu.addSeparator()
+        menu.addAction("Enable" if disabled else "Disable").triggered.connect(
+            lambda: update_mode(DISABLED_ROLE, not disabled)
+        )
         edit_requested = False
 
         def request_edit() -> None:
