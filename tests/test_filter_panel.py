@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
     from qt_helpers import trigger_pattern_action
     from PySide6.QtCore import QPoint, Qt
-    from PySide6.QtGui import QColor, QContextMenuEvent
+    from PySide6.QtGui import QColor, QContextMenuEvent, QCursor
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import (
         QApplication,
@@ -108,7 +108,8 @@ class FilterPanelTests(unittest.TestCase):
         self.panel.show()
         self.app.processEvents()
 
-        def toggle_from(target, expected_checked, *, activate=True, action_name="Exclusive matching"):
+        def toggle_from(target, expected_checked, *, activate=True, action_name="Exclusive matching",
+                        via_button=False):
             observed = []
             borders = []
             border_ends = []
@@ -135,12 +136,17 @@ class FilterPanelTests(unittest.TestCase):
             point = QPoint(3, 3)
             event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, target.mapToGlobal(point))
             with patch("logreader.ui.filter_panel.TitleMenu.exec", new=inspect):
-                self.app.sendEvent(target, event)
+                if via_button:
+                    QTest.mouseMove(row, QPoint(row.width() // 2, row.height() // 2))
+                    QTest.mouseClick(row.menu_button, Qt.MouseButton.LeftButton)
+                else:
+                    self.app.sendEvent(target, event)
             tooltip = EXCLUSIVE_TOOLTIP if action_name == "Exclusive matching" else EXCLUDE_TOOLTIP
             self.assertEqual(observed, [(action_name, expected_checked, tooltip, True,
                                          ["Exclusive matching", "Exclude"])])
             self.assertEqual(borders, [[row]])
-            self.assertTrue(all(0 < case.x() - end <= row.layout().spacing()
+            self.assertTrue(all(row.menu_button.geometry().right() < end < case.x()
+                                and case.x() - end <= row.layout().spacing()
                                 for end in border_ends))
             self.assertFalse(any(outlined(candidate) for candidate in rows))
 
@@ -154,7 +160,9 @@ class FilterPanelTests(unittest.TestCase):
                 label = row.findChild(QLabel)
                 annotation = row.findChild(QLabel, "patternModeLabel")
                 case = row.findChild(QPushButton, prefix + "MatchCaseButton")
-                self.assertEqual([button.text() for button in row.findChildren(QPushButton)], ["Case", "-"])
+                self.assertLess(row.menu_button.geometry().right(), case.x())
+                self.assertEqual([button.text() for button in row.findChildren(QPushButton)],
+                                 ["⋯", "Case", "-"])
                 toggle_from(label, False, action_name="Exclude")
                 self.assertEqual(annotation.text(), "(excluded)")
                 self.assertFalse(annotation.isHidden())
@@ -182,7 +190,12 @@ class FilterPanelTests(unittest.TestCase):
                 toggle_from(row, True, action_name="Exclude")
                 self.assertTrue(annotation.isHidden())
                 self.assertFalse(getattr(self.panel.build_config(), f"{kind}_pattern_exclude")[index])
-                toggle_from(row, False)
+                toggle_from(row, False, via_button=True)
+                self.assertEqual(annotation.text(), "(exclusive)")
+                toggle_from(row, False, via_button=True, action_name="Exclude")
+                self.assertEqual(annotation.text(), "(excluded)")
+                toggle_from(row, True, via_button=True, action_name="Exclude")
+                toggle_from(row, False, via_button=True)
 
         self.assertEqual(self.panel.build_config().custom_pattern_exclusive, (False, True))
         self.panel.remove_custom_pattern(self.panel._custom_pattern_list.item(0))
@@ -190,6 +203,47 @@ class FilterPanelTests(unittest.TestCase):
         result = analyze_lines(["beta ERROR", "other ERROR"], self.panel.build_config().search_patterns())
         self.assertEqual(result.category_match_counts["custom_1"], 1)
         self.assertEqual(result.category_match_counts["error"], 1)
+
+    def test_pattern_hover_reveals_menu_without_moving_controls(self):
+        self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
+        self.panel.resize(900, 650)
+        for entry, add in ((self.panel._custom_pattern, self.panel.add_custom_pattern),
+                           (self.panel._regex_pattern, self.panel.add_regex_pattern)):
+            for pattern in ("alpha", "beta"):
+                entry.setText(pattern)
+                add()
+        self.panel._tabs.setCurrentIndex(2)
+        QCursor.setPos(0, 0)
+        self.panel.show()
+        self.panel.activateWindow()
+        QTest.qWait(20)
+        QTest.mouseMove(self.panel._tabs, QPoint(5, 5))
+        self.app.processEvents()
+
+        for pattern_list in (self.panel._custom_pattern_list, self.panel._regex_pattern_list):
+            with self.subTest(pattern_list=pattern_list.objectName()):
+                row, other = [pattern_list.itemWidget(pattern_list.item(i)) for i in range(2)]
+                controls = row.findChildren(QPushButton) + row.findChildren(QLabel)
+                positions = [control.geometry() for control in controls]
+                sample = QPoint(row.width() // 2, row.height() // 2)
+                normal = row.grab().toImage().pixelColor(sample)
+                self.assertTrue(row.menu_button.isHidden())
+                for target in (row.findChild(QLabel), row, row.menu_button):
+                    QTest.mouseMove(target, target.rect().center())
+                    self.app.processEvents()
+                    self.assertTrue(row.menu_button.isVisible())
+                    self.assertTrue(other.menu_button.isHidden())
+                    self.assertNotEqual(row.grab().toImage().pixelColor(sample), normal)
+                    self.assertEqual([control.geometry() for control in controls], positions)
+
+                QTest.mouseMove(other, other.rect().center())
+                self.app.processEvents()
+                self.assertTrue(row.menu_button.isHidden())
+                self.assertTrue(other.menu_button.isVisible())
+                self.assertEqual(row.grab().toImage().pixelColor(sample), normal)
+                self.assertEqual([control.geometry() for control in controls], positions)
+                QTest.mouseMove(self.panel._tabs, QPoint(5, 5))
+                self.app.processEvents()
 
     def test_category_toggles_are_scoped(self):
         paired_toggle = self.panel.findChild(QPushButton, "togglePairedButton")

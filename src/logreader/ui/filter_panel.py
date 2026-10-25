@@ -60,16 +60,51 @@ class SearchPatternRow(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self._context_target = False
+        self._hovered = False
         self._first_option: QWidget | None = None
+        self.menu_button = QPushButton("⋯", self)
+        self.menu_button.setObjectName("patternMenuButton")
+        self.menu_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.menu_button.setFixedSize(24, 16)
+        self.menu_button.setToolTip("Exclusive matching or exclusion")
+        policy = self.menu_button.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.menu_button.setSizePolicy(policy)
+        self.menu_button.setStyleSheet(
+            "QPushButton { background: transparent; border: none; border-radius: 3px;"
+            f" color: {THEME_COLORS['ui_text']};"
+            " font-size: 16px; padding: 0; min-height: 0; }"
+            f"QPushButton:hover {{ background: {THEME_COLORS['ui_button_hover']}; }}"
+            f"QPushButton:pressed {{ background: {THEME_COLORS['ui_button_pressed']}; }}"
+        )
+        self.menu_button.hide()
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self._hovered = True
+        self._update_hover()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._hovered = False
+        self._update_hover()
+        super().leaveEvent(event)
+
+    def _update_hover(self) -> None:
+        self.menu_button.setVisible(self._hovered or self._context_target)
+        self.update()
 
     def set_context_target(self, active: bool) -> None:
         self._context_target = active
-        self.update()
+        self._update_hover()
 
     def paintEvent(self, event) -> None:  # noqa: N802
         super().paintEvent(event)
+        painter = QPainter(self)
+        if self._hovered or self._context_target:
+            color = QColor(THEME_COLORS["ui_accent"])
+            color.setAlpha(20)
+            painter.fillRect(self.rect(), color)
         if self._context_target:
-            painter = QPainter(self)
             painter.setPen(QPen(QColor(THEME_COLORS["ui_accent"]), 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             bounds = self.rect().adjusted(0, 0, -1, -1)
@@ -1103,6 +1138,7 @@ class FilterPanel(QGroupBox):
         prefix = "customPattern" if is_custom else "regexPattern"
         case_button = SearchOptionButton("Case", label, "matching case", f"{prefix}MatchCaseButton")
         case_button.toggled.connect(lambda checked: item.setData(MATCH_CASE_ROLE, checked))
+        item_layout.addWidget(item_row.menu_button)
         item_layout.addWidget(case_button)
         item_row._first_option = case_button
 
@@ -1110,6 +1146,13 @@ class FilterPanel(QGroupBox):
         item_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         item_row.customContextMenuRequested.connect(
             lambda position: self._show_pattern_menu(item_row, item, position, update_mode)
+        )
+        item_row.menu_button.setAccessibleName(f"Options for {label}")
+        item_row.menu_button.clicked.connect(
+            lambda: self._show_pattern_menu(
+                item_row, item,
+                item_row.menu_button.geometry().bottomLeft() + QPoint(0, 1), update_mode,
+            )
         )
 
         remove_button = QPushButton("-")
