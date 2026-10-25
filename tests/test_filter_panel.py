@@ -95,7 +95,7 @@ class FilterPanelTests(unittest.TestCase):
         self.assertTrue(config.separate_entries)
         self.assertTrue(config.combined_view)
 
-    def test_exclusive_context_menu_targets_rows_and_coordinates_with_exclude(self):
+    def test_matching_menu_targets_rows_and_switches_modes(self):
         from logreader.ui.filter_panel import EXCLUDE_TOOLTIP, EXCLUSIVE_TOOLTIP
         from logreader.ui.theme import THEME_COLORS
 
@@ -110,8 +110,9 @@ class FilterPanelTests(unittest.TestCase):
         self.panel.show()
         self.app.processEvents()
 
-        def toggle_from(target, expected_checked, *, activate=True, action_name="Exclusive matching",
+        def choose_from(target, expected_checked, *, activate=True, action_name="Exclusive",
                         via_button=False):
+            nonlocal expected_mode
             observed = []
             borders = []
             border_ends = []
@@ -129,6 +130,7 @@ class FilterPanelTests(unittest.TestCase):
                 action = next(action for action in menu.actions() if action.text() == action_name)
                 observed.append((action.text(), action.isChecked(), action.toolTip(),
                                  menu.toolTipsVisible(), [a.text() for a in menu.actions()]))
+                self.assertEqual([a.text() for a in menu.actions() if a.isChecked()], [expected_mode])
                 borders.append([candidate for candidate in rows if outlined(candidate)])
                 image = row.grab().toImage()
                 border_ends.append(max(x for x in range(image.width())
@@ -144,9 +146,9 @@ class FilterPanelTests(unittest.TestCase):
                     QTest.mouseClick(row.menu_button, Qt.MouseButton.LeftButton)
                 else:
                     self.app.sendEvent(target, event)
-            tooltip = EXCLUSIVE_TOOLTIP if action_name == "Exclusive matching" else EXCLUDE_TOOLTIP
+            tooltip = {"Normal": "Normal", "Exclusive": EXCLUSIVE_TOOLTIP, "Exclude": EXCLUDE_TOOLTIP}[action_name]
             self.assertEqual(observed, [(action_name, expected_checked, tooltip, True,
-                                         ["Exclusive matching", "Exclude", "", "Disable", "Edit"])])
+                                         ["Matching", "Normal", "Exclusive", "Exclude", "", "Edit…", "Disable"])])
             self.assertEqual(borders, [[row]])
             self.assertTrue(all(row.menu_button.geometry().right() < end < case.x()
                                 and case.x() - end <= row.layout().spacing()
@@ -154,12 +156,15 @@ class FilterPanelTests(unittest.TestCase):
             self.assertFalse(any(outlined(candidate) for candidate in rows))
             if via_button:
                 self.assertTrue(row.menu_button.isVisible())
+            if activate:
+                expected_mode = action_name
 
         for kind, pattern_list, index, prefix in (
             ("custom", self.panel._custom_pattern_list, 1, "customPattern"),
             ("regex", self.panel._regex_pattern_list, 0, "regexPattern"),
         ):
             with self.subTest(kind=kind):
+                expected_mode = "Normal"
                 item = pattern_list.item(index)
                 row = pattern_list.itemWidget(item)
                 label = row.findChild(QLabel)
@@ -168,14 +173,14 @@ class FilterPanelTests(unittest.TestCase):
                 self.assertLess(row.menu_button.geometry().right(), case.x())
                 self.assertEqual([button.text() for button in row.findChildren(QPushButton)],
                                  ["⋯", "Case", "-"])
-                toggle_from(label, False, action_name="Exclude")
+                choose_from(label, False, action_name="Exclude")
                 self.assertEqual(annotation.text(), "(excluded)")
                 self.assertFalse(annotation.isHidden())
                 self.assertEqual(annotation.toolTip(), EXCLUDE_TOOLTIP)
                 self.assertIn("(excluded)", item.data(Qt.ItemDataRole.AccessibleTextRole))
                 self.assertEqual(self.panel._exclusions_label.text(), "1 exclusion")
                 self.assertFalse(self.panel._exclusions_label.isHidden())
-                toggle_from(label, False)
+                choose_from(label, False)
                 self.assertFalse(getattr(self.panel.build_config(), f"{kind}_pattern_exclude")[index])
                 self.assertTrue(self.panel._exclusions_label.isHidden())
                 self.assertFalse(annotation.isHidden())
@@ -185,22 +190,29 @@ class FilterPanelTests(unittest.TestCase):
                 self.assertIn("(exclusive)", item.data(Qt.ItemDataRole.AccessibleTextRole))
                 if kind == "regex":
                     self.assertFalse(row.findChild(QLabel, "regexPresetLabel").isHidden())
-                toggle_from(case, True)
+                choose_from(case, True)
+                self.assertEqual(annotation.text(), "(exclusive)")
+                self.assertTrue(getattr(self.panel.build_config(), f"{kind}_pattern_exclusive")[index])
+                choose_from(row, False, action_name="Normal")
                 self.assertTrue(annotation.isHidden())
-                toggle_from(row, False)
-                toggle_from(label, True, activate=False)
-                toggle_from(row, False, action_name="Exclude")
+                self.assertFalse(getattr(self.panel.build_config(), f"{kind}_pattern_exclusive")[index])
+                choose_from(row, False)
+                choose_from(label, True, activate=False)
+                choose_from(row, False, action_name="Exclude")
                 self.assertEqual(annotation.text(), "(excluded)")
                 self.assertFalse(getattr(self.panel.build_config(), f"{kind}_pattern_exclusive")[index])
-                toggle_from(row, True, action_name="Exclude")
+                choose_from(row, True, action_name="Exclude")
+                self.assertEqual(annotation.text(), "(excluded)")
+                self.assertTrue(getattr(self.panel.build_config(), f"{kind}_pattern_exclude")[index])
+                choose_from(row, False, action_name="Normal")
                 self.assertTrue(annotation.isHidden())
                 self.assertFalse(getattr(self.panel.build_config(), f"{kind}_pattern_exclude")[index])
-                toggle_from(row, False, via_button=True)
+                choose_from(row, False, via_button=True)
                 self.assertEqual(annotation.text(), "(exclusive)")
-                toggle_from(row, False, via_button=True, action_name="Exclude")
+                choose_from(row, False, via_button=True, action_name="Exclude")
                 self.assertEqual(annotation.text(), "(excluded)")
-                toggle_from(row, True, via_button=True, action_name="Exclude")
-                toggle_from(row, False, via_button=True)
+                choose_from(row, False, via_button=True, action_name="Normal")
+                choose_from(row, False, via_button=True)
 
         self.assertEqual(self.panel.build_config().custom_pattern_exclusive, (False, True))
         self.panel.remove_custom_pattern(self.panel._custom_pattern_list.item(0))
@@ -223,11 +235,11 @@ class FilterPanelTests(unittest.TestCase):
             entry.setText("unfinished draft")
             item = pattern_list.item(1)
             pattern_list.itemWidget(item).findChild(QPushButton, prefix + "MatchCaseButton").click()
-            for mode in ("Exclusive matching", "Exclude"):
+            for mode in ("Exclusive", "Exclude"):
                 with self.subTest(kind=kind, mode=mode):
                     trigger_pattern_action(pattern_list, 1, mode)
                     before = self.panel.build_config()
-                    replacement = "corrected" if mode == "Exclusive matching" else "<refined>"
+                    replacement = "corrected" if mode == "Exclusive" else "<refined>"
 
                     def edit(dialog):
                         self.assertEqual(dialog.editor.toPlainText(), getattr(before, kind + "_patterns")[1])
@@ -237,7 +249,7 @@ class FilterPanelTests(unittest.TestCase):
                         return dialog.result()
 
                     with patch.object(PatternEditDialog, "exec", new=edit):
-                        trigger_pattern_action(pattern_list, 1, "Edit")
+                        trigger_pattern_action(pattern_list, 1, "Edit…")
                     after = self.panel.build_config()
                     self.assertIs(pattern_list.item(1), item)
                     self.assertEqual(getattr(after, kind + "_patterns"), ("first", replacement, "last"))
@@ -257,7 +269,7 @@ class FilterPanelTests(unittest.TestCase):
                     self.assertEqual(after.label_for(kind + "_2"), replacement)
                     result = analyze_lines([replacement + " ERROR", replacement.upper() + " ERROR"],
                                            after.search_patterns())
-                    if mode == "Exclusive matching":
+                    if mode == "Exclusive":
                         self.assertNotIn(kind + "_2", result.category_match_counts)
                         self.assertEqual(result.category_match_counts["error"], 1)
 
@@ -278,10 +290,9 @@ class FilterPanelTests(unittest.TestCase):
             case = row.findChild(QPushButton, prefix + "MatchCaseButton")
             case.click()
             lines = ["ERROR Target", "ERROR other", "ERROR target"]
-            for mode, expected in ((None, 3), ("Exclude", 2), ("Exclusive matching", 1)):
+            for mode, expected in (("Normal", 3), ("Exclude", 2), ("Exclusive", 1)):
                 with self.subTest(kind=kind, mode=mode):
-                    if mode:
-                        trigger_pattern_action(pattern_list, 1, mode)
+                    trigger_pattern_action(pattern_list, 1, mode)
                     before = self.panel.build_config()
                     result = analyze_lines(lines, before.search_patterns())
                     self.assertEqual(result.category_match_counts[kind + "_1"], expected)
@@ -305,10 +316,10 @@ class FilterPanelTests(unittest.TestCase):
 
                     def inspect(menu, position):
                         actions = {action.text(): action for action in menu.actions()}
-                        for name in ("Exclusive matching", "Exclude"):
+                        for name in ("Normal", "Exclusive", "Exclude"):
                             self.assertFalse(actions[name].isEnabled())
                             self.assertEqual(actions[name].isChecked(), name == mode)
-                        self.assertTrue(actions["Edit"].isEnabled())
+                        self.assertTrue(actions["Edit…"].isEnabled())
                         self.assertTrue(actions["Enable"].isEnabled())
 
                     with patch("logreader.ui.filter_panel.SearchPatternMenu.exec", new=inspect):
@@ -346,7 +357,7 @@ class FilterPanelTests(unittest.TestCase):
             return dialog.result()
 
         with patch.object(PatternEditDialog, "exec", new=edit):
-            trigger_pattern_action(pattern_list, 0, "Edit")
+            trigger_pattern_action(pattern_list, 0, "Edit…")
         self.assertEqual(self.panel.build_config().regex_patterns, ())
         self.assertEqual(self.panel._tab_counts[2].text(), "(0/1)")
         row = pattern_list.itemWidget(item)
@@ -390,7 +401,7 @@ class FilterPanelTests(unittest.TestCase):
                     return dialog.result()
 
                 with patch.object(PatternEditDialog, "exec", new=edit):
-                    trigger_pattern_action(pattern_list, 0, "Edit")
+                    trigger_pattern_action(pattern_list, 0, "Edit…")
                 from logreader.regex_presets import REGEX_PRESET_NAMES
                 name = REGEX_PRESET_NAMES.get(replacement)
                 row = pattern_list.itemWidget(item)
@@ -421,7 +432,7 @@ class FilterPanelTests(unittest.TestCase):
             return dialog.result()
 
         with patch.object(PatternEditDialog, "exec", new=cancel):
-            trigger_pattern_action(self.panel._regex_pattern_list, 0, "Edit")
+            trigger_pattern_action(self.panel._regex_pattern_list, 0, "Edit…")
         self.assertEqual(self.panel.build_config(), before)
         self.assertIs(self.panel._regex_pattern_list.itemWidget(self.panel._regex_pattern_list.item(0)), row)
 
@@ -434,7 +445,7 @@ class FilterPanelTests(unittest.TestCase):
             return dialog.result()
 
         with patch.object(PatternEditDialog, "exec", new=correct):
-            trigger_pattern_action(self.panel._regex_pattern_list, 0, "Edit")
+            trigger_pattern_action(self.panel._regex_pattern_list, 0, "Edit…")
         self.assertEqual(self.panel.build_config().regex_patterns, (r"fixed\d+",))
 
     def test_pattern_editor_rejects_line_breaks_but_accepts_regex_escapes(self):

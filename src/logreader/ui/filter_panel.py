@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from typing import Callable
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPalette, QPen, QRegion, QValidator
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QActionGroup, QColor, QFont, QFontDatabase, QPainter, QPainterPath, QPalette, QPen, QRegion, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QTabBar,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from ..config import (
@@ -132,22 +133,84 @@ class PatternEditDialog(CompactDialog):
 class SearchPatternMenu(TitleMenu):
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet(
             TITLE_MENU_STYLE_SHEET
-            + "QMenu { min-width: 0; }"
-            + "QMenu::item { min-width: 140px; padding: 5px 30px 5px 10px; }"
+            + "QMenu { min-width: 206px; padding: 3px 5px; border-radius: 6px;"
+            + f" border-color: {THEME_COLORS['ui_border_strong']}; }}"
+            + "QMenu::item { padding: 3px 8px 3px 31px; border-radius: 3px; }"
             + "QMenu::indicator { width: 0; height: 0; }"
+            + "QMenu::separator { margin: 3px; }"
         )
         self.setToolTipsVisible(True)
+        heading = QLabel("Matching", self)
+        heading.setContentsMargins(8, 2, 8, 1)
+        heading.setStyleSheet(f"background: transparent; color: {THEME_COLORS['ui_muted']};")
+        heading_font = heading.font()
+        if heading_font.pointSizeF() > 0:
+            heading_font.setPointSizeF(heading_font.pointSizeF() * 11 / 12)
+        else:
+            heading_font.setPixelSize(round(heading_font.pixelSize() * 11 / 12))
+        heading.setFont(heading_font)
+        section = QWidgetAction(self)
+        section.setText("Matching")
+        section.setEnabled(False)
+        section.setDefaultWidget(heading)
+        self.addAction(section)
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.ToolTip:
+            action = self.actionAt(event.pos())
+            if action is None or action.toolTip() == action.text():
+                return True
+        return super().event(event)
 
     def paintEvent(self, event) -> None:  # noqa: N802
         super().paintEvent(event)
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         for action in self.actions():
-            if action.isVisible() and action.isChecked():
-                bounds = self.actionGeometry(action)
-                indicator = QRectF(bounds.right() - 25, bounds.center().y() - 8, 16, 16)
-                paint_checkmark(painter, indicator, enabled=action.isEnabled())
+            if not action.isVisible() or action.isSeparator():
+                continue
+            bounds = self.actionGeometry(action)
+            painter.save()
+            painter.translate(bounds.left() + 8, bounds.center().y() - 6.5)
+            color = QColor(THEME_COLORS[
+                "ui_disabled_text" if not action.isEnabled()
+                else "ui_accent" if action.isChecked() else "ui_muted"
+            ])
+            painter.setPen(QPen(color, 1.2, Qt.PenStyle.SolidLine,
+                                Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            if action.isCheckable():
+                painter.drawEllipse(QRectF(1, 1, 12, 12))
+                if action.isChecked():
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(color)
+                    painter.drawEllipse(QPointF(7, 7), 2.5, 2.5)
+            elif action.objectName() == "editPattern":
+                pencil = QPainterPath(QPointF(2, 9.4))
+                pencil.lineTo(1.4, 12.6)
+                pencil.lineTo(4.6, 12)
+                pencil.lineTo(12.1, 4.5)
+                pencil.quadTo(13, 3.6, 12.1, 2.7)
+                pencil.lineTo(11.3, 1.9)
+                pencil.quadTo(10.4, 1, 9.5, 1.9)
+                pencil.closeSubpath()
+                painter.drawPath(pencil)
+                painter.drawLine(QPointF(8.3, 3.1), QPointF(10.9, 5.7))
+            elif action.objectName() in ("enablePattern", "disablePattern"):
+                painter.drawEllipse(QRectF(1, 1, 12, 12))
+                if action.objectName() == "enablePattern":
+                    play = QPainterPath(QPointF(5.5, 4.5))
+                    play.lineTo(9.5, 7)
+                    play.lineTo(5.5, 9.5)
+                    play.closeSubpath()
+                    painter.drawPath(play)
+                else:
+                    for x in (5.5, 8.5):
+                        painter.drawLine(QPointF(x, 4.5), QPointF(x, 9.5))
+            painter.restore()
 
 
 class SearchPatternRow(QWidget):
@@ -1232,7 +1295,10 @@ class FilterPanel(QGroupBox):
         mode_label.setObjectName("patternModeLabel")
         text_layout.addWidget(mode_label)
 
-        def update_mode(role: int, checked: bool) -> None:
+        def update_mode(role: int | None, checked: bool) -> None:
+            if role is None:
+                item.setData(EXCLUSIVE_ROLE, False)
+                role, checked = EXCLUDE_ROLE, False
             if checked and role in (EXCLUSIVE_ROLE, EXCLUDE_ROLE):
                 item.setData(EXCLUDE_ROLE if role == EXCLUSIVE_ROLE else EXCLUSIVE_ROLE, False)
             item.setData(role, checked)
@@ -1307,32 +1373,40 @@ class FilterPanel(QGroupBox):
 
     def _show_pattern_menu(
         self, row: SearchPatternRow, item: QListWidgetItem, position: QPoint,
-        update_mode: Callable[[int, bool], None],
+        update_mode: Callable[[int | None, bool], None],
         edit_pattern: Callable[[], None],
     ) -> None:
         menu = SearchPatternMenu(row)
         disabled = bool(item.data(DISABLED_ROLE))
+        modes = QActionGroup(menu)
         for label, role, tooltip in (
-            ("Exclusive matching", EXCLUSIVE_ROLE, EXCLUSIVE_TOOLTIP),
+            ("Normal", None, ""),
+            ("Exclusive", EXCLUSIVE_ROLE, EXCLUSIVE_TOOLTIP),
             ("Exclude", EXCLUDE_ROLE, EXCLUDE_TOOLTIP),
         ):
             action = menu.addAction(label)
+            modes.addAction(action)
+            action.setData(role)
             action.setCheckable(True)
-            action.setChecked(bool(item.data(role)))
+            action.setChecked(bool(item.data(role)) if role is not None else not (
+                item.data(EXCLUSIVE_ROLE) or item.data(EXCLUDE_ROLE)
+            ))
             action.setEnabled(not disabled)
             action.setToolTip(tooltip)
-            action.triggered.connect(lambda checked, role=role: update_mode(role, checked))
+        modes.triggered.connect(lambda action: update_mode(action.data(), True))
         menu.addSeparator()
-        menu.addAction("Enable" if disabled else "Disable").triggered.connect(
-            lambda: update_mode(DISABLED_ROLE, not disabled)
-        )
         edit_requested = False
 
         def request_edit() -> None:
             nonlocal edit_requested
             edit_requested = True
 
-        menu.addAction("Edit").triggered.connect(request_edit)
+        edit_action = menu.addAction("Edit…")
+        edit_action.setObjectName("editPattern")
+        edit_action.triggered.connect(request_edit)
+        enabled_action = menu.addAction("Enable" if disabled else "Disable")
+        enabled_action.setObjectName("enablePattern" if disabled else "disablePattern")
+        enabled_action.triggered.connect(lambda: update_mode(DISABLED_ROLE, not disabled))
         row.set_context_target(True)
         try:
             menu.exec(row.mapToGlobal(position))

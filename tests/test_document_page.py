@@ -58,7 +58,7 @@ class DocumentPageTests(unittest.TestCase):
         for pattern in ("first", "ERROR", "skip"):
             panel._custom_pattern.setText(pattern)
             panel.add_custom_pattern()
-        trigger_pattern_action(panel._custom_pattern_list, 0, "Exclusive matching")
+        trigger_pattern_action(panel._custom_pattern_list, 0, "Exclusive")
         trigger_pattern_action(panel._custom_pattern_list, 2, "Exclude")
         workers = []
         done = QSignalSpy(self.first.analysis_finished)
