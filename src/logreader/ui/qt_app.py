@@ -171,7 +171,7 @@ QLabel {{
 QLabel#emptyTabLabel, QLabel#emptySubtitle, QLabel#emptyVersionLabel {{
     color: {THEME_COLORS['ui_muted']};
 }}
-QLabel#regexPresetLabel {{
+QLabel#regexPresetLabel, QLabel#exclusivePatternLabel {{
     color: rgba({COLORS['ui_muted'].red()}, {COLORS['ui_muted'].green()}, {COLORS['ui_muted'].blue()}, 170);
 }}
 QGroupBox#filterGroup,

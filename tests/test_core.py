@@ -5,6 +5,62 @@ from logreader.core import COMBINED_CATEGORY_KEY, SearchPattern, analyze_lines
 
 class AnalyzeLinesTests(unittest.TestCase):
 
+    def test_exclusive_matches_restrict_counts_and_spans_in_both_scan_paths(self):
+        lines = ["alpha ERROR", "beta ERROR", "other ERROR", "alpha skip ERROR", "ALPHA ready"]
+        for regex in (False, True):
+            for combined in (False, True):
+                with self.subTest(regex=regex, combined=combined):
+                    result = analyze_lines(lines, (
+                        SearchPattern("alpha", "alpha", exclusive=True, is_regex=regex),
+                        SearchPattern("beta", "beta", exclusive=True),
+                        SearchPattern("error", "ERROR"),
+                        SearchPattern("skip", "skip", exclude=True),
+                    ), combined=combined, line_offset=100)
+                    self.assertEqual(result.category_match_counts, {"alpha": 2, "beta": 1, "error": 2})
+                    self.assertEqual(result.pattern_count, 3)
+                    if combined:
+                        category = result.category("combined")
+                        accepted = [line for excerpt in category.excerpts for line in excerpt.lines]
+                        self.assertEqual([line.number for line in accepted], [101, 102, 105])
+                        self.assertEqual([(s.start, s.end) for s in accepted[0].match_spans],
+                                         [(0, 5), (6, 11)])
+                        self.assertEqual(category.matched_line_count, 3)
+                        self.assertEqual(category.match_count, 5)
+                    else:
+                        accepted = result.category("error").excerpts[0].lines
+                        self.assertEqual([line.number for line in accepted], [101, 102])
+                        self.assertEqual([(s.start, s.end) for s in accepted[0].match_spans], [(6, 11)])
+
+    def test_exclusive_context_remains_unhighlighted_and_no_match_returns_no_results(self):
+        for combined in (False, True):
+            result = analyze_lines(["alpha ERROR", "other ERROR", "alpha skip"], (
+                SearchPattern("alpha", "alpha", context=2, exclusive=True),
+                SearchPattern("error", "ERROR", context=2),
+                SearchPattern("skip", "skip", exclude=True),
+            ), combined=combined)
+            category = result.category("combined" if combined else "alpha")
+            self.assertEqual([line.is_match for line in category.excerpts[0].lines], [True, False, False])
+            result = analyze_lines(["ERROR"], (
+                SearchPattern("alpha", "alpha", exclusive=True), SearchPattern("error", "ERROR"),
+            ), combined=combined)
+            self.assertTrue(all(not category.excerpts for category in result.categories.values()))
+
+    def test_exclusive_patterns_require_accepted_matches_and_honor_case(self):
+        for pattern, expected in (
+            (SearchPattern("only", "alpha", exclusive=True, case_sensitive=True), 1),
+            (SearchPattern("only", r"(?i)alpha", exclusive=True, is_regex=True, case_sensitive=True), 2),
+            (SearchPattern("only", r"(?=alpha)", exclusive=True, is_regex=True), 0),
+            (SearchPattern("only", "alpha", exclusive=True, match_validator=lambda *_: False), 0),
+            (SearchPattern("only", "alpha", exclusive=True, excluded_substrings=("error",)), 0),
+        ):
+            with self.subTest(pattern=pattern):
+                result = analyze_lines(["alpha ERROR", "ALPHA ERROR"], (
+                    pattern, SearchPattern("error", "ERROR"),
+                ))
+                self.assertEqual(result.category_match_counts, {"only": expected, "error": expected})
+        with self.assertRaises(ValueError):
+            SearchPattern("invalid", "alpha", exclusive=True, exclude=True)
+
     def test_global_exclusions_override_all_matches_but_remain_context(self):
         lines = ["ERROR keep", "ERROR Skip code=500", "ERROR SKIP code=500"]
         for combined in (False, True):

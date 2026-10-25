@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen, QRegion, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -43,6 +43,7 @@ from ..config import (
     LogreaderConfig,
 )
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button, paint_checkmark
+from .title_bar import TITLE_MENU_STYLE_SHEET, TitleMenu
 from ..file_loader import DEFAULT_MAX_LINES_SCANNED
 from ..regex_presets import REGEX_PRESET_NAMES, REGEX_PRESETS
 from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
@@ -50,6 +51,8 @@ from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
 
 MATCH_CASE_ROLE = Qt.ItemDataRole.UserRole + 1
 EXCLUDE_ROLE = Qt.ItemDataRole.UserRole + 2
+EXCLUSIVE_ROLE = Qt.ItemDataRole.UserRole + 3
+EXCLUSIVE_TOOLTIP = 'Only lines that match an "exclusive" item will qualify.'
 
 
 class SearchOptionButton(QPushButton):
@@ -953,6 +956,10 @@ class FilterPanel(QGroupBox):
                 bool(self._custom_pattern_list.item(index).data(EXCLUDE_ROLE))
                 for index in range(self._custom_pattern_list.count())
             ),
+            custom_pattern_exclusive=tuple(
+                bool(self._custom_pattern_list.item(index).data(EXCLUSIVE_ROLE))
+                for index in range(self._custom_pattern_list.count())
+            ),
             regex_patterns=self._list_values(self._regex_pattern_list),
             regex_pattern_match_case=tuple(
                 bool(self._regex_pattern_list.item(index).data(MATCH_CASE_ROLE))
@@ -960,6 +967,10 @@ class FilterPanel(QGroupBox):
             ),
             regex_pattern_exclude=tuple(
                 bool(self._regex_pattern_list.item(index).data(EXCLUDE_ROLE))
+                for index in range(self._regex_pattern_list.count())
+            ),
+            regex_pattern_exclusive=tuple(
+                bool(self._regex_pattern_list.item(index).data(EXCLUSIVE_ROLE))
                 for index in range(self._regex_pattern_list.count())
             ),
             separate_entries=self._separate_entries.isChecked(),
@@ -1016,6 +1027,7 @@ class FilterPanel(QGroupBox):
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, pattern)
         item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
+        item.setData(EXCLUSIVE_ROLE, False)
         item.setSizeHint(QSize(0, 18))
         pattern_list.addItem(item)
 
@@ -1029,17 +1041,41 @@ class FilterPanel(QGroupBox):
         item_label_font.setBold(False)
         item_label_font.setWeight(QFont.Weight.Normal)
         item_label.setFont(item_label_font)
-        item_layout.addWidget(item_label, 0 if preset_name else 1)
+        text_row = QWidget()
+        text_layout = QHBoxLayout(text_row)
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(4)
+        text_layout.addWidget(item_label, 1)
+        item_layout.addWidget(text_row)
+        item_layout.addStretch(1)
 
-        item_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        item_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        item_label.setMinimumWidth(1)
         item_label.setToolTip(pattern)
         if preset_name:
-            item_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             preset_label = QLabel("(preset)")
             preset_label.setObjectName("regexPresetLabel")
             preset_label.setToolTip(pattern)
-            item_layout.addWidget(preset_label)
-            item_layout.addStretch(1)
+            text_layout.addWidget(preset_label)
+        exclusive_label = QLabel("(exclusive)")
+        exclusive_label.setObjectName("exclusivePatternLabel")
+        exclusive_label.setToolTip(EXCLUSIVE_TOOLTIP)
+        exclusive_label.hide()
+        text_layout.addWidget(exclusive_label)
+
+        def update_exclusive(checked: bool) -> None:
+            item.setData(EXCLUSIVE_ROLE, checked)
+            exclusive_label.setVisible(checked)
+            item.setData(Qt.ItemDataRole.AccessibleTextRole,
+                         f"{label} (exclusive)" if checked else label)
+            text_row.setMaximumWidth(
+                item_label.sizeHint().width()
+                + (preset_label.sizeHint().width() + 4 if preset_name else 0)
+                + (exclusive_label.sizeHint().width() + 4 if checked else 0)
+            )
+            if checked:
+                exclude_button.setChecked(False)
+
         prefix = "customPattern" if is_custom else "regexPattern"
         options = [
             ("Exclude", EXCLUDE_ROLE, "excluding matches", f"{prefix}ExcludeButton"),
@@ -1053,6 +1089,15 @@ class FilterPanel(QGroupBox):
                 list_item.setData(data_role, checked)
             )
             item_layout.addWidget(button)
+            if role == EXCLUDE_ROLE:
+                exclude_button = button
+                button.toggled.connect(lambda checked: update_exclusive(False) if checked else None)
+
+        update_exclusive(False)
+        item_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        item_row.customContextMenuRequested.connect(
+            lambda position: self._show_pattern_menu(item_row, item, position, update_exclusive)
+        )
 
         remove_button = QPushButton("-")
         remove_button.setObjectName(remove_button_object_name)
@@ -1069,6 +1114,25 @@ class FilterPanel(QGroupBox):
             input_box.clear()
         input_box.setFocus()
         self._update_summary()
+
+    def _show_pattern_menu(
+        self, row: QWidget, item: QListWidgetItem, position: QPoint,
+        update_exclusive: Callable[[bool], None],
+    ) -> None:
+        menu = TitleMenu(row)
+        menu.setStyleSheet(TITLE_MENU_STYLE_SHEET +
+                           "QMenu { min-width: 0; padding-right: 3px; }"
+                           "QMenu::item { min-width: 160px; }")
+        menu.setToolTipsVisible(True)
+        action = menu.addAction("Exclusive matching")
+        action.setCheckable(True)
+        action.setChecked(bool(item.data(EXCLUSIVE_ROLE)))
+        action.setToolTip(EXCLUSIVE_TOOLTIP)
+        action.triggered.connect(update_exclusive)
+        try:
+            menu.exec(row.mapToGlobal(position))
+        finally:
+            menu.deleteLater()
 
     def _update_regex_preset_menu(self, menu: QMenu) -> None:
         expressions = set(self._list_values(self._regex_pattern_list))

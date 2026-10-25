@@ -1,12 +1,14 @@
 import os
 import re
 import unittest
+from unittest.mock import patch
 
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QContextMenuEvent
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import (
         QApplication,
@@ -89,6 +91,70 @@ class FilterPanelTests(unittest.TestCase):
         )
         self.assertTrue(config.separate_entries)
         self.assertTrue(config.combined_view)
+
+    def test_exclusive_context_menu_targets_rows_and_coordinates_with_exclude(self):
+        from logreader.ui.filter_panel import EXCLUSIVE_TOOLTIP
+
+        self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
+        self.panel.resize(900, 650)
+        self.panel._custom_pattern.setText("alpha")
+        self.panel.add_custom_pattern()
+        self.panel._custom_pattern.setText("beta")
+        self.panel.add_custom_pattern()
+        self.panel.findChild(QPushButton, "regexPresetButton").menu().actions()[0].trigger()
+        self.panel._pages.setCurrentIndex(2)
+        self.panel.show()
+        self.app.processEvents()
+
+        def toggle_from(target, expected_checked):
+            observed = []
+
+            def inspect(menu, position):
+                action = menu.actions()[0]
+                observed.append((action.text(), action.isChecked(), action.toolTip(),
+                                 menu.toolTipsVisible()))
+                action.trigger()
+
+            point = QPoint(3, 3)
+            event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, target.mapToGlobal(point))
+            with patch("logreader.ui.filter_panel.TitleMenu.exec", new=inspect):
+                self.app.sendEvent(target, event)
+            self.assertEqual(observed, [("Exclusive matching", expected_checked, EXCLUSIVE_TOOLTIP, True)])
+
+        for kind, pattern_list, index, prefix in (
+            ("custom", self.panel._custom_pattern_list, 1, "customPattern"),
+            ("regex", self.panel._regex_pattern_list, 0, "regexPattern"),
+        ):
+            with self.subTest(kind=kind):
+                item = pattern_list.item(index)
+                row = pattern_list.itemWidget(item)
+                label = row.findChild(QLabel)
+                annotation = row.findChild(QLabel, "exclusivePatternLabel")
+                exclude = row.findChild(QPushButton, prefix + "ExcludeButton")
+                exclude.click()
+                toggle_from(label, False)
+                self.assertFalse(exclude.isChecked())
+                self.assertFalse(annotation.isHidden())
+                self.assertEqual(annotation.text(), "(exclusive)")
+                self.assertEqual(annotation.toolTip(), EXCLUSIVE_TOOLTIP)
+                self.assertTrue(getattr(self.panel.build_config(), f"{kind}_pattern_exclusive")[index])
+                self.assertIn("(exclusive)", item.data(Qt.ItemDataRole.AccessibleTextRole))
+                if kind == "regex":
+                    self.assertFalse(row.findChild(QLabel, "regexPresetLabel").isHidden())
+                toggle_from(exclude, True)
+                self.assertTrue(annotation.isHidden())
+                toggle_from(row, False)
+                exclude.click()
+                self.assertTrue(annotation.isHidden())
+                self.assertFalse(getattr(self.panel.build_config(), f"{kind}_pattern_exclusive")[index])
+                toggle_from(row, False)
+
+        self.assertEqual(self.panel.build_config().custom_pattern_exclusive, (False, True))
+        self.panel.remove_custom_pattern(self.panel._custom_pattern_list.item(0))
+        self.assertEqual(self.panel.build_config().custom_pattern_exclusive, (True,))
+        result = analyze_lines(["beta ERROR", "other ERROR"], self.panel.build_config().search_patterns())
+        self.assertEqual(result.category_match_counts["custom_1"], 1)
+        self.assertEqual(result.category_match_counts["error"], 1)
 
     def test_category_toggles_are_scoped(self):
         paired_toggle = self.panel.findChild(QPushButton, "togglePairedButton")

@@ -989,7 +989,8 @@ class BookmarkTests(unittest.TestCase):
         wait_source(self.view)
         self.assertEqual(self.selected_row(), rows[-1])
         for changed in (replace(config, custom_patterns=(), custom_pattern_match_case=(),
-                                custom_pattern_exclude=()), replace(config, combined_view=True)):
+                                custom_pattern_exclude=(), custom_pattern_exclusive=()),
+                        replace(config, combined_view=True)):
             self.render(lines, changed, load=False)
             self.bookmarks.activate(location.source)
             wait_source(self.view)
@@ -1010,7 +1011,8 @@ class BookmarkTests(unittest.TestCase):
         wait_source(self.view)
         self.assertEqual(self.selected_row(), 1)
         self.render(("needle",), replace(config, custom_patterns=("unrelated", "needle", "needle"),
-                                         custom_pattern_match_case=(), custom_pattern_exclude=()), load=False)
+                                         custom_pattern_match_case=(), custom_pattern_exclude=(),
+                                         custom_pattern_exclusive=()), load=False)
         self.bookmarks.activate(location.source)
         wait_source(self.view)
         self.assertEqual(self.selected_row(), 1)

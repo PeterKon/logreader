@@ -29,6 +29,7 @@ class SearchPattern:
     match_validator: MatchValidator | None = None
     case_sensitive: bool = False
     exclude: bool = False
+    exclusive: bool = False
 
     def __post_init__(self) -> None:
         if not self.key:
@@ -37,6 +38,8 @@ class SearchPattern:
             raise ValueError("Search pattern needle cannot be empty")
         if self.context < 0:
             raise ValueError("Search pattern context cannot be negative")
+        if self.exclude and self.exclusive:
+            raise ValueError("A search pattern cannot be both excluded and exclusive")
         if self.match_validator is not None and not callable(self.match_validator):
             raise ValueError("Search pattern match validator must be callable")
         if self.is_regex:
@@ -156,6 +159,19 @@ def analyze_lines(
                 _record_line_matches(state, index, spans, raw)
     else:
         _collect_pattern_matches(source, states, [s.expression for s in exclusions], cancellation)
+    exclusive_states = [state for state in states if state.pattern.exclusive]
+    if exclusive_states:
+        qualifying_indexes = {
+            index for state in exclusive_states
+            for index in checked(state.match_spans_by_index, cancellation)
+        }
+        for state in checked(states, cancellation):
+            state.match_spans_by_index = {
+                index: spans
+                for index, spans in checked(state.match_spans_by_index.items(), cancellation)
+                if index in qualifying_indexes
+            }
+            state.raw_only_match_indexes.intersection_update(qualifying_indexes)
     if cancellation is not None:
         cancellation.check()
     counts = {state.pattern.key: len(state.match_spans_by_index) for state in states}

@@ -277,6 +277,8 @@ class LogreaderConfig:
     custom_pattern_exclude: tuple[bool, ...] = ()
     regex_pattern_exclude: tuple[bool, ...] = ()
     regex_pattern_match_case: tuple[bool, ...] = ()
+    custom_pattern_exclusive: tuple[bool, ...] = ()
+    regex_pattern_exclusive: tuple[bool, ...] = ()
 
     def __post_init__(self) -> None:
         if self.context < 0:
@@ -335,6 +337,19 @@ class LogreaderConfig:
         object.__setattr__(self, "regex_patterns", regex_patterns)
         object.__setattr__(self, "regex_pattern_match_case", regex_match_case)
         object.__setattr__(self, "regex_pattern_exclude", regex_exclude)
+        for kind, values, exclusions in (
+            ("custom", custom_patterns, exclude),
+            ("regex", regex_patterns, regex_exclude),
+        ):
+            field = f"{kind}_pattern_exclusive"
+            exclusive = tuple(getattr(self, field)) or (False,) * len(values)
+            if len(exclusive) != len(values) or any(
+                not isinstance(value, bool) for value in exclusive
+            ):
+                raise ValueError(f"Exclusive matching must provide one boolean per {kind} pattern")
+            if any(only and excluded for only, excluded in zip(exclusive, exclusions)):
+                raise ValueError("A search pattern cannot be both excluded and exclusive")
+            object.__setattr__(self, field, exclusive)
 
     def search_patterns(self) -> tuple[SearchPattern, ...]:
         """Build the pure engine patterns represented by this configuration."""
@@ -363,6 +378,7 @@ class LogreaderConfig:
                 context=self.context,
                 case_sensitive=self.custom_pattern_match_case[index - 1],
                 exclude=self.custom_pattern_exclude[index - 1],
+                exclusive=self.custom_pattern_exclusive[index - 1],
             )
             for index, needle in enumerate(self.custom_patterns, start=1)
         )
@@ -374,6 +390,7 @@ class LogreaderConfig:
                 is_regex=True,
                 case_sensitive=self.regex_pattern_match_case[index - 1],
                 exclude=self.regex_pattern_exclude[index - 1],
+                exclusive=self.regex_pattern_exclusive[index - 1],
             )
             for index, needle in enumerate(self.regex_patterns, start=1)
         )

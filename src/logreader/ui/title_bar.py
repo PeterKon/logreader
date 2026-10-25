@@ -20,6 +20,21 @@ HTCLIENT, HTCAPTION, HTSYSMENU = 1, 2, 3
 HTMINBUTTON, HTMAXBUTTON, HTTOP, HTCLOSE = 8, 9, 12, 20
 SM_CYFRAME, SM_CYCAPTION, SM_CXPADDEDBORDER = 33, 4, 92
 
+TITLE_MENU_STYLE_SHEET = f"""
+    QMenu {{
+        background: {COLORS['ui_button']}; color: {COLORS['ui_text']};
+        border: 1px solid {COLORS['ui_border']};
+        padding-left: 3px;
+        min-width: 180px;
+    }}
+    QMenu::item {{ margin: 2px 0; padding: 3px 10px; border-radius: 3px; }}
+    QMenu::item:selected:enabled {{ background: {COLORS['ui_button_hover']}; }}
+    QMenu::item:disabled {{ color: {COLORS['ui_muted']}; }}
+    QMenu::separator {{
+        height: 1px; background: rgba(255, 255, 255, 55); margin: 2px 6px;
+    }}
+"""
+
 
 class _Margins(ctypes.Structure):
     _fields_ = [(name, ctypes.c_int) for name in ("left", "right", "top", "bottom")]
@@ -93,19 +108,7 @@ def create_title_menus(parent: QWidget) -> QMenuBar:
         QMenuBar::item:pressed {{
             background: {COLORS['ui_button_hover']}; color: {COLORS['ui_text']};
         }}
-        QMenu {{
-            background: {COLORS['ui_button']}; color: {COLORS['ui_text']};
-            border: 1px solid {COLORS['ui_border']};
-            padding-left: 3px;
-            min-width: 180px;
-        }}
-        QMenu::item {{ margin: 2px 0; padding: 3px 10px; border-radius: 3px; }}
-        QMenu::item:selected:enabled {{ background: {COLORS['ui_button_hover']}; }}
-        QMenu::item:disabled {{ color: {COLORS['ui_muted']}; }}
-        QMenu::separator {{
-            height: 1px; background: rgba(255, 255, 255, 55); margin: 2px 6px;
-        }}
-    """)
+    """ + TITLE_MENU_STYLE_SHEET)
     for title in ("&File", "&View", "&Settings", "&Profiles", "&Help"):
         menu = TitleMenu(title, menus)
         menus.addMenu(menu)

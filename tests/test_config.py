@@ -18,6 +18,21 @@ from logreader.core import COMBINED_CATEGORY_KEY, analyze_lines
 
 class LogreaderConfigTests(unittest.TestCase):
 
+    def test_exclusive_options_defaults_validation_and_engine_mapping(self):
+        for kind in ("custom", "regex"):
+            patterns = {f"{kind}_patterns": ("alpha", "beta")}
+            option = f"{kind}_pattern_exclusive"
+            with self.subTest(kind=kind):
+                self.assertEqual(getattr(LogreaderConfig(**patterns), option), (False, False))
+                config = LogreaderConfig(enabled_patterns=(), **patterns, **{option: (True, False)})
+                self.assertEqual(tuple(p.exclusive for p in config.search_patterns()), (True, False))
+                for flags in ((True,), (True, False, True), (True, "false")):
+                    with self.subTest(flags=flags), self.assertRaises(ValueError):
+                        LogreaderConfig(**patterns, **{option: flags})
+                with self.assertRaises(ValueError):
+                    LogreaderConfig(**patterns, **{option: (True, False),
+                                                  f"{kind}_pattern_exclude": (True, False)})
+
     def test_regex_exclusions_override_matches_and_keep_context(self):
         self.assertEqual(
             LogreaderConfig(regex_patterns=("skip",)).regex_pattern_exclude, (False,),

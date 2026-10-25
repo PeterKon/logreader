@@ -40,7 +40,8 @@ class ResultsModelTests(unittest.TestCase):
         old = self.model(lines, config)
         location = old.location(old.rows_for_source(SourceLocation("snapshot", 10003))[-1])
         changed = replace(config, context=1, custom_patterns=("needle",),
-                          custom_pattern_match_case=(False,), custom_pattern_exclude=(False,))
+                          custom_pattern_match_case=(False,), custom_pattern_exclude=(False,),
+                          custom_pattern_exclusive=(False,))
         model = self.model(lines, changed)
         row = model.resolve(location)
         self.assertEqual(model.location(row).category, location.category)
