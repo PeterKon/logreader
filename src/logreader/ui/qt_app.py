@@ -130,6 +130,22 @@ QWidget#resultsHeader QPushButton#sourceToggleButton {{
 QWidget#resultsHeader QPushButton#sourceToggleButton[sourceActive="true"] {{
     background-color: {THEME_COLORS['ui_island']};
 }}
+QLineEdit#sourceGoToLine {{
+    background-color: {THEME_COLORS['background']};
+    border-right: none;
+    border-top-left-radius: 5px;
+    border-bottom-left-radius: 5px;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}}
+QPushButton#sourceGoToLineButton {{
+    background-color: {THEME_COLORS['background']};
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}}
+QPushButton#sourceGoToLineButton:hover {{
+    color: {THEME_COLORS['ui_accent']};
+}}
 QWidget#resultsHeader QLineEdit#resultsSearch,
 QWidget#resultsHeader QSpinBox#resultsSearchNavigation,
 QWidget#resultsHeader QSpinBox#resultsSearchNavigation::up-button,
