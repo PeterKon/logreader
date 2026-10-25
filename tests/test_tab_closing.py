@@ -224,7 +224,7 @@ class TabClosingTests(unittest.TestCase):
                         self.assertFalse(first._analysis_busy_timer.isActive())
                         self.assertIn(worker.request_id, first._workers)
                         status = self.window.statusBar().currentMessage()
-                        with patch("logreader.ui.qt_app.QMessageBox.warning") as warning:
+                        with patch("logreader.ui.qt_app.show_warning") as warning:
                             worker.signals.completed.emit(worker.request_id, None, 0.1)
                             worker.signals.failed.emit(worker.request_id, "late failure")
                             self.assertEqual(self.window.statusBar().currentMessage(), status)

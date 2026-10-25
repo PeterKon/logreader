@@ -10,10 +10,10 @@ from qt_helpers import qt_application, retire_window, wait_source
 from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QContextMenuEvent, QFont, QTextCursor, QWheelEvent
 from PySide6.QtTest import QSignalSpy, QTest
-from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QInputDialog, QLineEdit, QMenu, QStyle, QStyleOptionSlider, QTabBar, QToolTip
+from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLineEdit, QMenu, QStyle, QStyleOptionSlider, QTabBar, QToolTip
 
 from qt_helpers import wait_for_search, wait_for_navigation
-from logreader.ui.bookmarks import BookmarkDeletionDialog, BookmarkNotesDialog
+from logreader.ui.bookmarks import BookmarkDeletionDialog, BookmarkNameDialog, BookmarkNotesDialog
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
 from logreader.ui.document_page import DocumentPage
@@ -911,7 +911,7 @@ class BookmarkTests(unittest.TestCase):
                 def edit_dialog():
                     dialog = self.app.activeModalWidget()
                     try:
-                        self.assertIsInstance(dialog, QInputDialog)
+                        self.assertIsInstance(dialog, BookmarkNameDialog)
                         visited.append(dialog.windowTitle())
                         self.assertEqual(dialog.windowTitle(), title)
                         editor = dialog.findChild(QLineEdit)

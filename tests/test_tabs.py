@@ -504,7 +504,7 @@ class TabTests(unittest.TestCase):
 
     def test_failed_open_keeps_error_in_its_tab_and_preserves_other_documents(self):
         first = self.open_log("first.log")
-        with patch("logreader.ui.qt_app.QMessageBox.critical") as error:
+        with patch("logreader.ui.qt_app.show_warning") as error:
             self.assertTrue(self.window.load_file(self.root / "missing.log"))
             failed = self.window._document
             wait_for_load(failed)
@@ -678,7 +678,7 @@ class TabTests(unittest.TestCase):
                 self.assertEqual(workers[0].request_id, workers[1].request_id)
                 status = self.window.statusBar().currentMessage()
                 message = f"{phase} failed for first"
-                with patch("logreader.ui.qt_app.QMessageBox.warning") as warning:
+                with patch("logreader.ui.qt_app.show_warning") as warning:
                     if phase == "analysis":
                         with patch("logreader.workers.analysis_worker.analyze_lines", side_effect=RuntimeError(message)):
                             workers[0].run()

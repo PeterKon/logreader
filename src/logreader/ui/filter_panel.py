@@ -47,6 +47,7 @@ from ..config import (
     LogreaderConfig,
 )
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button, paint_checkmark
+from .dialogs import CompactDialog
 from .title_bar import TITLE_MENU_STYLE_SHEET, TitleMenu
 from ..file_loader import DEFAULT_MAX_LINES_SCANNED
 from ..regex_presets import REGEX_PRESET_NAMES, REGEX_PRESETS
@@ -80,45 +81,31 @@ class PatternEditor(QPlainTextEdit):
             super().insertFromMimeData(source)
 
 
-class PatternEditDialog(QDialog):
+class PatternEditDialog(CompactDialog):
     def __init__(self, pattern: str, *, is_regex: bool, parent: QWidget) -> None:
-        super().__init__(parent)
+        super().__init__("Edit regex" if is_regex else "Edit pattern", parent, resizable=True)
         self._is_regex = is_regex
         self.setObjectName("patternEditDialog")
-        self.setWindowTitle("Edit regex" if is_regex else "Edit pattern")
-        self.resize(680, 300)
-        self.setMinimumSize(400, 220)
-        self.setStyleSheet(f"""
-            QDialog#patternEditDialog {{ background: {THEME_COLORS['ui_canvas']}; }}
-            QPlainTextEdit {{
-                background: {THEME_COLORS['ui_field']}; color: {THEME_COLORS['ui_text']};
-                border: 1px solid {THEME_COLORS['ui_border_strong']};
-                border-radius: 4px; padding: 6px;
-                selection-background-color: {THEME_COLORS['selection']};
-                selection-color: #ffffff;
-            }}
-            QPlainTextEdit:focus {{ border-color: {THEME_COLORS['ui_accent']}; }}
-        """)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        self.resize(620, 300)
+        self.setMinimumSize(400, 240)
+        layout = self.body_layout
         self.editor = PatternEditor(pattern)
         self.editor.setAccessibleName("Regex" if is_regex else "Pattern")
-        self.editor.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        font.setPointSizeF(self.font().pointSizeF())
+        self.editor.setFont(font)
         self.editor.setTabChangesFocus(True)
-        layout.addWidget(self.editor)
+        layout.addWidget(self.editor, 1)
         self.error_label = QLabel()
         self.error_label.setWordWrap(True)
         self.error_label.setTextFormat(Qt.TextFormat.PlainText)
         self.error_label.setStyleSheet(f"color: {THEME_COLORS['ui_excluded']};")
         self.error_label.hide()
         layout.addWidget(self.error_label)
-        buttons = QDialogButtonBox(
+        self.set_buttons(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel,
+            default=QDialogButtonBox.StandardButton.Save,
         )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
         self.editor.setFocus()
 
     def pattern(self) -> str:

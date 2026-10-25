@@ -8,13 +8,14 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QCursor, QHoverEvent, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel,
+    QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
     QLineEdit, QMenu, QPlainTextEdit, QProxyStyle, QPushButton, QStyle, QStyleFactory,
     QStyleOptionMenuItem, QTabBar, QToolTip,
-    QVBoxLayout, QWidget,
+    QWidget,
 )
 
 from .widgets.input_menus import InputContextMenu
+from .dialogs import CompactDialog
 from .results.results_model import ResultLocation, SourceLocation
 from .theme import THEME_COLORS, configure_action_button
 
@@ -77,25 +78,6 @@ class BookmarkMenuStyle(QProxyStyle):
         super().drawControl(element, option, painter, widget)
 
 
-BOOKMARK_DIALOG_STYLE_SHEET = (
-    f"QDialog {{ background: {THEME_COLORS['ui_surface']}; }}"
-    f"QLabel {{ color: {THEME_COLORS['ui_text']}; }}"
-    "QPlainTextEdit#bookmarkNoteEditor {"
-    f" color: {THEME_COLORS['ui_text']}; background: {THEME_COLORS['background']};"
-    f" border: 1px solid {THEME_COLORS['ui_border_strong']}; border-radius: 4px; padding: 6px;"
-    f" selection-background-color: {THEME_COLORS['selection']}; }}"
-    "QPlainTextEdit#bookmarkNoteEditor:focus {"
-    f" border-color: {THEME_COLORS['ui_accent']}; }}"
-    "QPushButton {"
-    f" color: {THEME_COLORS['ui_text']}; background: {THEME_COLORS['ui_button']};"
-    f" border: 1px solid {THEME_COLORS['ui_border_strong']}; border-radius: 5px;"
-    " min-width: 64px; padding: 4px 10px; }"
-    f"QPushButton:hover {{ background: {THEME_COLORS['ui_button_hover']}; }}"
-    f"QPushButton:focus {{ border-color: {THEME_COLORS['ui_accent']}; }}"
-    f"QPushButton:pressed {{ background: {THEME_COLORS['ui_button_pressed']}; }}"
-)
-
-
 @dataclass(slots=True)
 class Bookmark:
     location: ResultLocation | SourceLocation
@@ -155,23 +137,47 @@ class BookmarkNoteIcon(QWidget):
         painter.end()
 
 
-class BookmarkNotesDialog(QDialog):
+class BookmarkNameDialog(CompactDialog):
+    def __init__(self, title, name, parent=None):
+        super().__init__(title, parent)
+        self.setFixedWidth(420)
+        label = QLabel("Name:", self)
+        self.body_layout.addWidget(label)
+        self.editor = QLineEdit(name, self)
+        self.editor.setAccessibleName("Name")
+        label.setBuddy(self.editor)
+        InputContextMenu(self.editor, undo=True)
+        self.body_layout.addWidget(self.editor)
+        self.set_buttons(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            default=QDialogButtonBox.StandardButton.Ok,
+        )
+        self.editor.selectAll()
+        self.editor.setFocus()
+
+
+class BookmarkNotesDialog(CompactDialog):
     def __init__(self, bookmark: Bookmark, source: SourceLocation, parent=None) -> None:
-        super().__init__(parent)
+        super().__init__("Bookmark note", parent, resizable=True)
         self.setObjectName("bookmarkNotesDialog")
-        self.setWindowTitle("Bookmark note")
-        self.resize(480, 320)
-        self.setMinimumSize(360, 240)
-        self.setSizeGripEnabled(True)
-        self.setStyleSheet(BOOKMARK_DIALOG_STYLE_SHEET)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        self.resize(520, 370)
+        self.setMinimumSize(360, 260)
+        layout = self.body_layout
         line = f"Line {source.line:,}"
-        heading = QLabel(line if bookmark.name == line else f"{bookmark.name}\n{line}")
+        context = QHBoxLayout()
+        context.setSpacing(14)
+        heading = QLabel(bookmark.name)
         heading.setTextFormat(Qt.TextFormat.PlainText)
         heading.setWordWrap(True)
-        layout.addWidget(heading)
+        font = heading.font()
+        font.setBold(True)
+        heading.setFont(font)
+        context.addWidget(heading, 1)
+        if bookmark.name != line:
+            line_label = QLabel(line)
+            line_label.setProperty("secondary", True)
+            context.addWidget(line_label, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(context)
         self.editor = QPlainTextEdit(self)
         self.editor.setObjectName("bookmarkNoteEditor")
         self.editor.setAccessibleName("Bookmark note")
@@ -179,25 +185,22 @@ class BookmarkNotesDialog(QDialog):
         self.editor.setTabChangesFocus(True)
         self.editor.setPlainText(bookmark.note)
         layout.addWidget(self.editor, 1)
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel, self,
+        self.set_buttons(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel,
+            default=QDialogButtonBox.StandardButton.Save,
         )
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
-        layout.addWidget(self.buttons)
         self.editor.setFocus()
 
 
-class BookmarkDeletionDialog(QDialog):
+class BookmarkDeletionDialog(CompactDialog):
     def __init__(self, bookmark: Bookmark, source: SourceLocation, parent=None, *, note_only=False) -> None:
-        super().__init__(parent)
         title = "Delete note" if note_only else "Delete bookmark"
-        self.setWindowTitle(title)
+        super().__init__(title, parent)
         self.setFixedWidth(420)
-        self.setStyleSheet(BOOKMARK_DIALOG_STYLE_SHEET)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(10)
+        layout = self.body_layout
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(6)
+        self.buttons.setContentsMargins(14, 0, 14, 12)
 
         self.heading = QLabel(f"{title}?", self)
         font = self.heading.font()
@@ -221,17 +224,14 @@ class BookmarkDeletionDialog(QDialog):
             label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
             label.setWordWrap(True)
 
-        layout.addSpacing(6)
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No, self)
-        self.buttons.button(QDialogButtonBox.StandardButton.Yes).clicked.connect(self.accept)
+        self.set_buttons(
+            QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No,
+            default=QDialogButtonBox.StandardButton.No,
+            destructive=QDialogButtonBox.StandardButton.Yes,
+        )
         no = self.buttons.button(QDialogButtonBox.StandardButton.No)
-        no.clicked.connect(self.reject)
-        no.setDefault(True)
         no.setFocus()
-        layout.addWidget(self.buttons)
-        self.ensurePolished()
-        self.resize(self.width(), layout.totalHeightForWidth(self.width()))
+        self.fit_content()
 
 
 class BookmarkStrip(QTabBar):
@@ -439,15 +439,10 @@ class ResultsBookmarks(QObject):
         return True
 
     def _prompt_name(self, title: str, name: str) -> tuple[str, bool]:
-        dialog = QInputDialog(self.view)
-        dialog.setWindowTitle(title)
-        dialog.setLabelText("Name:")
-        dialog.setTextValue(name)
-        editor = dialog.findChild(QLineEdit)
-        InputContextMenu(editor, undo=True)
+        dialog = BookmarkNameDialog(title, name, self.view)
         try:
             accepted = dialog.exec() == QDialog.DialogCode.Accepted
-            return dialog.textValue(), accepted
+            return dialog.editor.text(), accepted
         finally:
             dialog.deleteLater()
 

@@ -152,7 +152,7 @@ class LoadingTests(unittest.TestCase):
         self.assertEqual(workers[0].request_id, workers[1].request_id)
         self.window._select_document(first)
         status = self.window.statusBar().currentMessage()
-        with patch("logreader.ui.qt_app.QMessageBox.critical") as dialog:
+        with patch("logreader.ui.qt_app.show_warning") as dialog:
             workers[1].run()
             dialog.assert_not_called()
         self.assertEqual(second.session.load_phase, LoadPhase.FAILED)

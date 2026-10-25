@@ -35,7 +35,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
-    QMessageBox,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -47,6 +46,7 @@ from PySide6.QtWidgets import (
 from ..config import APP_VERSION, LogreaderConfig
 from .app_icon import application_icon, application_logo, set_windows_app_id
 from .document_page import DocumentPage
+from .dialogs import show_warning
 from ..document_session import AnalysisPhase, LoadPhase
 from .theme import THEME_COLORS, configure_action_button
 from .window_frame import TitleBarShadow, apply_title_bar_colors
@@ -1106,7 +1106,7 @@ class LogreaderWindow(TitleBarWindow):
     def _present_analysis_failure(self, message: str) -> None:
         page = self.sender()
         if page is self._document:
-            QMessageBox.warning(self, "Invalid filters", message)
+            show_warning(self, "Invalid filters", message)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
