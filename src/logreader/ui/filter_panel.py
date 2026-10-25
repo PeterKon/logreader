@@ -111,7 +111,7 @@ class SearchPatternRow(QWidget):
         super().leaveEvent(event)
 
     def _update_hover(self) -> None:
-        self.menu_button.setVisible(self._hovered or self._context_target)
+        self.menu_button.setVisible(self._hovered and not self._context_target)
         self.update()
 
     def set_context_target(self, active: bool) -> None:

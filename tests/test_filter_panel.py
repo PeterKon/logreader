@@ -123,6 +123,7 @@ class FilterPanelTests(unittest.TestCase):
                 return image.pixelColor(0, image.height() // 2) == accent
 
             def inspect(menu, position):
+                self.assertTrue(row.menu_button.isHidden())
                 action = next(action for action in menu.actions() if action.text() == action_name)
                 observed.append((action.text(), action.isChecked(), action.toolTip(),
                                  menu.toolTipsVisible(), [a.text() for a in menu.actions()]))
@@ -149,6 +150,8 @@ class FilterPanelTests(unittest.TestCase):
                                 and case.x() - end <= row.layout().spacing()
                                 for end in border_ends))
             self.assertFalse(any(outlined(candidate) for candidate in rows))
+            if via_button:
+                self.assertTrue(row.menu_button.isVisible())
 
         for kind, pattern_list, index, prefix in (
             ("custom", self.panel._custom_pattern_list, 1, "customPattern"),
