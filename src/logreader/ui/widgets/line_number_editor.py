@@ -18,6 +18,8 @@ class LineNumberArea(QWidget):
 
 
 class LineNumberEditor(QPlainTextEdit):
+    viewport_padding = (0, 0, 0, 0)
+
     def __init__(self, parent=None) -> None:
         self._bookmark_blocks: dict[int, bool] = {}
         self._bookmark_selections = []
@@ -112,8 +114,10 @@ class LineNumberEditor(QPlainTextEdit):
             self.fontMetrics().horizontalAdvance(str(largest))
             + GUTTER_LEFT_PADDING + BOOKMARK_MARKER_GAP + GUTTER_RIGHT_PADDING
         ) if largest else 0
-        if self.viewportMargins().left() != width:
-            self.setViewportMargins(width, 0, 0, 0)
+        left, top, right, bottom = self.viewport_padding
+        margins = self.viewportMargins()
+        if (margins.left(), margins.top(), margins.right(), margins.bottom()) != (width + left, top, right, bottom):
+            self.setViewportMargins(width + left, top, right, bottom)
         viewport = self.viewport().geometry()
         self.gutter.setGeometry(viewport.left() - width, viewport.top(), width, viewport.height())
         self.gutter.update()

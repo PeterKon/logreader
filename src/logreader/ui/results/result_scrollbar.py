@@ -1,12 +1,44 @@
 """Logical result positions and search/bookmark markers."""
 from array import array
 from bisect import bisect_left
-from PySide6.QtCore import Qt, QSignalBlocker
+from PySide6.QtCore import QEvent, Qt, QSignalBlocker
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QScrollBar, QStyle, QStyleOptionSlider, QAbstractSlider
+from PySide6.QtWidgets import QGridLayout, QScrollBar, QStyle, QStyleOptionSlider, QAbstractSlider, QWidget
 from .result_coordinates import TextPoint
 from .results_style import _results_editor_style_sheet
 from ..theme import THEME_COLORS
+
+
+class ScrollSurface(QWidget):
+    def __init__(self, editor, parent=None):
+        super().__init__(parent)
+        self.editor = editor
+        self.global_scroll = SparsePositionScrollBar(editor, self)
+        self.corner = QWidget(self)
+        self.corner.setObjectName("scrollbarCorner")
+        self.corner.setStyleSheet(f"background-color: {THEME_COLORS['background']};")
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(editor, 0, 0, 2, 1)
+        layout.addWidget(self.global_scroll, 0, 1)
+        layout.addWidget(self.corner, 1, 1)
+        layout.setRowStretch(0, 1)
+        layout.setColumnStretch(0, 1)
+        editor.horizontalScrollBar().installEventFilter(self)
+        self.global_scroll.installEventFilter(self)
+        self._sync_corner()
+
+    def _sync_corner(self):
+        horizontal = self.editor.horizontalScrollBar()
+        self.corner.setFixedSize(self.global_scroll.sizeHint().width(), horizontal.sizeHint().height())
+        self.corner.setVisible(horizontal.isVisibleTo(self) and not self.global_scroll.isHidden())
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if event.type() in (QEvent.Type.Show, QEvent.Type.Hide, QEvent.Type.Resize):
+            self._sync_corner()
+        return super().eventFilter(watched, event)
+
 
 class GlobalMarkerScrollBar(QScrollBar):
     def __init__(self, parent=None):

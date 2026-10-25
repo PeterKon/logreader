@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from .results.range_loading import ReadingMove, SparseLoader
 from .results.result_coordinates import TextPoint
-from .results.result_scrollbar import SparsePositionScrollBar
+from .results.result_scrollbar import ScrollSurface
 from .source_editor import SourceEditor
 from .source_model import SourcePresentation
 from .source_search import SourceMatches, iter_source_matches
@@ -118,17 +118,12 @@ class SourceView(QWidget):
             # The queued signal runs after Qt deletes the editor and document.
             previous.destroyed.connect(self._retired, Qt.ConnectionType.QueuedConnection)
             previous.deleteLater()
-        surface = self.surface = QWidget(self)
-        row = QHBoxLayout(surface)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(0)
-        self.editor = SourceEditor(presentation, surface)
+        self.editor = SourceEditor(presentation, self)
         if font is not None:
             self.editor.setFont(font)
         self.editor.set_wrapping(wrapped)
-        row.addWidget(self.editor, 1)
-        self.global_scroll = SparsePositionScrollBar(self.editor, surface)
-        row.addWidget(self.global_scroll)
+        surface = self.surface = ScrollSurface(self.editor, self)
+        self.global_scroll = surface.global_scroll
         for bar in (self.global_scroll, self.editor.horizontalScrollBar()):
             ScrollbarContextMenu(bar)
             bar.sliderPressed.connect(self._use_viewport_anchor)

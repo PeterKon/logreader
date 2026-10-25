@@ -238,5 +238,22 @@ class SourceInteractionTests(SourceViewCase):
         self.assertEqual(editor.gutter.geometry().left(), self.view._editor.gutter.geometry().left())
         self.assertFalse(any(self.source.findChild(QPushButton, f"source{name}Page") for name in ("First", "Previous", "Next", "Last")))
 
+    def test_wrapped_bottom_does_not_scroll_over_hidden_spacers(self):
+        self.window.resize(820, 800)
+        editor = self.open_source((f"row {i}: " + "wrapped text " * 12 for i in range(2000)), wrapped=True)
+        self.source.global_scroll.setValue(self.source.global_scroll.maximum())
+        self.settle_source()
+        QTest.qWait(20)
+        self.assertTrue(editor.at_bottom())
+        self.assertFalse(editor.ranges.contains(1000))
+        self.assertEqual(editor.horizontalScrollBar().maximum(), 0)
+        self.assertEqual(editor.horizontalScrollBar().value(), 0)
+        self.assertFalse(editor.horizontalScrollBar().isVisible())
+        self.assertFalse(self.source.surface.corner.isVisible())
+        self.view.set_line_wrapping(False)
+        self.settle_source()
+        self.assertGreater(editor.horizontalScrollBar().maximum(), 0)
+        self.assertTrue(editor.horizontalScrollBar().isVisible())
+
 if __name__ == "__main__":
     unittest.main()

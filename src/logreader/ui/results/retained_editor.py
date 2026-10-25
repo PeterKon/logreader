@@ -25,6 +25,7 @@ class LocalMarkerScrollBar(SearchMarkerScrollBar):
 class StyledWindowEditor(WindowedResultsEditor):
     viewport_navigated = Signal()
     document_margin = 4
+    viewport_padding = (4, 2, 8, 0)
 
 
     def keyPressEvent(self, event):
@@ -96,7 +97,7 @@ class ProgressiveResultsEditor(StyledWindowEditor):
         LineNumberEditor.update_gutter(self)
         if hasattr(self, "structure_area"):
             viewport = self.viewport().geometry()
-            geometry = QRect(0, 0, viewport.right() + 1 + self.contentsMargins().right(),
+            geometry = QRect(0, 0, viewport.right() + 1 + self.contentsMargins().right() + self.viewportMargins().right(),
                              viewport.bottom() + 1)
             if self.structure_area.geometry() != geometry:
                 self.structure_area.setGeometry(geometry)
@@ -466,7 +467,7 @@ class SparseResultsEditor(ProgressiveResultsEditor):
         # from exposing a later island across missing text. No placeholder is
         # selectable log text, and the size never scales with missing rows.
         cursor.setBlockCharFormat(QTextCharFormat())
-        cursor.insertText(" " * 64, QTextCharFormat())
+        cursor.insertText("\u200b" * 64, QTextCharFormat())
         cursor.block().setUserData(StructuralBlock())
         cursor.block().setVisible(False)
         cursor.block().setLineCount(0)
@@ -600,7 +601,9 @@ class SparseResultsEditor(ProgressiveResultsEditor):
                     # marker's length. An empty guard is too short. This fixed
                     # hidden pad exceeds every marker supported by Qt's int
                     # document positions, without scaling with missing rows.
-                    cursor.insertText(" " * 128, QTextCharFormat())
+                    # Hidden blocks still contribute to Qt's document width.
+                    # Zero-width padding preserves positions without overflow.
+                    cursor.insertText("\u200b" * 128, QTextCharFormat())
                     cursor.block().setUserData(StructuralBlock())
                     cursor.block().setVisible(False)
                     cursor.block().setLineCount(0)

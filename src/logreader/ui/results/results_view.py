@@ -6,11 +6,11 @@ from time import perf_counter
 from uuid import uuid4
 from PySide6.QtCore import QPoint, QSignalBlocker, Qt, QTimer, Signal, QThreadPool, Slot
 from PySide6.QtGui import QColor, QKeySequence, QTextCharFormat, QTextCursor, QTextLayout
-from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QWidget, QHBoxLayout
+from PySide6.QtWidgets import QPlainTextEdit, QTextEdit
 from .results_controls import ResultsControls
 from .result_coordinates import TextPoint
 from .retained_editor import SparseResultsEditor
-from .result_scrollbar import SparsePositionScrollBar
+from .result_scrollbar import ScrollSurface
 from .range_loading import SparseLoader
 from .result_presentation import PresentationModel
 from .result_preparation import PreparationWorker
@@ -162,13 +162,8 @@ class ResultsView(ResultsControls):
         self._editor = DecoratedSparseEditor(presentation, self)
         editor = self._editor
         editor.setFont(font)
-        self.surface = QWidget(self)
-        row = QHBoxLayout(self.surface)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(0)
-        row.addWidget(editor, 1)
-        self.global_scroll = SparsePositionScrollBar(editor, self.surface)
-        row.addWidget(self.global_scroll)
+        self.surface = ScrollSurface(editor, self)
+        self.global_scroll = self.surface.global_scroll
         self._view_stack.insertWidget(0, self.surface)
         self._view_stack.setCurrentWidget(self.source_view if self.source_active else self.surface)
         self._source_map = SparseProjection(editor)

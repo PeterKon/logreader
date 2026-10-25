@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from qt_helpers import qt_application, retire_window, wait_source
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QPalette, QTextCursor, QTextDocument
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
@@ -142,6 +142,42 @@ class SourceViewTests(unittest.TestCase):
         self.assertEqual(controls.findChild(QWidget, "sourceNavigationSeparator").width(), 1)
         self.view.toggle_source()
         self.assertFalse(controls.isVisible())
+
+    def test_viewer_scrollbars_share_corner_and_follow_wrapping_and_resize(self):
+        self.stage(("ERROR: " + "long content " * 25 for _ in range(200)))
+        self.render()
+        for source_active in (False, True):
+            self.view.set_source_active(source_active)
+            owner = self.source if source_active else self.view
+            surface = owner.surface
+            horizontal = owner.editor.horizontalScrollBar()
+            vertical = owner.global_scroll
+            for width, wrapped in ((975, False), (820, False), (820, True), (975, False)):
+                with self.subTest(source=source_active, width=width, wrapped=wrapped):
+                    self.window.resize(width, 800)
+                    self.view.set_line_wrapping(wrapped)
+                    wait_source(self.view)
+                    self.wait(lambda: vertical.geometry().bottom() ==
+                              surface.height() - (0 if wrapped else horizontal.height()) - 1)
+                    self.assertTrue(vertical.isVisible())
+                    self.assertEqual(horizontal.isVisible(), not wrapped)
+                    self.assertEqual(surface.corner.isVisible(), not wrapped)
+                    if wrapped:
+                        self.assertEqual(vertical.geometry().bottom(), surface.rect().bottom())
+                    else:
+                        top_left = horizontal.mapTo(surface, QPoint())
+                        self.assertEqual(top_left.x(), 0)
+                        self.assertEqual(top_left.y() + horizontal.height(), surface.height())
+                        self.assertEqual(top_left.x() + horizontal.width(), surface.corner.x())
+                        self.assertEqual(vertical.geometry().bottom() + 1, top_left.y())
+                        self.assertEqual(surface.corner.size().width(), vertical.width())
+                        self.assertEqual(surface.corner.height(), horizontal.height())
+        self.stage(("short",))
+        wait_source(self.view)
+        self.app.processEvents()
+        self.assertFalse(self.source.global_scroll.isVisible())
+        self.assertFalse(self.source.surface.corner.isVisible())
+        self.assertEqual(self.source.editor.width(), self.source.surface.width())
 
     def test_analyze_completes_without_leaving_source_view(self):
         self.stage((f"ERROR: row {i}" for i in range(200)))
