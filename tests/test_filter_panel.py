@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from PySide6.QtCore import QPoint, Qt
-    from PySide6.QtGui import QContextMenuEvent
+    from PySide6.QtGui import QColor, QContextMenuEvent
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import (
         QApplication,
@@ -94,6 +94,7 @@ class FilterPanelTests(unittest.TestCase):
 
     def test_exclusive_context_menu_targets_rows_and_coordinates_with_exclude(self):
         from logreader.ui.filter_panel import EXCLUSIVE_TOOLTIP
+        from logreader.ui.theme import THEME_COLORS
 
         self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
         self.panel.resize(900, 650)
@@ -106,20 +107,39 @@ class FilterPanelTests(unittest.TestCase):
         self.panel.show()
         self.app.processEvents()
 
-        def toggle_from(target, expected_checked):
+        def toggle_from(target, expected_checked, *, activate=True):
             observed = []
+            borders = []
+            border_ends = []
+            accent = QColor(THEME_COLORS["ui_accent"])
+            rows = [pattern_list.itemWidget(pattern_list.item(index))
+                    for pattern_list in (self.panel._custom_pattern_list, self.panel._regex_pattern_list)
+                    for index in range(pattern_list.count())]
+
+            def outlined(candidate):
+                image = candidate.grab().toImage()
+                return image.pixelColor(0, image.height() // 2) == accent
 
             def inspect(menu, position):
                 action = menu.actions()[0]
                 observed.append((action.text(), action.isChecked(), action.toolTip(),
                                  menu.toolTipsVisible()))
-                action.trigger()
+                borders.append([candidate for candidate in rows if outlined(candidate)])
+                image = row.grab().toImage()
+                border_ends.append(max(x for x in range(image.width())
+                                       if image.pixelColor(x, 0) == accent))
+                if activate:
+                    action.trigger()
 
             point = QPoint(3, 3)
             event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, target.mapToGlobal(point))
             with patch("logreader.ui.filter_panel.TitleMenu.exec", new=inspect):
                 self.app.sendEvent(target, event)
             self.assertEqual(observed, [("Exclusive matching", expected_checked, EXCLUSIVE_TOOLTIP, True)])
+            self.assertEqual(borders, [[row]])
+            self.assertTrue(all(0 < exclude.x() - end <= row.layout().spacing()
+                                for end in border_ends))
+            self.assertFalse(any(outlined(candidate) for candidate in rows))
 
         for kind, pattern_list, index, prefix in (
             ("custom", self.panel._custom_pattern_list, 1, "customPattern"),
@@ -144,6 +164,7 @@ class FilterPanelTests(unittest.TestCase):
                 toggle_from(exclude, True)
                 self.assertTrue(annotation.isHidden())
                 toggle_from(row, False)
+                toggle_from(label, True, activate=False)
                 exclude.click()
                 self.assertTrue(annotation.isHidden())
                 self.assertFalse(getattr(self.panel.build_config(), f"{kind}_pattern_exclusive")[index])

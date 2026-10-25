@@ -55,6 +55,28 @@ EXCLUSIVE_ROLE = Qt.ItemDataRole.UserRole + 3
 EXCLUSIVE_TOOLTIP = 'Only lines that match an "exclusive" item will qualify.'
 
 
+class SearchPatternRow(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        self._context_target = False
+        self._first_option: QWidget | None = None
+
+    def set_context_target(self, active: bool) -> None:
+        self._context_target = active
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        if self._context_target:
+            painter = QPainter(self)
+            painter.setPen(QPen(QColor(THEME_COLORS["ui_accent"]), 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            bounds = self.rect().adjusted(0, 0, -1, -1)
+            if self._first_option is not None:
+                bounds.setRight(self._first_option.x() - 2)
+            painter.drawRect(bounds)
+
+
 class SearchOptionButton(QPushButton):
     """Search option toggle with a crossed-out appearance while off."""
 
@@ -1031,7 +1053,7 @@ class FilterPanel(QGroupBox):
         item.setSizeHint(QSize(0, 18))
         pattern_list.addItem(item)
 
-        item_row = QWidget()
+        item_row = SearchPatternRow()
         item_row.setFixedHeight(18)
         item_layout = QHBoxLayout(item_row)
         item_layout.setContentsMargins(4, 0, 2, 0)
@@ -1091,6 +1113,7 @@ class FilterPanel(QGroupBox):
             item_layout.addWidget(button)
             if role == EXCLUDE_ROLE:
                 exclude_button = button
+                item_row._first_option = button
                 button.toggled.connect(lambda checked: update_exclusive(False) if checked else None)
 
         update_exclusive(False)
@@ -1116,7 +1139,7 @@ class FilterPanel(QGroupBox):
         self._update_summary()
 
     def _show_pattern_menu(
-        self, row: QWidget, item: QListWidgetItem, position: QPoint,
+        self, row: SearchPatternRow, item: QListWidgetItem, position: QPoint,
         update_exclusive: Callable[[bool], None],
     ) -> None:
         menu = TitleMenu(row)
@@ -1129,9 +1152,11 @@ class FilterPanel(QGroupBox):
         action.setChecked(bool(item.data(EXCLUSIVE_ROLE)))
         action.setToolTip(EXCLUSIVE_TOOLTIP)
         action.triggered.connect(update_exclusive)
+        row.set_context_target(True)
         try:
             menu.exec(row.mapToGlobal(position))
         finally:
+            row.set_context_target(False)
             menu.deleteLater()
 
     def _update_regex_preset_menu(self, menu: QMenu) -> None:
