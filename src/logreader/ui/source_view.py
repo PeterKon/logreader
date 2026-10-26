@@ -309,8 +309,6 @@ class SourceView(QWidget):
             message = self.loader.error
         elif not self._has_snapshot:
             message = self.editor.placeholderText()
-        elif self.editor.navigation.pending is not None:
-            message = "Preparing view..."
         else:
             count = len(self.lines)
             shown = f"{count:,}" if count == self.total_line_count else f"{count:,} of {self.total_line_count:,}"

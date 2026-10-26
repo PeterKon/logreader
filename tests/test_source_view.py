@@ -209,16 +209,19 @@ class SourceViewTests(unittest.TestCase):
         self.assertIn("ERROR: row 199", self.view.editor.toPlainText())
         self.assertEqual(self.window.statusBar().currentMessage(), "All 200 lines scanned - UTF-8")
 
-    def test_source_status_reports_preparation_and_errors_then_restores_count(self):
+    def test_source_status_keeps_count_during_navigation_and_reports_errors(self):
         self.stage((f"row {i}" for i in range(4000)), total=9000)
         self.view.toggle_source()
         wait_source(self.view)
+        status_changes = QSignalSpy(self.source.status_changed)
         self.source.loader.set_paused(True)
         self.source.go_to_line(8000)
-        self.assertEqual(self.window.statusBar().currentMessage(), "Preparing view... - UTF-8")
+        self.assertIsNotNone(self.source.editor.navigation.pending)
+        self.assertEqual(self.window.statusBar().currentMessage(), "4,000 of 9,000 lines shown - UTF-8")
         self.source.loader.set_paused(False)
         wait_source(self.view)
         self.assertEqual(self.window.statusBar().currentMessage(), "4,000 of 9,000 lines shown - UTF-8")
+        self.assertEqual(status_changes.count(), 0)
         self.source.loader.error = "Could not prepare source"
         self.source.loader.failed.emit(self.source.loader.error)
         self.assertEqual(self.window.statusBar().currentMessage(), "Could not prepare source - UTF-8")
