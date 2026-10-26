@@ -8,6 +8,7 @@ from typing import Callable
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QActionGroup, QColor, QFont, QFontDatabase, QFontMetricsF, QPainter, QPainterPath, QPalette, QPen, QRegion, QValidator
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -254,6 +255,9 @@ class SearchPatternRow(QWidget):
         super().__init__()
         self._context_target = False
         self._hovered = False
+        self._focused = False
+        self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        QApplication.instance().focusChanged.connect(self._focus_changed)
         self._first_option: QWidget | None = None
         self.menu_button = QPushButton("⋯", self)
         self.menu_button.setObjectName("patternMenuButton")
@@ -271,6 +275,15 @@ class SearchPatternRow(QWidget):
             f"QPushButton:pressed {{ background: {THEME_COLORS['ui_button_pressed']}; }}"
         )
         self.menu_button.hide()
+        self.remove_button = QPushButton("-", self)
+        policy = self.remove_button.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.remove_button.setSizePolicy(policy)
+        self.remove_button.hide()
+
+    def _focus_changed(self, _previous, current) -> None:
+        self._focused = current is self or (current is not None and self.isAncestorOf(current))
+        self._update_hover()
 
     def enterEvent(self, event) -> None:  # noqa: N802
         self._hovered = True
@@ -283,7 +296,9 @@ class SearchPatternRow(QWidget):
         super().leaveEvent(event)
 
     def _update_hover(self) -> None:
-        self.menu_button.setVisible(self._hovered and not self._context_target)
+        active = self._hovered or self._focused
+        self.menu_button.setVisible(active and not self._context_target)
+        self.remove_button.setVisible(active)
         self.update()
 
     def set_context_target(self, active: bool) -> None:
@@ -293,7 +308,7 @@ class SearchPatternRow(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         super().paintEvent(event)
         painter = QPainter(self)
-        if self._hovered or self._context_target:
+        if self._hovered or self._focused or self._context_target:
             color = QColor(THEME_COLORS["ui_accent"])
             color.setAlpha(20)
             painter.fillRect(self.rect(), color)
@@ -1348,7 +1363,7 @@ class FilterPanel(QGroupBox):
             )
         )
 
-        remove_button = QPushButton("-")
+        remove_button = item_row.remove_button
         remove_button.setObjectName(remove_button_object_name)
         remove_button.setAccessibleName(f"Remove {label}")
         remove_button.setToolTip(f"Remove {label}")

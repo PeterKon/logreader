@@ -582,7 +582,7 @@ class FilterPanelTests(unittest.TestCase):
             dialog.close()
             dialog.deleteLater()
 
-    def test_pattern_hover_reveals_menu_without_moving_controls(self):
+    def test_pattern_hover_and_focus_reveal_controls_without_moving_them(self):
         self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
         self.panel.resize(900, 650)
         for entry, add in ((self.panel._custom_pattern, self.panel.add_custom_pattern),
@@ -606,22 +606,45 @@ class FilterPanelTests(unittest.TestCase):
                 sample = QPoint(row.width() // 2, row.height() // 2)
                 normal = row.grab().toImage().pixelColor(sample)
                 self.assertTrue(row.menu_button.isHidden())
-                for target in (row.findChild(QLabel), row, row.menu_button):
+                self.assertTrue(row.remove_button.isHidden())
+                for target in (row.findChild(QLabel), row, row.menu_button, row.remove_button):
                     QTest.mouseMove(target, target.rect().center())
                     self.app.processEvents()
                     self.assertTrue(row.menu_button.isVisible())
+                    self.assertTrue(row.remove_button.isVisible())
                     self.assertTrue(other.menu_button.isHidden())
+                    self.assertTrue(other.remove_button.isHidden())
                     self.assertNotEqual(row.grab().toImage().pixelColor(sample), normal)
                     self.assertEqual([control.geometry() for control in controls], positions)
 
                 QTest.mouseMove(other, other.rect().center())
                 self.app.processEvents()
                 self.assertTrue(row.menu_button.isHidden())
+                self.assertTrue(row.remove_button.isHidden())
                 self.assertTrue(other.menu_button.isVisible())
+                self.assertTrue(other.remove_button.isVisible())
                 self.assertEqual(row.grab().toImage().pixelColor(sample), normal)
                 self.assertEqual([control.geometry() for control in controls], positions)
                 QTest.mouseMove(self.panel._tabs, QPoint(5, 5))
                 self.app.processEvents()
+                pattern_list.setFocus()
+                self.assertTrue(row.hasFocus())
+                self.assertTrue(row.remove_button.isVisible())
+                self.assertTrue(row.menu_button.isVisible())
+                self.assertTrue(other.remove_button.isHidden())
+                self.assertEqual([control.geometry() for control in controls], positions)
+                QTest.keyClick(row, Qt.Key.Key_Tab)
+                self.assertTrue(row.remove_button.hasFocus())
+                self.assertTrue(row.remove_button.isVisible())
+                QTest.keyClick(row.remove_button, Qt.Key.Key_Tab)
+                self.assertTrue(other.hasFocus())
+                self.assertTrue(row.remove_button.isHidden())
+                self.assertTrue(other.remove_button.isVisible())
+                QTest.keyClick(other, Qt.Key.Key_Tab)
+                self.assertTrue(other.remove_button.hasFocus())
+                QTest.keyClick(other.remove_button, Qt.Key.Key_Space)
+                self.assertEqual(pattern_list.count(), 1)
+                self.panel._custom_pattern.setFocus()
 
     def test_category_toggles_are_scoped(self):
         paired_toggle = self.panel.findChild(QPushButton, "togglePairedButton")
