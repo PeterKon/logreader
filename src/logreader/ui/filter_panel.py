@@ -258,7 +258,6 @@ class SearchPatternRow(QWidget):
         self._focused = False
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         QApplication.instance().focusChanged.connect(self._focus_changed)
-        self._first_option: QWidget | None = None
         self.menu_button = QPushButton("⋯", self)
         self.menu_button.setObjectName("patternMenuButton")
         self.menu_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -296,8 +295,8 @@ class SearchPatternRow(QWidget):
         super().leaveEvent(event)
 
     def _update_hover(self) -> None:
-        active = self._hovered or self._focused
-        self.menu_button.setVisible(active and not self._context_target)
+        active = (self._hovered or self._focused) and not self._context_target
+        self.menu_button.setVisible(active)
         self.remove_button.setVisible(active)
         self.update()
 
@@ -316,8 +315,6 @@ class SearchPatternRow(QWidget):
             painter.setPen(QPen(QColor(THEME_COLORS["ui_accent"]), 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             bounds = self.rect().adjusted(0, 0, -1, -1)
-            if self._first_option is not None:
-                bounds.setRight(self._first_option.x() - 2)
             painter.drawRect(bounds)
 
 
@@ -1372,7 +1369,6 @@ class FilterPanel(QGroupBox):
             lambda _checked=False, list_item=item: remove_handler(list_item)
         )
         item_layout.addWidget(remove_button)
-        item_row._first_option = remove_button
         pattern_list.setItemWidget(item, item_row)
 
     def _show_pattern_menu(

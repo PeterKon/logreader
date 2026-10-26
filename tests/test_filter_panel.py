@@ -127,6 +127,7 @@ class FilterPanelTests(unittest.TestCase):
 
             def inspect(menu, position):
                 self.assertTrue(row.menu_button.isHidden())
+                self.assertTrue(row.remove_button.isHidden())
                 action = next(action for action in menu.actions() if action.text() == action_name)
                 observed.append((action.text(), action.isChecked(), action.toolTip(),
                                  menu.toolTipsVisible(), [a.text() for a in menu.actions()]))
@@ -150,12 +151,11 @@ class FilterPanelTests(unittest.TestCase):
             self.assertEqual(observed, [(action_name, expected_checked, tooltip, True,
                                          ["Matching", "Normal", "Exclusive", "Exclude", "", "Case sensitive", "", "Edit…", "Disable"])])
             self.assertEqual(borders, [[row]])
-            self.assertTrue(all(row.menu_button.geometry().right() < end < remove.x()
-                                and remove.x() - end <= row.layout().spacing()
-                                for end in border_ends))
+            self.assertEqual(border_ends, [row.width() - 1])
             self.assertFalse(any(outlined(candidate) for candidate in rows))
             if via_button:
                 self.assertTrue(row.menu_button.isVisible())
+                self.assertTrue(row.remove_button.isVisible())
             if activate:
                 expected_mode = action_name
 
