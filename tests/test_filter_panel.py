@@ -583,7 +583,7 @@ class FilterPanelTests(unittest.TestCase):
             dialog.close()
             dialog.deleteLater()
 
-    def test_pattern_hover_and_focus_reveal_controls_without_moving_them(self):
+    def test_pattern_controls_reveal_on_hover_without_taking_focus_or_moving(self):
         self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
         self.panel.resize(900, 650)
         for entry, add in ((self.panel._custom_pattern, self.panel.add_custom_pattern),
@@ -628,24 +628,26 @@ class FilterPanelTests(unittest.TestCase):
                 self.assertEqual([control.geometry() for control in controls], positions)
                 QTest.mouseMove(self.panel._tabs, QPoint(5, 5))
                 self.app.processEvents()
-                pattern_list.setFocus()
-                self.assertTrue(row.hasFocus())
-                self.assertTrue(row.remove_button.isVisible())
-                self.assertTrue(row.menu_button.isVisible())
-                self.assertTrue(other.remove_button.isHidden())
-                self.assertEqual([control.geometry() for control in controls], positions)
-                QTest.keyClick(row, Qt.Key.Key_Tab)
-                self.assertTrue(row.remove_button.hasFocus())
-                self.assertTrue(row.remove_button.isVisible())
-                QTest.keyClick(row.remove_button, Qt.Key.Key_Tab)
-                self.assertTrue(other.hasFocus())
-                self.assertTrue(row.remove_button.isHidden())
-                self.assertTrue(other.remove_button.isVisible())
-                QTest.keyClick(other, Qt.Key.Key_Tab)
-                self.assertTrue(other.remove_button.hasFocus())
-                QTest.keyClick(other.remove_button, Qt.Key.Key_Space)
-                self.assertEqual(pattern_list.count(), 1)
+                for control in (row, row.menu_button, row.remove_button):
+                    self.assertEqual(control.focusPolicy(), Qt.FocusPolicy.NoFocus)
                 self.panel._custom_pattern.setFocus()
+                QTest.mouseMove(row, row.rect().center())
+                QTest.mouseClick(row, Qt.MouseButton.LeftButton, pos=row.rect().center())
+                self.assertTrue(self.panel._custom_pattern.hasFocus())
+                # Visible row controls must also be skipped by keyboard navigation.
+                initial = self.app.focusWidget()
+                for _ in range(30):
+                    QTest.keyClick(self.app.focusWidget(), Qt.Key.Key_Tab)
+                    focused = self.app.focusWidget()
+                    self.assertFalse(pattern_list.isAncestorOf(focused))
+                    if focused is initial:
+                        break
+                else:
+                    self.fail("Tab navigation did not return to the input")
+                QTest.mouseMove(self.panel._tabs, QPoint(5, 5))
+                self.app.processEvents()
+                self.assertTrue(row.menu_button.isHidden())
+                self.assertTrue(row.remove_button.isHidden())
 
     def test_deleting_patterns_refreshes_hover_without_moving_pointer(self):
         self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
@@ -670,14 +672,13 @@ class FilterPanelTests(unittest.TestCase):
                     row = pattern_list.itemWidget(pattern_list.item(1))
                     QTest.mouseClick(row.remove_button, Qt.MouseButton.LeftButton,
                                      pos=row.remove_button.mapFromGlobal(position))
-                    # Hover must work without focus keeping the replacement's controls visible.
-                    entry.setFocus()
                     self.app.processEvents()
                     self.app.processEvents()
                     self.assertEqual(QCursor.pos(), position)
                     self.assertEqual(pattern_list.count(), count)
                     replacement = pattern_list.itemWidget(pattern_list.item(1))
-                    self.assertFalse(replacement._focused)
+                    self.assertTrue(entry.hasFocus())
+                    self.assertFalse(replacement.remove_button.hasFocus())
                     self.assertTrue(replacement._hovered)
                     self.assertTrue(replacement.remove_button.isVisible())
                     self.assertTrue(replacement.remove_button.underMouse())
