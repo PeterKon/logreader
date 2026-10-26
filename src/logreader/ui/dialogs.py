@@ -2,7 +2,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QSizeGrip, QVBoxLayout, QWidget,
+    QSizeGrip, QStyle, QVBoxLayout, QWidget,
 )
 
 from .app_icon import application_icon
@@ -90,7 +90,7 @@ class CompactDialog(QDialog):
         frame_layout.setSpacing(0)
         self.caption = QWidget(self.frame)
         self.caption.setObjectName("compactDialogCaption")
-        self.caption.setFixedHeight(36)
+        self.caption.setFixedHeight(self.style().pixelMetric(QStyle.PixelMetric.PM_TitleBarHeight, None, self))
         caption_layout = QHBoxLayout(self.caption)
         caption_layout.setContentsMargins(12, 0, 0, 0)
         caption_layout.setSpacing(8)
@@ -107,7 +107,7 @@ class CompactDialog(QDialog):
         self.close_button = DialogCloseButton(self.caption)
         self.close_button.setObjectName("compactDialogClose")
         self.close_button.setAccessibleName("Close")
-        self.close_button.setFixedSize(46, 35)
+        self.close_button.setFixedSize(46, self.caption.height() - 1)
         self.close_button.setAutoDefault(False)
         self.close_button.clicked.connect(self.reject)
         caption_layout.addWidget(self.close_button)
