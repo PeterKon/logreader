@@ -1358,16 +1358,13 @@ class LogreaderQtTests(unittest.TestCase):
             input_box.setText("Error")
             input_box.returnPressed.emit()
         rows = [pattern_list.itemWidget(pattern_list.item(i)) for i in range(2)]
-        buttons = [row.findChild(QPushButton, "customPatternMatchCaseButton") for row in rows]
-        self.assertTrue(all(button.isEnabled() and not button.isChecked() for button in buttons))
-        buttons[0].click()
+        self.assertEqual(self.window.build_config().custom_pattern_match_case, (False, False))
+        trigger_pattern_action(pattern_list, 0, "Case sensitive")
         self.assertEqual(self.window.build_config().custom_pattern_match_case, (True, False))
         self.window.show()
         self.app.processEvents()
-        for row, button in zip(rows, buttons):
-            remove = row.findChild(QPushButton, "customPatternRemoveButton")
-            self.assertLess(button.geometry().right(), remove.geometry().left())
-            self.assertTrue(row.rect().contains(button.geometry()))
+        self.assertFalse(rows[0].findChild(QLabel, "patternCaseLabel").isHidden())
+        self.assertTrue(rows[1].findChild(QLabel, "patternCaseLabel").isHidden())
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "case.log"
             path.write_text("Error\nerror\nERROR\n", encoding="utf-8")
@@ -1376,11 +1373,11 @@ class LogreaderQtTests(unittest.TestCase):
             results = self.window._document.results_view.editor
             counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual((counts["custom_1"], counts["custom_2"]), (1, 3))
-            buttons[0].click()
+            trigger_pattern_action(pattern_list, 0, "Case sensitive")
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             self.assertEqual(self.window._document.session.analysis.category_match_counts["custom_1"], 3)
-        buttons[1].click()
+        trigger_pattern_action(pattern_list, 1, "Case sensitive")
         rows[0].findChild(QPushButton, "customPatternRemoveButton").click()
         self.assertEqual(self.window.build_config().custom_pattern_match_case, (True,))
         input_box.setText("New")
@@ -1395,13 +1392,12 @@ class LogreaderQtTests(unittest.TestCase):
             entry.setText(text)
             entry.returnPressed.emit()
         row = pattern_list.itemWidget(pattern_list.item(1))
-        case = row.findChild(QPushButton, "customPatternMatchCaseButton")
         self.assertFalse(self.window.build_config().custom_pattern_exclude[1])
         trigger_pattern_action(pattern_list, 1, "Exclude")
-        self.assertFalse(case.isChecked())
+        self.assertTrue(row.findChild(QLabel, "patternCaseLabel").isHidden())
         self.window.show()
         self.app.processEvents()
-        self.assertLess(row.findChild(QLabel, "patternModeLabel").mapTo(row, QPoint()).x(), case.x())
+        self.assertLess(row.findChild(QLabel, "patternModeLabel").mapTo(row, QPoint()).x(), row.menu_button.x())
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "exclude.log"
             path.write_text("ERROR: keep\nERROR: Skip\nERROR: skip\n", encoding="utf-8")
@@ -1409,11 +1405,11 @@ class LogreaderQtTests(unittest.TestCase):
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             self.assertEqual(self.window._document.session.analysis.category_match_counts["error_colon"], 1)
-            case.click()
+            trigger_pattern_action(pattern_list, 1, "Case sensitive")
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             self.assertEqual(self.window._document.session.analysis.category_match_counts["error_colon"], 2)
-            trigger_pattern_action(pattern_list, 1, "Exclude")
+            trigger_pattern_action(pattern_list, 1, "Normal")
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             counts = self.window._document.session.analysis.category_match_counts
@@ -1434,13 +1430,12 @@ class LogreaderQtTests(unittest.TestCase):
             entry.setText(text)
             entry.returnPressed.emit()
         row = pattern_list.itemWidget(pattern_list.item(1))
-        case = row.findChild(QPushButton, "regexPatternMatchCaseButton")
-        self.assertFalse(case.isChecked())
+        self.assertTrue(row.findChild(QLabel, "patternCaseLabel").isHidden())
         self.assertFalse(self.window.build_config().regex_pattern_exclude[1])
         self.window.show()
         self.app.processEvents()
         remove = row.findChild(QPushButton, "regexPatternRemoveButton")
-        self.assertLess(case.geometry().right(), remove.geometry().left())
+        self.assertLess(row.menu_button.geometry().right(), remove.geometry().left())
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "regex-exclude.log"
             path.write_text("ERROR: keep\nERROR: skip42\nERROR: SKIP42\n", encoding="utf-8")
@@ -1452,12 +1447,12 @@ class LogreaderQtTests(unittest.TestCase):
             counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual(counts["error_colon"], 1)
             self.assertNotIn("regex_2", counts)
-            case.click()
+            trigger_pattern_action(pattern_list, 1, "Case sensitive")
             self._click_analyze_and_wait()
             counts = self.window._document.session.analysis.category_match_counts
             self.assertEqual(counts["error_colon"], 2)
-            case.click()
-            trigger_pattern_action(pattern_list, 1, "Exclude")
+            trigger_pattern_action(pattern_list, 1, "Case sensitive")
+            trigger_pattern_action(pattern_list, 1, "Normal")
             self._click_analyze_and_wait()
             results = self.window._document.results_view.editor
             counts = self.window._document.session.analysis.category_match_counts

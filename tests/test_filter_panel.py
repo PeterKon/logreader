@@ -148,10 +148,10 @@ class FilterPanelTests(unittest.TestCase):
                     self.app.sendEvent(target, event)
             tooltip = {"Normal": "Normal", "Exclusive": EXCLUSIVE_TOOLTIP, "Exclude": EXCLUDE_TOOLTIP}[action_name]
             self.assertEqual(observed, [(action_name, expected_checked, tooltip, True,
-                                         ["Matching", "Normal", "Exclusive", "Exclude", "", "Edit…", "Disable"])])
+                                         ["Matching", "Normal", "Exclusive", "Exclude", "", "Case sensitive", "", "Edit…", "Disable"])])
             self.assertEqual(borders, [[row]])
-            self.assertTrue(all(row.menu_button.geometry().right() < end < case.x()
-                                and case.x() - end <= row.layout().spacing()
+            self.assertTrue(all(row.menu_button.geometry().right() < end < remove.x()
+                                and remove.x() - end <= row.layout().spacing()
                                 for end in border_ends))
             self.assertFalse(any(outlined(candidate) for candidate in rows))
             if via_button:
@@ -169,10 +169,10 @@ class FilterPanelTests(unittest.TestCase):
                 row = pattern_list.itemWidget(item)
                 label = row.findChild(QLabel)
                 annotation = row.findChild(QLabel, "patternModeLabel")
-                case = row.findChild(QPushButton, prefix + "MatchCaseButton")
-                self.assertLess(row.menu_button.geometry().right(), case.x())
+                remove = row.findChild(QPushButton, prefix + "RemoveButton")
+                self.assertLess(row.menu_button.geometry().right(), remove.x())
                 self.assertEqual([button.text() for button in row.findChildren(QPushButton)],
-                                 ["⋯", "Case", "-"])
+                                 ["⋯", "-"])
                 choose_from(label, False, action_name="Exclude")
                 self.assertEqual(annotation.text(), "(excluded)")
                 self.assertFalse(annotation.isHidden())
@@ -190,7 +190,7 @@ class FilterPanelTests(unittest.TestCase):
                 self.assertIn("(exclusive)", item.data(Qt.ItemDataRole.AccessibleTextRole))
                 if kind == "regex":
                     self.assertFalse(row.findChild(QLabel, "regexPresetLabel").isHidden())
-                choose_from(case, True)
+                choose_from(row.menu_button, True)
                 self.assertEqual(annotation.text(), "(exclusive)")
                 self.assertTrue(getattr(self.panel.build_config(), f"{kind}_pattern_exclusive")[index])
                 choose_from(row, False, action_name="Normal")
@@ -222,6 +222,106 @@ class FilterPanelTests(unittest.TestCase):
         self.assertNotIn("regex_1", result.category_match_counts)
         self.assertEqual(result.category_match_counts["error"], 1)
 
+    def test_case_sensitive_menu_is_independent_and_updates_row_tag(self):
+        for kind, entry, pattern_list, add in (
+            ("custom", self.panel._custom_pattern, self.panel._custom_pattern_list,
+             self.panel.add_custom_pattern),
+            ("regex", self.panel._regex_pattern, self.panel._regex_pattern_list,
+             self.panel.add_regex_pattern),
+        ):
+            with self.subTest(kind=kind):
+                entry.setText("Target")
+                add()
+                item = pattern_list.item(0)
+                row = pattern_list.itemWidget(item)
+                tag = row.findChild(QLabel, "patternCaseLabel")
+                self.assertTrue(tag.isHidden())
+                trigger_pattern_action(pattern_list, 0, "Exclude")
+                trigger_pattern_action(pattern_list, 0, "Case sensitive")
+                self.assertEqual(tag.text(), "(case)")
+                self.assertFalse(tag.isHidden())
+                self.assertEqual(item.data(Qt.ItemDataRole.AccessibleTextRole), "Target (excluded) (case)")
+
+                def inspect(menu, position):
+                    actions = {action.text(): action for action in menu.actions()}
+                    case = actions["Case sensitive"]
+                    self.assertTrue(case.isChecked())
+                    self.assertIsNone(case.actionGroup())
+                    self.assertTrue(actions["Exclude"].isChecked())
+
+                with patch("logreader.ui.filter_panel.SearchPatternMenu.exec", new=inspect):
+                    row.menu_button.click()
+                trigger_pattern_action(pattern_list, 0, "Normal")
+                self.assertTrue(getattr(self.panel.build_config(), kind + "_pattern_match_case")[0])
+                self.assertFalse(tag.isHidden())
+                trigger_pattern_action(pattern_list, 0, "Case sensitive")
+                self.assertFalse(getattr(self.panel.build_config(), kind + "_pattern_match_case")[0])
+                self.assertTrue(tag.isHidden())
+                self.assertEqual(item.data(Qt.ItemDataRole.AccessibleTextRole), "Target")
+
+    def test_matching_controls_keep_menu_open_until_edit_or_disable(self):
+        self.panel._tabs.setCurrentIndex(2)
+        self.panel.show()
+        for kind, entry, pattern_list, add in (
+            ("custom", self.panel._custom_pattern, self.panel._custom_pattern_list,
+             self.panel.add_custom_pattern),
+            ("regex", self.panel._regex_pattern, self.panel._regex_pattern_list,
+             self.panel.add_regex_pattern),
+        ):
+            with self.subTest(kind=kind):
+                entry.setText("Target")
+                add()
+                self.app.processEvents()
+                row = pattern_list.itemWidget(pattern_list.item(0))
+
+                def interact(menu, position):
+                    menu.popup(position)
+                    self.app.processEvents()
+                    actions = {action.text(): action for action in menu.actions()}
+                    for name in ("Exclusive", "Exclude", "Normal", "Case sensitive", "Case sensitive"):
+                        action = actions[name]
+                        QTest.mouseClick(menu, Qt.MouseButton.LeftButton,
+                                         pos=menu.actionGeometry(action).center())
+                        self.assertTrue(menu.isVisible(), name)
+                        self.assertTrue(row._context_target)
+                    self.assertFalse(getattr(self.panel.build_config(), kind + "_pattern_match_case")[0])
+                    for name, key in (("Case sensitive", Qt.Key.Key_Space),
+                                      ("Exclusive", Qt.Key.Key_Return),
+                                      ("Exclude", Qt.Key.Key_Enter)):
+                        menu.setActiveAction(actions[name])
+                        QTest.keyClick(menu, key)
+                        self.assertTrue(menu.isVisible(), name)
+                        self.assertTrue(actions[name].isChecked())
+                    self.assertFalse(row.findChild(QLabel, "patternCaseLabel").isHidden())
+                    QTest.mouseClick(menu, Qt.MouseButton.LeftButton,
+                                     pos=menu.actionGeometry(actions["Disable"]).center())
+                    self.assertFalse(menu.isVisible())
+
+                with patch("logreader.ui.filter_panel.SearchPatternMenu.exec", new=interact):
+                    row.menu_button.click()
+                self.assertFalse(row._context_target)
+                self.assertEqual(getattr(self.panel.build_config(), kind + "_patterns"), ())
+
+                def enable_and_edit(menu, position):
+                    menu.popup(position)
+                    self.app.processEvents()
+                    actions = {action.text(): action for action in menu.actions()}
+                    QTest.mouseClick(menu, Qt.MouseButton.LeftButton,
+                                     pos=menu.actionGeometry(actions["Enable"]).center())
+                    self.assertTrue(menu.isVisible())
+                    self.assertEqual(actions["Enable"].text(), "Disable")
+                    self.assertTrue(actions["Case sensitive"].isEnabled())
+                    self.assertTrue(actions["Case sensitive"].isChecked())
+                    QTest.mouseClick(menu, Qt.MouseButton.LeftButton,
+                                     pos=menu.actionGeometry(actions["Edit…"]).center())
+                    self.assertFalse(menu.isVisible())
+
+                with patch("logreader.ui.filter_panel.SearchPatternMenu.exec", new=enable_and_edit), \
+                     patch.object(PatternEditDialog, "exec", return_value=QDialog.DialogCode.Rejected) as edit:
+                    row.menu_button.click()
+                edit.assert_called_once()
+                self.assertEqual(getattr(self.panel.build_config(), kind + "_patterns"), ("Target",))
+
     def test_edit_preserves_position_options_and_drafts(self):
         for kind, entry, pattern_list, add, prefix in (
             ("custom", self.panel._custom_pattern, self.panel._custom_pattern_list,
@@ -234,7 +334,7 @@ class FilterPanelTests(unittest.TestCase):
                 add()
             entry.setText("unfinished draft")
             item = pattern_list.item(1)
-            pattern_list.itemWidget(item).findChild(QPushButton, prefix + "MatchCaseButton").click()
+            trigger_pattern_action(pattern_list, 1, "Case sensitive")
             for mode in ("Exclusive", "Exclude"):
                 with self.subTest(kind=kind, mode=mode):
                     trigger_pattern_action(pattern_list, 1, mode)
@@ -260,7 +360,7 @@ class FilterPanelTests(unittest.TestCase):
                     self.assertEqual(row.findChild(QLabel).text(), replacement)
                     self.assertEqual(row.findChild(QLabel).textFormat(), Qt.TextFormat.PlainText)
                     self.assertEqual(row.findChild(QLabel).toolTip(), replacement)
-                    self.assertTrue(row.findChild(QPushButton, prefix + "MatchCaseButton").isChecked())
+                    self.assertFalse(row.findChild(QLabel, "patternCaseLabel").isHidden())
                     self.assertIn(replacement, item.data(Qt.ItemDataRole.AccessibleTextRole))
                     self.assertEqual(row.menu_button.accessibleName(), "Options for " + replacement)
                     self.assertEqual(row.findChild(QPushButton, prefix + "RemoveButton").toolTip(),
@@ -287,8 +387,7 @@ class FilterPanelTests(unittest.TestCase):
                 add()
             item = pattern_list.item(1)
             row = pattern_list.itemWidget(item)
-            case = row.findChild(QPushButton, prefix + "MatchCaseButton")
-            case.click()
+            trigger_pattern_action(pattern_list, 1, "Case sensitive")
             lines = ["ERROR Target", "ERROR other", "ERROR target"]
             for mode, expected in (("Normal", 3), ("Exclude", 2), ("Exclusive", 1)):
                 with self.subTest(kind=kind, mode=mode):
@@ -308,9 +407,7 @@ class FilterPanelTests(unittest.TestCase):
                     self.assertEqual(self.panel._tab_counts[2].text(), "(2/3)")
                     self.assertTrue(self.panel._exclusions_label.isHidden())
                     self.assertEqual(row.findChild(QLabel, "patternModeLabel").text(), "(disabled)")
-                    self.assertEqual(item.data(Qt.ItemDataRole.AccessibleTextRole), "Target (disabled)")
-                    self.assertFalse(case.isEnabled())
-                    self.assertTrue(case.isChecked())
+                    self.assertEqual(item.data(Qt.ItemDataRole.AccessibleTextRole), "Target (disabled) (case)")
                     self.assertTrue(row.menu_button.isEnabled())
                     self.assertTrue(row.findChild(QPushButton, prefix + "RemoveButton").isEnabled())
 
@@ -319,6 +416,8 @@ class FilterPanelTests(unittest.TestCase):
                         for name in ("Normal", "Exclusive", "Exclude"):
                             self.assertFalse(actions[name].isEnabled())
                             self.assertEqual(actions[name].isChecked(), name == mode)
+                        self.assertFalse(actions["Case sensitive"].isEnabled())
+                        self.assertTrue(actions["Case sensitive"].isChecked())
                         self.assertTrue(actions["Edit…"].isEnabled())
                         self.assertTrue(actions["Enable"].isEnabled())
 
@@ -327,7 +426,7 @@ class FilterPanelTests(unittest.TestCase):
                     trigger_pattern_action(pattern_list, 1, "Enable")
                     self.assertIs(pattern_list.item(1), item)
                     self.assertEqual(self.panel.build_config(), before)
-                    self.assertTrue(case.isEnabled())
+                    self.assertFalse(row.findChild(QLabel, "patternCaseLabel").isHidden())
                     self.assertEqual(self.panel._tab_counts[2].text(), "(3/3)")
                     self.assertEqual(self.panel._exclusions_label.isHidden(), mode != "Exclude")
                     result = analyze_lines(lines, self.panel.build_config().search_patterns())
@@ -678,11 +777,11 @@ class FilterPanelTests(unittest.TestCase):
         self.app.processEvents()
         self.panel._custom_pattern.setText("CaseSensitive")
         QTest.keyClick(self.panel._custom_pattern, Qt.Key.Key_Return)
-        self.panel.findChild(QPushButton, "customPatternMatchCaseButton").click()
+        trigger_pattern_action(self.panel._custom_pattern_list, 0, "Case sensitive")
         trigger_pattern_action(self.panel._custom_pattern_list, 0, "Exclude")
         self.panel._regex_pattern.setText(r"^ERROR\b")
         self.panel.add_regex_pattern()
-        self.panel.findChild(QPushButton, "regexPatternMatchCaseButton").click()
+        trigger_pattern_action(self.panel._regex_pattern_list, 0, "Case sensitive")
         self.panel._custom_pattern.setText("unfinished text")
         self.panel._regex_pattern.setText("unfinished [")
         before = self.panel.build_config()
@@ -875,17 +974,15 @@ class FilterPanelTests(unittest.TestCase):
 
         first_item = pattern_list.item(0)
         first_row = pattern_list.itemWidget(first_item)
-        second_row = pattern_list.itemWidget(pattern_list.item(1))
-        case_button = second_row.findChild(QPushButton, "regexPatternMatchCaseButton")
-        case_button.click()
+        trigger_pattern_action(pattern_list, 1, "Case sensitive")
         config = self.panel.build_config()
         self.assertEqual(config.regex_pattern_match_case, (False, True))
         result = analyze_lines(["warn", "WARN"], config.search_patterns())
         self.assertEqual(result.category_match_counts["regex_2"], 1)
-        case_button.click()
+        trigger_pattern_action(pattern_list, 1, "Case sensitive")
         result = analyze_lines(["warn", "WARN"], self.panel.build_config().search_patterns())
         self.assertEqual(result.category_match_counts["regex_2"], 2)
-        case_button.click()
+        trigger_pattern_action(pattern_list, 1, "Case sensitive")
         self.assertEqual(first_row.findChild(QLabel).text(), "(?i)error")
         self.assertIsNone(first_row.findChild(QLabel, "regexPresetLabel"))
         first_row.findChild(

@@ -6,7 +6,7 @@ import re
 from typing import Callable
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QActionGroup, QColor, QFont, QFontDatabase, QPainter, QPainterPath, QPalette, QPen, QRegion, QValidator
+from PySide6.QtGui import QActionGroup, QColor, QFont, QFontDatabase, QFontMetricsF, QPainter, QPainterPath, QPalette, QPen, QRegion, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -165,6 +165,31 @@ class SearchPatternMenu(TitleMenu):
                 return True
         return super().event(event)
 
+    @staticmethod
+    def _trigger_without_closing(action) -> bool:
+        if action is not None and action.isEnabled() and (
+            action.isCheckable() or action.objectName() == "enablePattern"
+        ):
+            action.trigger()
+            return True
+        return False
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self._trigger_without_closing(
+            self.actionAt(event.position().toPoint())
+        ):
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space) and (
+            self._trigger_without_closing(self.activeAction())
+        ):
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def paintEvent(self, event) -> None:  # noqa: N802
         super().paintEvent(event)
         painter = QPainter(self)
@@ -174,7 +199,14 @@ class SearchPatternMenu(TitleMenu):
                 continue
             bounds = self.actionGeometry(action)
             painter.save()
-            painter.translate(bounds.left() + 8, bounds.center().y() - 6.5)
+            icon_center = bounds.center().y() + 0.5
+            if action.objectName() == "caseSensitive":
+                # Center on the visible letters, excluding the font's descent space.
+                metrics = QFontMetricsF(action.font().resolve(self.font()))
+                icon_center = (QRectF(bounds).center().y()
+                               + (metrics.ascent() - metrics.descent()) / 2
+                               + metrics.tightBoundingRect(action.text()).center().y())
+            painter.translate(bounds.left() + 8, icon_center - 7)
             color = QColor(THEME_COLORS[
                 "ui_disabled_text" if not action.isEnabled()
                 else "ui_accent" if action.isChecked() else "ui_muted"
@@ -182,7 +214,11 @@ class SearchPatternMenu(TitleMenu):
             painter.setPen(QPen(color, 1.2, Qt.PenStyle.SolidLine,
                                 Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            if action.isCheckable():
+            if action.objectName() == "caseSensitive":
+                painter.drawRoundedRect(QRectF(1, 1, 12, 12), 2, 2)
+                if action.isChecked():
+                    paint_checkmark(painter, QRectF(0, 0, 14, 14), enabled=action.isEnabled())
+            elif action.isCheckable():
                 painter.drawEllipse(QRectF(1, 1, 12, 12))
                 if action.isChecked():
                     painter.setPen(Qt.PenStyle.NoPen)
@@ -268,51 +304,6 @@ class SearchPatternRow(QWidget):
             if self._first_option is not None:
                 bounds.setRight(self._first_option.x() - 2)
             painter.drawRect(bounds)
-
-
-class SearchOptionButton(QPushButton):
-    """Search option toggle with a crossed-out appearance while off."""
-
-    def __init__(self, text: str, pattern: str, action: str, object_name: str) -> None:
-        super().__init__(text)
-        self._action = action
-        self.setObjectName(object_name)
-        self.setCheckable(True)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setAccessibleName(f"{action.capitalize()} for {pattern}")
-        self.setFixedSize(self.fontMetrics().horizontalAdvance(self.text()) + 12, 16)
-        self.setStyleSheet(
-            "QPushButton { background: rgba(128, 128, 128, 12);"
-            " color: rgba(170, 170, 170, 115);"
-            " border: 1px solid rgba(150, 150, 150, 55);"
-            " border-radius: 3px; padding: 0 4px; min-height: 0; }"
-            f"QPushButton:!checked:hover {{ background: {THEME_COLORS['ui_button_hover']};"
-            " border-color: #a0a0a0; color: #dddddd; }"
-            f"QPushButton:checked {{ background: {THEME_COLORS['ui_primary']};"
-            f" border-color: {THEME_COLORS['ui_accent']}; color: #ffffff; }}"
-            f"QPushButton:checked:hover {{ background: {THEME_COLORS['ui_primary_hover']}; }}"
-            f"QPushButton:disabled, QPushButton:checked:disabled {{"
-            f" background: {THEME_COLORS['ui_disabled']}; color: {THEME_COLORS['ui_muted']};"
-            f" border-color: {THEME_COLORS['ui_border']}; }}"
-        )
-        self.toggled.connect(self._update_tooltip)
-        self._update_tooltip(False)
-
-    def _update_tooltip(self, checked: bool) -> None:
-        self.setToolTip(
-            f"Click to disable {self._action}"
-            if checked else f"Click to enable {self._action}"
-        )
-
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API name
-        super().paintEvent(event)
-        if not self.isChecked():
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setPen(QPen(QColor(160, 160, 160, 90), 1.0))
-            bounds = self.rect().adjusted(3, 3, -3, -3)
-            painter.drawLine(bounds.topLeft(), bounds.bottomRight())
-            painter.drawLine(bounds.bottomLeft(), bounds.topRight())
 
 
 class VisibleCheckBox(QCheckBox):
@@ -1294,6 +1285,10 @@ class FilterPanel(QGroupBox):
         mode_label = QLabel()
         mode_label.setObjectName("patternModeLabel")
         text_layout.addWidget(mode_label)
+        case_label = QLabel("(case)")
+        case_label.setObjectName("patternCaseLabel")
+        case_label.setStyleSheet(f"color: {THEME_COLORS['ui_muted']};")
+        text_layout.addWidget(case_label)
 
         def update_mode(role: int | None, checked: bool) -> None:
             if role is None:
@@ -1315,26 +1310,19 @@ class FilterPanel(QGroupBox):
             item_label.setStyleSheet(f"color: {THEME_COLORS['ui_muted']};" if disabled else "")
             if preset_name:
                 preset_label.setVisible(not disabled)
-            case_button.setEnabled(not disabled)
-            if disabled:
-                case_button.setToolTip("")
-            else:
-                case_button._update_tooltip(case_button.isChecked())
-            item.setData(Qt.ItemDataRole.AccessibleTextRole,
-                         f"{label} {annotation}" if annotation else label)
+            match_case = bool(item.data(MATCH_CASE_ROLE))
+            case_label.setVisible(match_case)
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, " ".join(
+                part for part in (label, annotation, "(case)" if match_case else "") if part
+            ))
             text_row.setMaximumWidth(
                 item_label.sizeHint().width()
                 + (preset_label.sizeHint().width() + 4 if preset_name and not disabled else 0)
                 + (mode_label.sizeHint().width() + 4 if annotation else 0)
+                + (case_label.sizeHint().width() + 4 if match_case else 0)
             )
 
-        prefix = "customPattern" if is_custom else "regexPattern"
-        case_button = SearchOptionButton("Case", label, "matching case", f"{prefix}MatchCaseButton")
-        case_button.setChecked(bool(item.data(MATCH_CASE_ROLE)))
-        case_button.toggled.connect(lambda checked: item.setData(MATCH_CASE_ROLE, checked))
         item_layout.addWidget(item_row.menu_button)
-        item_layout.addWidget(case_button)
-        item_row._first_option = case_button
 
         def edit_pattern() -> None:
             dialog = PatternEditDialog(pattern, is_regex=not is_custom, parent=self)
@@ -1369,6 +1357,7 @@ class FilterPanel(QGroupBox):
             lambda _checked=False, list_item=item: remove_handler(list_item)
         )
         item_layout.addWidget(remove_button)
+        item_row._first_option = remove_button
         pattern_list.setItemWidget(item, item_row)
 
     def _show_pattern_menu(
@@ -1395,6 +1384,13 @@ class FilterPanel(QGroupBox):
             action.setToolTip(tooltip)
         modes.triggered.connect(lambda action: update_mode(action.data(), True))
         menu.addSeparator()
+        case_action = menu.addAction("Case sensitive")
+        case_action.setObjectName("caseSensitive")
+        case_action.setCheckable(True)
+        case_action.setChecked(bool(item.data(MATCH_CASE_ROLE)))
+        case_action.setEnabled(not disabled)
+        case_action.toggled.connect(lambda checked: update_mode(MATCH_CASE_ROLE, checked))
+        menu.addSeparator()
         edit_requested = False
 
         def request_edit() -> None:
@@ -1406,7 +1402,16 @@ class FilterPanel(QGroupBox):
         edit_action.triggered.connect(request_edit)
         enabled_action = menu.addAction("Enable" if disabled else "Disable")
         enabled_action.setObjectName("enablePattern" if disabled else "disablePattern")
-        enabled_action.triggered.connect(lambda: update_mode(DISABLED_ROLE, not disabled))
+
+        def toggle_enabled() -> None:
+            disabled = not bool(item.data(DISABLED_ROLE))
+            update_mode(DISABLED_ROLE, disabled)
+            for action in (*modes.actions(), case_action):
+                action.setEnabled(not disabled)
+            enabled_action.setText("Enable" if disabled else "Disable")
+            enabled_action.setObjectName("enablePattern" if disabled else "disablePattern")
+
+        enabled_action.triggered.connect(toggle_enabled)
         row.set_context_target(True)
         try:
             menu.exec(row.mapToGlobal(position))

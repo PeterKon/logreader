@@ -438,7 +438,7 @@ class TabTests(unittest.TestCase):
         first.findChild(QLineEdit, "customPattern").setText("noise")
         first.findChild(QPushButton, "customPatternAddButton").click()
         # Exercise the per-item match-case and exclusion flags as well.
-        first.findChild(QPushButton, "customPatternMatchCaseButton").setChecked(True)
+        trigger_pattern_action(first.filter_panel._custom_pattern_list, 0, "Case sensitive")
         trigger_pattern_action(first.filter_panel._custom_pattern_list, 0, "Exclude")
         first.findChild(QLineEdit, "regexPattern").setText("ignored.*")
         first.findChild(QPushButton, "regexPatternAddButton").click()
