@@ -7,12 +7,11 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import trigger_pattern_action
+    from qt_helpers import qt_application, trigger_pattern_action
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtGui import QColor, QContextMenuEvent, QCursor
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import (
-        QApplication,
         QCheckBox,
         QDialog,
         QDialogButtonBox,
@@ -22,6 +21,8 @@ try:
         QListWidget,
         QPushButton,
         QSpinBox,
+        QStyle,
+        QStyleOptionButton,
         QTabBar,
     )
 
@@ -49,7 +50,7 @@ class FilterPanelTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+        cls.app = qt_application()
 
     def setUp(self):
         self.panel = FilterPanel()
@@ -645,6 +646,48 @@ class FilterPanelTests(unittest.TestCase):
                 QTest.keyClick(other.remove_button, Qt.Key.Key_Space)
                 self.assertEqual(pattern_list.count(), 1)
                 self.panel._custom_pattern.setFocus()
+
+    def test_deleting_patterns_refreshes_hover_without_moving_pointer(self):
+        self.panel.setStyleSheet(INTERFACE_STYLE_SHEET)
+        self.panel.resize(760, 650)
+        self.panel._tabs.setCurrentIndex(2)
+        self.panel.show()
+        self.panel.activateWindow()
+        for entry, add, pattern_list in (
+            (self.panel._custom_pattern, self.panel.add_custom_pattern, self.panel._custom_pattern_list),
+            (self.panel._regex_pattern, self.panel.add_regex_pattern, self.panel._regex_pattern_list),
+        ):
+            with self.subTest(pattern_list=pattern_list.objectName()):
+                for index in range(20):
+                    entry.setText(f"pattern {index}")
+                    add()
+                self.app.processEvents()
+                row = pattern_list.itemWidget(pattern_list.item(1))
+                QTest.mouseMove(row, row.rect().center())
+                QTest.mouseMove(row.remove_button, row.remove_button.rect().center())
+                position = QCursor.pos()
+                for count in range(19, 14, -1):
+                    row = pattern_list.itemWidget(pattern_list.item(1))
+                    QTest.mouseClick(row.remove_button, Qt.MouseButton.LeftButton,
+                                     pos=row.remove_button.mapFromGlobal(position))
+                    # Hover must work without focus keeping the replacement's controls visible.
+                    entry.setFocus()
+                    self.app.processEvents()
+                    self.app.processEvents()
+                    self.assertEqual(QCursor.pos(), position)
+                    self.assertEqual(pattern_list.count(), count)
+                    replacement = pattern_list.itemWidget(pattern_list.item(1))
+                    self.assertFalse(replacement._focused)
+                    self.assertTrue(replacement._hovered)
+                    self.assertTrue(replacement.remove_button.isVisible())
+                    self.assertTrue(replacement.remove_button.underMouse())
+                    option = QStyleOptionButton()
+                    replacement.remove_button.initStyleOption(option)
+                    self.assertTrue(option.state & QStyle.StateFlag.State_MouseOver)
+                QTest.mouseMove(entry, entry.rect().center())
+                self.app.processEvents()
+                self.assertFalse(replacement._hovered)
+                self.assertTrue(replacement.remove_button.isHidden())
 
     def test_category_toggles_are_scoped(self):
         paired_toggle = self.panel.findChild(QPushButton, "togglePairedButton")

@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from typing import Callable
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QActionGroup, QColor, QFont, QFontDatabase, QFontMetricsF, QPainter, QPainterPath, QPalette, QPen, QRegion, QValidator
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QActionGroup, QColor, QCursor, QFont, QFontDatabase, QFontMetricsF, QMouseEvent, QPainter, QPainterPath, QPalette, QPen, QRegion, QValidator
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -1473,6 +1473,26 @@ class FilterPanel(QGroupBox):
         if item_widget is not None:
             item_widget.deleteLater()
         self._update_summary()
+        QTimer.singleShot(0, pattern_list, lambda: self._refresh_search_list_hover(pattern_list))
+
+    @staticmethod
+    def _refresh_search_list_hover(pattern_list: QListWidget) -> None:
+        # Deletion moves rows under a stationary pointer without a new enter event.
+        pattern_list.doItemsLayout()
+        position = QCursor.pos()
+        target = QApplication.widgetAt(position)
+        for index in range(pattern_list.count()):
+            row = pattern_list.itemWidget(pattern_list.item(index))
+            row._hovered = target is row or (target is not None and row.isAncestorOf(target))
+            row._update_hover()
+        # Newly revealed buttons also need their hit-test hover state refreshed.
+        target = QApplication.widgetAt(position)
+        if isinstance(target, QPushButton) and pattern_list.isAncestorOf(target):
+            QApplication.sendEvent(target, QMouseEvent(
+                QEvent.Type.MouseMove, QPointF(target.mapFromGlobal(position)),
+                QPointF(target.window().mapFromGlobal(position)), QPointF(position),
+                Qt.MouseButton.NoButton, QApplication.mouseButtons(), QApplication.keyboardModifiers(),
+            ))
 
     def toggle_patterns(self, pattern_keys: tuple[str, ...]) -> None:
         """Toggle every checkbox in one pattern category as a unit."""
