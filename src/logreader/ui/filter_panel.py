@@ -6,7 +6,7 @@ import re
 from typing import Callable
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QActionGroup, QColor, QCursor, QFont, QFontDatabase, QFontMetricsF, QMouseEvent, QPainter, QPainterPath, QPalette, QPen, QRegion, QValidator
+from PySide6.QtGui import QActionGroup, QColor, QCursor, QFont, QFontDatabase, QMouseEvent, QPainter, QPainterPath, QPalette, QPen, QRegion, QValidator
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -137,15 +137,16 @@ class SearchPatternMenu(TitleMenu):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet(
             TITLE_MENU_STYLE_SHEET
-            + "QMenu { min-width: 206px; padding: 3px 5px; border-radius: 6px;"
+            + "QMenu { min-width: 206px; padding: 0 5px; border-radius: 6px;"
             + f" border-color: {THEME_COLORS['ui_border_strong']}; }}"
-            + "QMenu::item { padding: 3px 8px 3px 31px; border-radius: 3px; }"
+            + "QMenu::item { padding: 3px 8px 4px 31px; border-radius: 0; }"
             + "QMenu::indicator { width: 0; height: 0; }"
-            + "QMenu::separator { margin: 3px; }"
+            + "QMenu::separator { margin: 0 3px; }"
         )
         self.setToolTipsVisible(True)
+        self.hovered.connect(lambda _action: self.update())
         heading = QLabel("Matching", self)
-        heading.setContentsMargins(8, 2, 8, 1)
+        heading.setContentsMargins(8, 5, 8, 1)
         heading.setStyleSheet(f"background: transparent; color: {THEME_COLORS['ui_muted']};")
         heading_font = heading.font()
         if heading_font.pointSizeF() > 0:
@@ -160,11 +161,38 @@ class SearchPatternMenu(TitleMenu):
         self.addAction(section)
 
     def event(self, event) -> bool:
+        if event.type() in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress,
+                            QEvent.Type.MouseButtonRelease):
+            point = event.position().toPoint()
+            for action in self.actions():
+                if (action.isVisible() and not action.isSeparator()
+                        and not isinstance(action, QWidgetAction)
+                        and self._item_rect(action).contains(point)):
+                    bounds = self.actionGeometry(action)
+                    if not bounds.contains(point):
+                        point = QPoint(max(bounds.left(), min(point.x(), bounds.right())),
+                                       max(bounds.top(), min(point.y(), bounds.bottom())))
+                        event = QMouseEvent(event.type(), QPointF(point), event.globalPosition(),
+                                            event.button(), event.buttons(), event.modifiers(),
+                                            event.pointingDevice())
+                    break
+            result = super().event(event)
+            # Qt invalidates only its original item bounds when hover changes.
+            self.update()
+            return result
+        if event.type() == QEvent.Type.Leave:
+            self.update()
         if event.type() == QEvent.Type.ToolTip:
             action = self.actionAt(event.pos())
             if action is None or action.toolTip() == action.text():
                 return True
         return super().event(event)
+
+    def _item_rect(self, action):
+        bounds = self.actionGeometry(action)
+        bounds.setLeft(1)
+        bounds.setRight(self.width() - 2)
+        return bounds
 
     @staticmethod
     def _trigger_without_closing(action) -> bool:
@@ -195,18 +223,24 @@ class SearchPatternMenu(TitleMenu):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        active = self.activeAction()
+        if active is not None and active.isEnabled() and not active.isSeparator():
+            bounds = self.actionGeometry(active)
+            highlight = self._item_rect(active)
+            painter.save()
+            outline = QPainterPath()
+            outline.addRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 5, 5)
+            painter.setClipPath(outline)
+            painter.setClipRegion(QRegion(highlight).subtracted(QRegion(bounds)),
+                                  Qt.ClipOperation.IntersectClip)
+            painter.fillRect(highlight, QColor(THEME_COLORS['ui_button_hover']))
+            painter.restore()
         for action in self.actions():
             if not action.isVisible() or action.isSeparator():
                 continue
             bounds = self.actionGeometry(action)
             painter.save()
             icon_center = bounds.center().y() + 0.5
-            if action.objectName() == "caseSensitive":
-                # Center on the visible letters, excluding the font's descent space.
-                metrics = QFontMetricsF(action.font().resolve(self.font()))
-                icon_center = (QRectF(bounds).center().y()
-                               + (metrics.ascent() - metrics.descent()) / 2
-                               + metrics.tightBoundingRect(action.text()).center().y())
             painter.translate(bounds.left() + 8, icon_center - 7)
             color = QColor(THEME_COLORS[
                 "ui_disabled_text" if not action.isEnabled()

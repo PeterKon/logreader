@@ -323,6 +323,70 @@ class FilterPanelTests(unittest.TestCase):
                 edit.assert_called_once()
                 self.assertEqual(getattr(self.panel.build_config(), kind + "_patterns"), ("Target",))
 
+    def test_menu_rows_have_equal_height_and_hover_and_click_to_their_edges(self):
+        self.panel._tabs.setCurrentIndex(2)
+        self.panel.show()
+        for entry, pattern_list, add in (
+            (self.panel._custom_pattern, self.panel._custom_pattern_list, self.panel.add_custom_pattern),
+            (self.panel._regex_pattern, self.panel._regex_pattern_list, self.panel.add_regex_pattern),
+        ):
+            entry.setText("Target")
+            add()
+            row = pattern_list.itemWidget(pattern_list.item(0))
+
+            def interact(menu, position):
+                menu.popup(position)
+                self.app.processEvents()
+                actions = {action.text(): action for action in menu.actions() if not action.isSeparator()}
+                dividers = [menu.actionGeometry(action).center().y()
+                            for action in menu.actions() if action.isSeparator()]
+                baseline = menu.grab().toImage()
+                x = menu.width() - 15
+                row_height = menu.actionGeometry(actions["Normal"]).height()
+                for action in actions.values():
+                    if not action.isEnabled():
+                        continue
+                    QTest.mouseMove(menu, menu.actionGeometry(action).center())
+                    self.app.processEvents()
+                    rendered = menu.grab().toImage()
+                    self.assertEqual(sum(rendered.pixelColor(x, y) == QColor("#32445a")
+                                         for y in range(rendered.height())), row_height, action.text())
+                regions = (
+                    (actions["Exclude"], menu.actionGeometry(actions["Exclude"]).top(), dividers[0] - 1),
+                    (actions["Case sensitive"], dividers[0] + 1, dividers[1] - 1),
+                    (actions["Edit…"], dividers[1] + 1, menu.actionGeometry(actions["Edit…"]).bottom()),
+                )
+                for y in range(regions[0][1], regions[-1][2] + 1):
+                    QTest.mouseMove(menu, QPoint(x, y))
+                    self.app.processEvents()
+                    expected = next((action for action, top, bottom in regions if top <= y <= bottom), None)
+                    self.assertIs(menu.activeAction(), expected)
+                    rendered = menu.grab().toImage()
+                    for divider in dividers:
+                        self.assertEqual(rendered.copy(0, divider, menu.width(), 1),
+                                         baseline.copy(0, divider, menu.width(), 1))
+                    if expected is not None:
+                        self.assertEqual(rendered.pixelColor(x, y), QColor("#32445a"))
+                        self.assertEqual(rendered.pixelColor(2, y), QColor("#32445a"))
+                        self.assertEqual(rendered.pixelColor(x, menu.actionGeometry(expected).center().y()),
+                                         QColor("#32445a"))
+                QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=QPoint(x, dividers[0] - 1))
+                self.assertTrue(actions["Exclude"].isChecked())
+                for y, checked in ((dividers[0] + 1, True), (dividers[1] - 1, False)):
+                    QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=QPoint(x, y))
+                    self.assertEqual(actions["Case sensitive"].isChecked(), checked)
+                    self.assertTrue(menu.isVisible())
+                QTest.mouseClick(menu, Qt.MouseButton.LeftButton,
+                                 pos=QPoint(2, menu.actionGeometry(actions["Normal"]).center().y()))
+                self.assertTrue(actions["Normal"].isChecked())
+                QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=QPoint(x, dividers[1] + 1))
+                self.assertFalse(menu.isVisible())
+
+            with patch("logreader.ui.filter_panel.SearchPatternMenu.exec", new=interact), \
+                 patch.object(PatternEditDialog, "exec", return_value=QDialog.DialogCode.Rejected) as edit:
+                row.menu_button.click()
+            edit.assert_called_once()
+
     def test_edit_preserves_position_options_and_drafts(self):
         for kind, entry, pattern_list, add, prefix in (
             ("custom", self.panel._custom_pattern, self.panel._custom_pattern_list,
