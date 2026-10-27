@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 
 from .app_icon import application_icon
 from .theme import THEME_COLORS as C
+from .widgets.menu_style import MenuTheme
 
 
 COMPACT_DIALOG_STYLE = f"""
@@ -72,6 +73,7 @@ class DialogCloseButton(QPushButton):
 class CompactDialog(QDialog):
     def __init__(self, title, parent=None, *, resizable=False):
         super().__init__(parent, Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self._menu_theme = MenuTheme(self)
         self.setWindowTitle(title)
         self.setWindowIcon(application_icon())
         font = self.font()

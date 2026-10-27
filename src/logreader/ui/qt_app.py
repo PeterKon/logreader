@@ -47,6 +47,7 @@ from ..config import APP_VERSION, LogreaderConfig
 from .app_icon import application_icon, application_logo, set_windows_app_id
 from .document_page import DocumentPage
 from .dialogs import show_warning
+from .widgets.menu_style import MenuTheme
 from ..document_session import AnalysisPhase, LoadPhase
 from .theme import THEME_COLORS, configure_action_button
 from .window_frame import TitleBarShadow, apply_title_bar_colors
@@ -247,21 +248,6 @@ QPushButton#regexPresetButton {{
 QPushButton#regexPresetButton::menu-indicator {{
     subcontrol-origin: padding;
     subcontrol-position: right center;
-}}
-QMenu#regexPresetMenu {{
-    background-color: {THEME_COLORS['ui_button']};
-    color: {THEME_COLORS['ui_text']};
-    border: 1px solid {THEME_COLORS['ui_border_strong']};
-    menu-scrollable: 1;
-}}
-QMenu#regexPresetMenu::item {{
-    padding: 6px 16px;
-}}
-QMenu#regexPresetMenu::item:selected {{
-    background-color: {THEME_COLORS['ui_button_hover']};
-}}
-QMenu#regexPresetMenu::item:disabled {{
-    color: {THEME_COLORS['ui_disabled_text']};
 }}
 QPushButton#customPatternAddButton,
 QPushButton#regexPatternAddButton {{
@@ -541,6 +527,7 @@ class LogreaderWindow(TitleBarWindow):
 
     def __init__(self, *, show_performance: bool = False) -> None:
         super().__init__()
+        self._menu_theme = MenuTheme(self)
         self.setWindowIcon(application_icon())
         self._show_performance = show_performance
         self._apply_interface_palette()

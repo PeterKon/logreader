@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QAbstractSlider, QMenu, QStyle, QStyleOptionSlider
 
 from logreader.ui.filter_panel import FilterPanel
 from logreader.ui.widgets.input_menus import InputContextMenu, ScrollbarContextMenu
+from logreader.ui.widgets.menu_style import CONTEXT_MENU_STYLE_SHEET
 from logreader.ui.results.results_view import ResultsView
 from qt_helpers import render_results, wait_for_navigation
 
@@ -36,6 +37,7 @@ class InputMenuTests(unittest.TestCase):
         controller = editor.findChild(InputContextMenu)
         self.assertIsNotNone(controller)
         menu = controller.create_menu()
+        self.assertEqual(menu.styleSheet(), CONTEXT_MENU_STYLE_SHEET)
         self.addCleanup(menu.deleteLater)
         return menu
 
@@ -185,6 +187,7 @@ class InputMenuTests(unittest.TestCase):
         controller = scrollbar.findChild(ScrollbarContextMenu)
         self.assertIsNotNone(controller)
         menu = controller.create_menu()
+        self.assertEqual(menu.styleSheet(), CONTEXT_MENU_STYLE_SHEET)
         self.addCleanup(menu.deleteLater)
         return menu
 

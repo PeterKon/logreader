@@ -8,7 +8,9 @@ from qt_helpers import qt_application, retire_window, wait_source
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QContextMenuEvent, QFont, QFontDatabase, QTextCursor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QInputDialog, QMenu
+from PySide6.QtWidgets import QMenu
+
+from logreader.ui.bookmarks import BookmarkNameDialog
 
 from qt_helpers import wait_for_search
 from logreader.config import LogreaderConfig
@@ -213,7 +215,7 @@ class ContextTargetTests(unittest.TestCase):
 
         def close_dialog():
             dialog = self.app.activeModalWidget()
-            if not isinstance(dialog, QInputDialog):
+            if not isinstance(dialog, BookmarkNameDialog):
                 QTimer.singleShot(5, close_dialog)
                 return
             observed.append(editor._context_target == target)

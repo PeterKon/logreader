@@ -9,6 +9,7 @@ from PySide6.QtCore import QMimeData, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QApplication, QMenu, QPlainTextEdit
 from logreader.ui.widgets.line_number_editor import LineNumberEditor
+from logreader.ui.widgets.menu_style import style_menu
 from logreader.ui.results.results_model import ResultsModel
 from logreader.ui.source_search import utf16_length
 from logreader.ui.theme import THEME_COLORS
@@ -300,6 +301,7 @@ class WindowedResultsEditor(LineNumberEditor):
 
     def createStandardContextMenu(self, *args):  # noqa: N802
         menu = QMenu(self)
+        style_menu(menu)
         action = menu.addAction("Copy\tCtrl+C", self.copy)
         action.setEnabled(self.anchor != self.caret)
         menu.addAction("Select All\tCtrl+A", self.selectAll)

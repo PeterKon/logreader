@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from qt_helpers import qt_application, retire_window, wait_source
 from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
-from PySide6.QtGui import QContextMenuEvent, QFont, QTextCursor, QWheelEvent
+from PySide6.QtGui import QColor, QContextMenuEvent, QFont, QTextCursor, QWheelEvent
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLineEdit, QMenu, QStyle, QStyleOptionSlider, QTabBar, QToolTip
 
@@ -22,6 +22,7 @@ from logreader.ui.widgets.input_menus import InputContextMenu
 from logreader.ui.results.results_model import SourceLocation
 from logreader.ui.results.results_view import ResultsView
 from logreader.ui.theme import THEME_COLORS
+from logreader.ui.title_bar import TITLE_MENU_STYLE_SHEET
 
 
 class BookmarkTests(unittest.TestCase):
@@ -83,6 +84,7 @@ class BookmarkTests(unittest.TestCase):
                     menu = QMenu(self.bookmarks.strip)
                     self.addCleanup(menu.deleteLater)
                     self.bookmarks.add_menu_actions(menu, location)
+                    self.assertTrue(menu.styleSheet().startswith(TITLE_MENU_STYLE_SHEET))
                     expected = ["Open note", "Delete note"] if note else ["Add note"]
                     expected += [None, "Rename bookmark", "Delete bookmark"]
                     if isinstance(location, SourceLocation):
@@ -835,10 +837,23 @@ class BookmarkTests(unittest.TestCase):
         self.app.processEvents()
         wait_source(self.view)
         for checked in (True, False):
-            QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(toggle).center())
+            point = menu.actionGeometry(toggle).center()
+            if checked:
+                point.setX(menu.width() - 18)
+            QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=point)
             self.assertTrue(menu.isVisible())
             self.assertEqual(toggle.isChecked(), checked)
             self.assertEqual(self.bookmarks.items[source].convert_when_shown, checked)
+            if checked:
+                image = menu.grab().toImage()
+                scale = image.devicePixelRatio()
+                row = menu.actionGeometry(toggle)
+                accent = QColor(THEME_COLORS["ui_accent"])
+                accent_pixels = [x for y in range(round(row.top() * scale), round(row.bottom() * scale))
+                                 for x in range(image.width())
+                                 if max(abs(actual - target) for actual, target in zip(
+                                     image.pixelColor(x, y).getRgb()[:3], accent.getRgb()[:3])) < 15]
+                self.assertTrue(any(x > (menu.width() - 30) * scale for x in accent_pixels))
         menu.setActiveAction(toggle)
         for key, checked in ((Qt.Key.Key_Space, True), (Qt.Key.Key_Return, False)):
             QTest.keyClick(menu, key)

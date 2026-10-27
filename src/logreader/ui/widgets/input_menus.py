@@ -2,6 +2,8 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence
 from PySide6.QtWidgets import QApplication, QAbstractSlider, QLineEdit, QMenu, QScrollBar, QSpinBox
 
+from .menu_style import style_menu
+
 
 class ScrollbarContextMenu(QObject):
     def __init__(self, scrollbar: QScrollBar, *, page: bool = False) -> None:
@@ -19,6 +21,7 @@ class ScrollbarContextMenu(QObject):
         else:
             labels = ("Top", "Bottom")
         menu = QMenu(scrollbar)
+        style_menu(menu)
         for label, command, available in (
             (labels[0], QAbstractSlider.SliderAction.SliderToMinimum,
              scrollbar.value() > scrollbar.minimum()),
@@ -73,6 +76,7 @@ class InputContextMenu(QObject):
                           bool(editor.text()) and editor.selectedText() != editor.text()),
         }
         menu = QMenu(editor)
+        style_menu(menu)
         for group in (self.history, self.editing):
             if group and menu.actions():
                 menu.addSeparator()

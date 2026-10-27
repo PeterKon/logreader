@@ -17,6 +17,7 @@ from .results_model import ResultLocation, SourceLocation
 from ..source_view import SourceView
 from .result_coordinates import TextPoint
 from ..widgets.input_menus import InputContextMenu, ScrollbarContextMenu
+from ..widgets.menu_style import style_menu
 from ..theme import THEME_COLORS, configure_action_button, configure_clear_button, vertical_resize_icon
 
 
@@ -285,6 +286,7 @@ class ResultsControls(QWidget):
     def _exec_line_context_menu(self, editor, point, location, *, show_source=False) -> None:
         source = location.source if isinstance(location, ResultLocation) else location
         menu = editor.createStandardContextMenu()
+        style_menu(menu)
         for action in menu.actions():
             if action.isSeparator():
                 menu.removeAction(action)
