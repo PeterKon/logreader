@@ -806,7 +806,7 @@ class FilterPanel(QGroupBox):
         self._analyze_cell = QFrame(actions)
         self._analyze_cell.setObjectName("analyzeCell")
         analyze_layout = QHBoxLayout(self._analyze_cell)
-        analyze_layout.setContentsMargins(8, 3, 8, 3)
+        analyze_layout.setContentsMargins(0, 0, 0, 0)
         analyze_layout.setSpacing(0)
         actions_layout.addWidget(self._analyze_cell)
         header_layout.addWidget(actions)
@@ -928,7 +928,7 @@ class FilterPanel(QGroupBox):
 
     def set_analysis_button(self, button: QPushButton) -> None:
         if button.parentWidget() is not self._analyze_cell:
-            self._analyze_cell.layout().addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+            self._analyze_cell.layout().addWidget(button)
         button.show()
 
     def _select_editor(self, index: int) -> None:

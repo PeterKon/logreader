@@ -643,8 +643,7 @@ class LogreaderQtTests(unittest.TestCase):
             self.assertEqual(header.mapTo(self.window, header.rect().topRight()).x(),
                              self.window._document.mapTo(self.window, self.window._document.rect().topRight()).x())
             self.assertEqual(header.mapTo(self.window._document, QPoint()).y(), 12)
-            self.assertGreater(analyze.x(), 0)
-            self.assertLess(analyze.geometry().right(), cell.rect().right())
+            self.assertEqual(analyze.geometry(), cell.rect())
 
         groups = [filters.findChild(QWidget, name) for name in (
             "contextControlsGroup", "limitControlsGroup", "displayControlsGroup",

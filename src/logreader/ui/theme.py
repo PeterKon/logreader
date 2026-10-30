@@ -1,7 +1,7 @@
 """Theme colors and small visual helpers for the Logreader interface."""
 
 from PySide6.QtCore import QPointF, QSize, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QLineEdit, QPushButton, QToolButton
 
 THEME_COLORS = {
@@ -18,6 +18,7 @@ THEME_COLORS = {
     "ui_menu_text": "#c5cdd5",
     "ui_muted": "#9aa7b5",
     "ui_accent": "#79c0ff",
+    "ui_play_fill": "#365775",
     "ui_exclusive": "#7ee787",
     "ui_excluded": "#ff7b72",
     "ui_button": "#263445",
@@ -78,6 +79,36 @@ def paint_checkmark(painter, indicator, *, enabled=True, partial=False) -> None:
     corner = QPointF(indicator.left() + 6.5, indicator.bottom() - 3.5)
     painter.drawLine(QPointF(indicator.left() + 3.5, indicator.center().y()), corner)
     painter.drawLine(corner, QPointF(indicator.right() - 3, indicator.top() + 3.5))
+
+
+def analyze_icon() -> QIcon:
+    icon = QIcon()
+    path = QPainterPath(QPointF(5, 5))
+    path.cubicTo(5, 3.46, 6.67, 2.50, 8.008, 3.272)
+    path.lineTo(20.005, 10.27)
+    path.cubicTo(21.34, 11.04, 21.34, 12.96, 20.008, 13.728)
+    path.lineTo(8.008, 20.728)
+    path.cubicTo(6.67, 21.50, 5, 20.54, 5, 19)
+    path.closeSubpath()
+    for mode, outline, fill in (
+        (QIcon.Mode.Normal, "ui_accent", "ui_play_fill"),
+        (QIcon.Mode.Disabled, "ui_disabled_text", "ui_border"),
+    ):
+        for scale in (1, 2, 3):
+            pixmap = QPixmap(16 * scale, 16 * scale)
+            pixmap.setDevicePixelRatio(scale)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.scale(16 / 24, 16 / 24)
+            painter.setPen(QPen(QColor(THEME_COLORS[outline]), 2,
+                                Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
+                                Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(QColor(THEME_COLORS[fill]))
+            painter.drawPath(path)
+            painter.end()
+            icon.addPixmap(pixmap, mode)
+    return icon
 
 
 def vertical_resize_icon(*, contract: bool = False) -> QIcon:

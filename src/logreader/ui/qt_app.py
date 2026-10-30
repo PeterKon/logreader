@@ -49,7 +49,7 @@ from .document_page import DocumentPage
 from .dialogs import show_warning
 from .widgets.menu_style import MenuTheme
 from ..document_session import AnalysisPhase, LoadPhase
-from .theme import THEME_COLORS, configure_action_button
+from .theme import THEME_COLORS, analyze_icon, configure_action_button
 from .window_frame import TitleBarShadow, apply_title_bar_colors
 from .title_bar import TitleBarWindow, TitleMenu
 from ..workers.work_queue import WorkScheduler
@@ -287,19 +287,23 @@ QPushButton#regexPatternAddButton {{
     background-color: {THEME_COLORS['ui_island']};
 }}
 QPushButton#analyzeButton {{
-    background-color: {THEME_COLORS['ui_primary']};
-    border-color: {THEME_COLORS['ui_primary']};
-    color: #ffffff;
-    font-weight: 600;
-    padding: 3px 13px;
+    background-color: {THEME_COLORS['ui_button']};
+    border: none;
+    border-radius: 0;
+    color: {THEME_COLORS['ui_accent']};
+    font-weight: 500;
+    min-height: 0;
+    padding: 8px 12px;
 }}
-QPushButton#analyzeButton:hover {{
-    background-color: {THEME_COLORS['ui_primary_hover']};
-    border-color: {THEME_COLORS['ui_accent']};
+QPushButton#analyzeButton:hover,
+QPushButton#analyzeButton:focus {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+}}
+QPushButton#analyzeButton:pressed {{
+    background-color: {THEME_COLORS['ui_button_pressed']};
 }}
 QPushButton#analyzeButton:disabled {{
-    background-color: {THEME_COLORS['ui_island']};
-    border-color: {THEME_COLORS['ui_border']};
+    background-color: {THEME_COLORS['ui_button']};
     color: {THEME_COLORS['ui_disabled_text']};
 }}
 QPushButton#customPatternAddButton,
@@ -773,6 +777,9 @@ class LogreaderWindow(TitleBarWindow):
         root.addWidget(self._tab_controls)
         self._analyze_button = QPushButton("&Analyze", central)
         self._analyze_button.setObjectName("analyzeButton")
+        configure_action_button(self._analyze_button)
+        self._analyze_button.setIcon(analyze_icon())
+        self._analyze_button.setIconSize(QSize(16, 16))
         self._analyze_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         self._analyze_button.setEnabled(False)
         self._analyze_button.clicked.connect(self.analyze_current)
