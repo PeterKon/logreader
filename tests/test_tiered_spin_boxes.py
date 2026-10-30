@@ -80,10 +80,15 @@ class TieredSpinBoxTests(unittest.TestCase):
                 spin.setValue(value)
                 spin.stepUp()
                 self.assertEqual(spin.value(), up)
-        spin = self.make_spin(ScanLimitSpinBox)
-        spin.lineEdit().setText("9 500 000")
-        spin.stepUp()
-        self.assertEqual(spin.value(), 10_000_000)
+        for kind, text, expected in (
+            (ScanLimitSpinBox, "9 500 000", 10_000_000),
+            (ContextSpinBox, "7 lines", 10),
+        ):
+            with self.subTest(kind=kind, text=text):
+                spin = self.make_spin(kind)
+                spin.lineEdit().setText(text)
+                spin.stepUp()
+                self.assertEqual(spin.value(), expected)
 
     def test_arrow_clicks_and_keyboard_use_tiered_steps(self):
         for kind, initial, up, down in (

@@ -148,7 +148,7 @@ QLabel#filterTabCount {{
 QLabel#filterSectionTitle {{
     color: {THEME_COLORS['ui_accent']};
 }}
-QLabel#filterExclusions, QLabel#contextUnit {{
+QLabel#filterExclusions {{
     color: {THEME_COLORS['ui_muted']};
 }}
 QWidget#resultsHeader {{
@@ -216,7 +216,9 @@ QGroupBox#applicationPatternGroup,
 QGroupBox#databasePatternGroup,
 QGroupBox#systemRuntimePatternGroup,
 QGroupBox#customPatternGroup,
-QGroupBox#regexPatternGroup {{
+QGroupBox#regexPatternGroup,
+QGroupBox#resultsOptionsGroup,
+QGroupBox#scanOptionsGroup {{
     background-color: {THEME_COLORS['ui_surface']};
     border: none;
     color: {THEME_COLORS['ui_text']};
@@ -472,10 +474,6 @@ QCheckBox:focus {{
 }}
 QCheckBox:disabled {{
     color: {THEME_COLORS['ui_disabled_text']};
-}}
-QFrame#optionsDivider {{
-    background-color: {THEME_COLORS['ui_border']};
-    border: none;
 }}
 QStatusBar {{
     background-color: {THEME_COLORS['background']};
