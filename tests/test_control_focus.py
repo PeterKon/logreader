@@ -189,6 +189,8 @@ class ControlFocusTests(unittest.TestCase):
 
     def test_arrow_clicks_do_not_leave_focus_or_selection_but_text_clicks_do(self):
         page = self.open_document("sample.log")
+        page.filter_panel._options_tab.click()
+        self.app.processEvents()
         for spin in (page.filter_panel._context_spin, page.filter_panel._limit_spin):
             for control in (QStyle.SubControl.SC_SpinBoxUp, QStyle.SubControl.SC_SpinBoxDown):
                 with self.subTest(spin=spin.objectName(), control=control):

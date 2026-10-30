@@ -282,7 +282,7 @@ class TabTests(unittest.TestCase):
         self.assertFalse(self.window._empty_version_label.isVisible())
         self.assertFalse(self.window._empty_logo.isVisible())
         self.assertTrue(self.window._analyze_button.isVisible())
-        self.assertIs(self.window._analyze_button.parentWidget(), page.filter_panel._base_controls)
+        self.assertIs(self.window._analyze_button.parentWidget(), page.filter_panel._analyze_cell)
         self.assertTrue(self.window._tabs.isVisible())
         self.assertTrue(self.window._analyze_button.isEnabled())
         self.assertEqual(page.session.path, path)
@@ -483,6 +483,7 @@ class TabTests(unittest.TestCase):
         self.assertEqual(second.findChild(QLineEdit, "regexPattern").text(), "")
         self.assertEqual(second.findChild(QLineEdit, "resultsSearch").text(), "")
         second.findChild(QCheckBox, "lineWrapCheck").setChecked(True)
+        second.filter_panel._options_tab.click()
         second.findChild(QSpinBox, "contextSpin").setValue(8)
         self.window._select_document(first)
         self.app.processEvents()
@@ -501,6 +502,9 @@ class TabTests(unittest.TestCase):
         self.window._select_document(second)
         self.assertTrue(second.findChild(QCheckBox, "lineWrapCheck").isChecked())
         self.assertEqual(second.build_config().context, 8)
+        self.assertEqual(second.filter_panel._pages.currentIndex(), 3)
+        self.assertTrue(second.filter_panel._options_tab.isChecked())
+        self.assertIs(self.window._analyze_button.parentWidget(), second.filter_panel._analyze_cell)
 
     def test_failed_open_keeps_error_in_its_tab_and_preserves_other_documents(self):
         first = self.open_log("first.log")

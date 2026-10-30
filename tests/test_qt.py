@@ -317,6 +317,7 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertIn(COLORS["scrollbar_handle_hover"].name(), style_sheet)
 
     def test_checkbox_marks_and_spin_arrows_are_painted_visibly(self):
+        self.window._document.filter_panel._options_tab.click()
         checkbox = self.window.findChild(QCheckBox, "separateEntriesCheck")
         checkbox.setChecked(True)
         self.window.show()
@@ -377,6 +378,7 @@ class LogreaderQtTests(unittest.TestCase):
                     self.assertEqual(center.y(), button.center().y() - 0.5)
 
     def test_spin_arrow_hover_outlines_each_button_on_all_sides(self):
+        self.window._document.filter_panel._options_tab.click()
         # Give the platform font enough room before inspecting hover painting.
         self.window.resize(self.window.size().expandedTo(self.window.minimumSizeHint()))
         self.window.show()
@@ -574,7 +576,7 @@ class LogreaderQtTests(unittest.TestCase):
         QTest.qWait(20)
         grip = filters._resize_handle
 
-        anchored = [self.window._analyze_button, filters._context_spin, filters._tabs,
+        anchored = [self.window._analyze_button, filters._options_tab, filters._tabs,
                     filters._custom_heading, filters._regex_heading,
                     filters._custom_pattern, filters._regex_pattern,
                     filters._custom_pattern_list, filters._regex_pattern_list]
@@ -615,9 +617,49 @@ class LogreaderQtTests(unittest.TestCase):
         for frame in frames:
             self.assertEqual(frame, expected)
 
+    def test_options_stacks_controls_and_keeps_analyze_at_the_right(self):
+        self.window.show()
+        self._wait_for_controls_layout()
+        filters = self.window._document.filter_panel
+        analyze = self.window._analyze_button
+        options = filters._options_tab
+        header = filters._filter_header
+        cell = filters._analyze_cell
+        positions = [widget.mapTo(self.window, QPoint()) for widget in (options, analyze)]
+
+        for index in (0, 1, 2):
+            filters._tabs.setCurrentIndex(index)
+            self._wait_for_controls_layout()
+            options.setFocus()
+            QTest.keyClick(options, Qt.Key.Key_Space)
+            self._wait_for_controls_layout()
+            self.assertEqual(filters._pages.currentIndex(), 3)
+            self.assertTrue(analyze.isVisible())
+            self.assertEqual([widget.mapTo(self.window, QPoint()) for widget in (options, analyze)],
+                             positions)
+            self.assertEqual(options.geometry().right() + 1, cell.x())
+            self.assertEqual(options.height(), cell.height())
+            self.assertEqual(cell.mapTo(header, cell.rect().topRight()).x(), header.rect().right())
+            self.assertEqual(header.mapTo(self.window, header.rect().topRight()).x(),
+                             self.window._document.mapTo(self.window, self.window._document.rect().topRight()).x())
+            self.assertEqual(header.mapTo(self.window._document, QPoint()).y(), 12)
+            self.assertGreater(analyze.x(), 0)
+            self.assertLess(analyze.geometry().right(), cell.rect().right())
+
+        groups = [filters.findChild(QWidget, name) for name in (
+            "contextControlsGroup", "limitControlsGroup", "displayControlsGroup",
+        )]
+        self.assertEqual(len({group.x() for group in groups}), 1)
+        self.assertEqual(len({group.height() for group in groups}), 1)
+        for upper, lower in zip(groups, groups[1:]):
+            self.assertLess(upper.geometry().bottom(), lower.y())
+        self.assertEqual(filters._combined_view.y(), filters._separate_entries.y())
+        self._click_analyze_and_wait()
+        self.assertEqual(filters._pages.currentIndex(), 3)
+
 
     def test_results_view_can_be_maximized_and_restored(self):
-        file_controls = self.window.findChild(QWidget, "fileControlsRow")
+        filter_header = self.window.findChild(QWidget, "filterHeader")
         filter_group = self.window.findChild(QGroupBox, "filterGroup")
         results_header = self.window.findChild(QWidget, "resultsHeader")
         results_panel = self.window.findChild(QWidget, "resultsPanel")
@@ -626,7 +668,7 @@ class LogreaderQtTests(unittest.TestCase):
         button = self.window.findChild(QPushButton, "maximizeResultsButton")
 
         self.assertIsInstance(results_panel, ResultsView)
-        self.assertFalse(file_controls.isHidden())
+        self.assertFalse(filter_header.isHidden())
         self.assertFalse(filter_group.isHidden())
         self.assertFalse(results_header.isHidden())
         self.assertFalse(results.isHidden())
@@ -690,7 +732,7 @@ class LogreaderQtTests(unittest.TestCase):
         button.click()
 
         self.app.processEvents()
-        self.assertFalse(file_controls.isVisible())
+        self.assertFalse(filter_header.isVisible())
         self.assertTrue(self.window._tabs.isVisible())
         self.assertEqual(
             results_panel.mapTo(self.window.centralWidget(), results_panel.rect().topLeft()).y(),
@@ -708,7 +750,7 @@ class LogreaderQtTests(unittest.TestCase):
 
         button.click()
 
-        self.assertFalse(file_controls.isHidden())
+        self.assertFalse(filter_header.isHidden())
         self.assertFalse(filter_group.isHidden())
         self.assertFalse(controls_container.isHidden())
         self.assertEqual(button.text(), "")
@@ -1025,6 +1067,7 @@ class LogreaderQtTests(unittest.TestCase):
                 view._search_input.clear()
                 view._search_input.setText("error")
                 scrollbar.setValue(0)
+                wait_for_navigation(view)
                 view.find_next()
                 wait_for_search(self.window)
                 self.assertEqual(view._source_map.row(view.editor.textCursor().blockNumber()), 100)

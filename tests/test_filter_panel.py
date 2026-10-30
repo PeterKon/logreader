@@ -915,10 +915,23 @@ class FilterPanelTests(unittest.TestCase):
         trigger_pattern_action(self.panel._regex_pattern_list, 0, "Case sensitive")
         self.panel._custom_pattern.setText("unfinished text")
         self.panel._regex_pattern.setText("unfinished [")
+        self.panel._options_tab.click()
+        self.panel._context_spin.setValue(7)
+        self.panel._limit_spin.setValue(750_000)
+        self.panel._combined_view.setChecked(False)
+        self.panel._separate_entries.setChecked(False)
         before = self.panel.build_config()
         self.app.processEvents()
 
         for index in (0, 1, 2, 1, 0, 2):
+            self.panel._options_tab.click()
+            self.app.processEvents()
+            self.assertEqual(self.panel._pages.currentIndex(), 3)
+            self.assertTrue(self.panel._options_tab.isChecked())
+            for control in (self.panel._context_spin, self.panel._limit_spin,
+                            self.panel._separate_entries, self.panel._combined_view):
+                self.assertTrue(control.isVisible())
+            self.assertTrue(all(not button.isVisible() for button in self.panel._tab_pattern_toggles))
             count = tabs.tabButton(index, QTabBar.ButtonPosition.RightSide)
             self.assertGreaterEqual(count.width(), count.sizeHint().width(), count.text())
             self.assertTrue(tabs.rect().contains(tabs.tabRect(index)),
@@ -928,6 +941,8 @@ class FilterPanelTests(unittest.TestCase):
                              pos=count.mapTo(tabs, count.rect().center()))
             self.app.processEvents()
             self.assertEqual(tabs.currentIndex(), index)
+            self.assertEqual(self.panel._pages.currentIndex(), index)
+            self.assertFalse(self.panel._options_tab.isChecked())
             self.assertEqual(self.panel.build_config(), before)
             self.assertEqual(self.panel._custom_pattern.text(), "unfinished text")
             self.assertEqual(self.panel._regex_pattern.text(), "unfinished [")
@@ -953,10 +968,10 @@ class FilterPanelTests(unittest.TestCase):
             self.assertEqual(self.panel._pattern_checkboxes["configuration_startup"].isVisible(), index == 1)
             self.assertEqual(self.panel._pattern_checkboxes["data_parsing"].isVisible(), index == 1)
             self.assertEqual(self.panel._pattern_checkboxes["services_jobs"].isVisible(), index == 1)
-            self.assertTrue(self.panel._context_spin.isVisible())
-            self.assertTrue(self.panel._limit_spin.isVisible())
-            self.assertTrue(self.panel._separate_entries.isVisible())
-            self.assertTrue(self.panel._combined_view.isVisible())
+            self.assertFalse(self.panel._context_spin.isVisible())
+            self.assertFalse(self.panel._limit_spin.isVisible())
+            self.assertFalse(self.panel._separate_entries.isVisible())
+            self.assertFalse(self.panel._combined_view.isVisible())
 
         self.assertEqual(before.custom_pattern_match_case, (True,))
         self.assertEqual(before.regex_pattern_match_case, (True,))

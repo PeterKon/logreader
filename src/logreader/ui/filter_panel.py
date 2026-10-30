@@ -651,6 +651,17 @@ class SearchListResizeHandle(QWidget):
         painter.drawRoundedRect(QRectF((self.width() - 64) / 2, center_y - 1.5, 64, 4), 2, 2)
 
 
+class DisplayControlsGroup(QFrame):
+    def __init__(self, height_reference: QWidget, parent: QWidget) -> None:
+        super().__init__(parent)
+        self._height_reference = height_reference
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        size = super().sizeHint()
+        size.setHeight(max(size.height(), self._height_reference.sizeHint().height()))
+        return size
+
+
 class FilterPanel(QGroupBox):
     """Own all filter controls and build their shared configuration."""
 
@@ -673,18 +684,14 @@ class FilterPanel(QGroupBox):
         layout.setSpacing(0)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        self._base_controls = QWidget(self)
-        self._base_controls.setObjectName("fileControlsRow")
-        top_layout = QHBoxLayout(self._base_controls)
-        top_layout.setContentsMargins(12, 0, 0, 0)
-        top_layout.setSpacing(12)
+        options = QWidget(self)
+        options.setObjectName("optionsPage")
+        options_layout = QVBoxLayout(options)
+        options_layout.setContentsMargins(12, 4, 0, 4)
+        options_layout.setSpacing(8)
+        options_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        analysis_controls = QWidget(self._base_controls)
-        analysis_controls.setObjectName("analysisControlsRow")
-        analysis_layout = QHBoxLayout(analysis_controls)
-        analysis_layout.setContentsMargins(0, 0, 0, 0)
-        analysis_layout.setSpacing(5)
-        context_controls = QWidget(analysis_controls)
+        context_controls = QWidget(options)
         context_controls.setObjectName("contextControlsGroup")
         context_layout = QHBoxLayout(context_controls)
         context_layout.setContentsMargins(11, 0, 0, 0)
@@ -697,9 +704,9 @@ class FilterPanel(QGroupBox):
         context_label.setObjectName("contextLabel")
         context_layout.addWidget(context_label)
         context_layout.addWidget(self._context_spin)
-        analysis_layout.addWidget(context_controls)
+        options_layout.addWidget(context_controls, 0, Qt.AlignmentFlag.AlignLeft)
 
-        limit_controls = QWidget(analysis_controls)
+        limit_controls = QWidget(options)
         limit_controls.setObjectName("limitControlsGroup")
         limit_layout = QHBoxLayout(limit_controls)
         limit_layout.setContentsMargins(11, 0, 0, 0)
@@ -712,11 +719,9 @@ class FilterPanel(QGroupBox):
         limit_label.setObjectName("limitLabel")
         limit_layout.addWidget(limit_label)
         limit_layout.addWidget(self._limit_spin)
-        analysis_layout.addWidget(limit_controls)
-        top_layout.addWidget(analysis_controls, 0, Qt.AlignmentFlag.AlignVCenter)
-        top_layout.addStretch(1)
+        options_layout.addWidget(limit_controls, 0, Qt.AlignmentFlag.AlignLeft)
 
-        display_controls = QFrame(self._base_controls)
+        display_controls = DisplayControlsGroup(self._context_spin, options)
         display_controls.setObjectName("displayControlsGroup")
         display_layout = QHBoxLayout(display_controls)
         display_layout.setContentsMargins(10, 4, 10, 4)
@@ -739,12 +744,9 @@ class FilterPanel(QGroupBox):
             "Add a small gap as separation between mismatching context/errors in results."
         )
         display_layout.addWidget(self._separate_entries)
-        top_layout.addWidget(display_controls)
+        options_layout.addWidget(display_controls, 0, Qt.AlignmentFlag.AlignLeft)
 
-        layout.addWidget(self._base_controls)
-        layout.addSpacing(8)
-
-        filter_header = QWidget(self)
+        self._filter_header = filter_header = QWidget(self)
         filter_header.setObjectName("filterHeader")
         header_layout = QHBoxLayout(filter_header)
         header_layout.setContentsMargins(0, 0, 0, 0)
@@ -791,6 +793,23 @@ class FilterPanel(QGroupBox):
         self._exclusions_label = QLabel()
         self._exclusions_label.setObjectName("filterExclusions")
         header_layout.addWidget(self._exclusions_label)
+        actions = QWidget(filter_header)
+        actions_layout = QHBoxLayout(actions)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(0)
+        self._options_tab = QPushButton("Options", actions)
+        self._options_tab.setObjectName("optionsTab")
+        self._options_tab.setCheckable(True)
+        configure_action_button(self._options_tab)
+        self._options_tab.clicked.connect(lambda: self._select_editor(3))
+        actions_layout.addWidget(self._options_tab)
+        self._analyze_cell = QFrame(actions)
+        self._analyze_cell.setObjectName("analyzeCell")
+        analyze_layout = QHBoxLayout(self._analyze_cell)
+        analyze_layout.setContentsMargins(8, 3, 8, 3)
+        analyze_layout.setSpacing(0)
+        actions_layout.addWidget(self._analyze_cell)
+        header_layout.addWidget(actions)
         layout.addWidget(filter_header)
         layout.addSpacing(3)
 
@@ -895,17 +914,34 @@ class FilterPanel(QGroupBox):
         searches_layout.addWidget(self._resize_handle)
         searches_layout.addStretch(1)
         self._pages.addWidget(searches)
+        self._pages.addWidget(options)
         self._tabs.currentChanged.connect(self._select_editor)
-        layout.addWidget(self._pages)
+        # The remembered pattern tab can be clicked again after visiting Options.
+        self._tabs.tabBarClicked.connect(self._select_editor)
+        pages_container = QWidget(self)
+        pages_layout = QVBoxLayout(pages_container)
+        pages_layout.setContentsMargins(0, 0, 12, 0)
+        pages_layout.setSpacing(0)
+        pages_layout.addWidget(self._pages)
+        layout.addWidget(pages_container)
         layout.addStretch(1)
 
     def set_analysis_button(self, button: QPushButton) -> None:
-        if button.parentWidget() is not self._base_controls:
-            self._base_controls.layout().insertWidget(0, button)
+        if button.parentWidget() is not self._analyze_cell:
+            self._analyze_cell.layout().addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
         button.show()
 
     def _select_editor(self, index: int) -> None:
+        if index < 0:
+            return
         self._pages.setCurrentIndex(index)
+        options_active = index == 3
+        self._options_tab.setChecked(options_active)
+        if self._tabs.property("optionsActive") != options_active:
+            self._tabs.setProperty("optionsActive", options_active)
+            self._tabs.style().unpolish(self._tabs)
+            self._tabs.style().polish(self._tabs)
+            self._tabs.update()
         for tab_index, button in enumerate(self._tab_pattern_toggles):
             button.setVisible(tab_index == index)
         self._pages.updateGeometry()

@@ -91,6 +91,10 @@ QLineEdit#customPattern, QLineEdit#regexPattern {{
 QWidget#filterHeader {{
     border-bottom: 1px solid {THEME_COLORS['ui_border']};
 }}
+QFrame#analyzeCell {{
+    background-color: {THEME_COLORS['ui_button']};
+    border: none;
+}}
 QTabBar#filterTabs::tab {{
     background-color: {THEME_COLORS['ui_button']};
     color: {THEME_COLORS['ui_muted']};
@@ -108,6 +112,35 @@ QTabBar#filterTabs::tab:selected {{
 }}
 QTabBar#filterTabs::tab:hover {{
     background-color: {THEME_COLORS['ui_button_hover']};
+}}
+QTabBar#filterTabs[optionsActive="true"]::tab:selected {{
+    background-color: {THEME_COLORS['ui_button']};
+    color: {THEME_COLORS['ui_muted']};
+    border-bottom-color: transparent;
+}}
+QTabBar#filterTabs[optionsActive="true"]::tab:selected:hover {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+}}
+QPushButton#optionsTab {{
+    background-color: {THEME_COLORS['ui_button']};
+    color: {THEME_COLORS['ui_muted']};
+    border: none;
+    border-right: 1px solid {THEME_COLORS['ui_border']};
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    min-height: 0;
+    padding: 8px 12px;
+}}
+QPushButton#optionsTab:checked {{
+    background-color: {THEME_COLORS['ui_island']};
+    color: {THEME_COLORS['ui_text']};
+    border-bottom-color: {THEME_COLORS['ui_accent']};
+}}
+QPushButton#optionsTab:hover {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+}}
+QPushButton#optionsTab:focus {{
+    color: {THEME_COLORS['ui_accent']};
 }}
 QLabel#filterTabCount {{
     color: {THEME_COLORS['ui_disabled_text']};

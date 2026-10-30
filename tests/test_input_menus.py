@@ -152,6 +152,8 @@ class InputMenuTests(unittest.TestCase):
         return captured
 
     def test_numeric_text_mouse_and_keyboard_context_menus_use_the_short_menu(self):
+        self.panel._options_tab.click()
+        self.app.processEvents()
         expected = [["Copy", "Paste", "Select all"]]
         for spin in (self.panel._context_spin, self.panel._limit_spin):
             editor = spin.lineEdit()
@@ -161,6 +163,8 @@ class InputMenuTests(unittest.TestCase):
                 spin, QPoint(), QContextMenuEvent.Reason.Keyboard), expected)
 
     def test_right_clicking_arrows_never_opens_a_menu_or_changes_the_value(self):
+        self.panel._options_tab.click()
+        self.app.processEvents()
         for spin in (self.panel._context_spin, self.panel._limit_spin, self.view._search_navigation):
             option = QStyleOptionSpinBox()
             spin.initStyleOption(option)
