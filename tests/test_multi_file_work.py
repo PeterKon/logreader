@@ -164,7 +164,11 @@ class MultiFileWorkTests(unittest.TestCase):
                 self.assertTrue(pages[1].analysis_queued)
                 self.assertTrue(pages[2].analysis_queued)
                 pages[2].findChild(QSpinBox, "contextSpin").setValue(8)
-                self.assertEqual(self.window._analyze_button.text(), "Queued…")
+                self.assertEqual(self.window._analyze_button.text(), "&Analyze")
+                self.assertTrue(pages[2]._analysis_busy_timer.isActive())
+                self.assertEqual(pages[2].results_view._analysis_message.text(), "")
+                QTest.qWait(60)
+                self.assertEqual(pages[2].results_view._analysis_message.text(), "Queued")
                 load_paths = [self.root / name for name in ("load-first.log", "load-skip.log", "load-last.log")]
                 self.window.load_files(load_paths)
                 load_pages = [self.window._pages.widget(i) for i in range(3, 6)]

@@ -18,7 +18,7 @@ from .results.results_view import ResultsView
 from ..workers.work_queue import WorkScheduler
 
 
-ANALYSIS_BUSY_DELAY_MS = 1_000
+ANALYSIS_BUSY_DELAY_MS = 40
 
 
 class DocumentPage(QWidget):
@@ -270,10 +270,12 @@ class DocumentPage(QWidget):
     @Slot(int)
     def _analysis_started(self, request_id: int) -> None:
         request = self.session.active_request
-        if self._disposed or request is None or request.request_id != request_id:
+        if (self._disposed or request is None or request.request_id != request_id
+                or self.session.phase is not AnalysisPhase.ANALYZING):
             return
         self.analysis_queued = False
-        self._analysis_busy_timer.start()
+        if self.busy_visible:
+            self.results_view.set_analysis_message("Analyzing...")
         self._set_status(f"Analyzing: {request.source_path.name}")
         self.busy_changed.emit()
 
@@ -310,7 +312,6 @@ class DocumentPage(QWidget):
                 scan_limit=(request.config.max_lines_scanned, self.session.total_line_count)
                 if request.config.max_lines_scanned < self.session.total_line_count else None,
             )
-        self._analysis_busy_timer.start()
         self._set_status(f"Displaying results: {request.source_path.name}")
         self.busy_changed.emit()
 
@@ -363,6 +364,7 @@ class DocumentPage(QWidget):
 
         self._analysis_worker = None
         self.analysis_queued = False
+        self._set_analysis_busy(False)
         self._update_rendering_activity()
 
     @Slot(int, float)
@@ -409,37 +411,32 @@ class DocumentPage(QWidget):
             return
 
         self._finish_analysis_request()
+        self.results_view.set_analysis_message("Analysis failed")
         self._set_status(f"Analysis failed: {message}")
         self.analysis_failed.emit(message)
 
     def _set_analysis_busy(self, busy: bool) -> None:
         if busy:
             self.busy_visible = False
+            self.results_view.begin_analysis()
             self.results_view.focus_editor()
+            self._analysis_busy_timer.start()
             self.busy_changed.emit()
             return
 
         self._analysis_busy_timer.stop()
         self.busy_visible = False
+        self.results_view.set_analysis_message("")
         self.busy_changed.emit()
 
     @Slot()
     def _show_analysis_busy(self) -> None:
-        if not self.session.is_busy or self.analysis_queued:
+        if self.session.phase is not AnalysisPhase.ANALYZING:
             return
 
         self.busy_visible = True
+        self.results_view.set_analysis_message("Queued" if self.analysis_queued else "Analyzing...")
         self.busy_changed.emit()
-        request = self.session.active_request
-        source_name = request.source_path.name if request is not None else "log"
-        if self.session.phase is AnalysisPhase.RENDERING:
-            self._set_status(
-                f"Displaying results: {source_name}"
-            )
-        else:
-            self._set_status(
-                f"Analyzing: {source_name}"
-            )
 
     def _finish_analysis_request(self, *, cancel_rendering: bool = True) -> None:
         if cancel_rendering:

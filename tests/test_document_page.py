@@ -6,8 +6,8 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import capture_analysis, trigger_pattern_action
-    from PySide6.QtCore import QThreadPool
+    from qt_helpers import capture_analysis, trigger_pattern_action, wait_for_search, wait_source
+    from PySide6.QtCore import QThreadPool, Qt
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox
 
@@ -131,6 +131,7 @@ class DocumentPageTests(unittest.TestCase):
         self.assertEqual(failed.count(), 0)
         self.assertEqual(status.count(), 0)
         self.assertEqual(self.first.results_view.editor.toPlainText(), "")
+        self.assertEqual(self.first.results_view._analysis_message.text(), "")
 
         workers[1].run()
         self.wait_for_completion(done)
@@ -152,7 +153,160 @@ class DocumentPageTests(unittest.TestCase):
         self.assertIs(self.first._analysis_worker, workers[0])
         self.assertIsNone(self.second._analysis_worker)
         self.assertFalse(self.second._analysis_busy_timer.isActive())
+        self.assertEqual(self.second.results_view._analysis_message.text(), "Analysis failed")
 
         done = QSignalSpy(self.first.analysis_finished)
         workers[0].run()
         self.wait_for_completion(done)
+
+    def test_reanalysis_hides_stale_results_without_rebuilding_or_losing_source_and_bookmarks(self):
+        page = self.first
+        view = page.results_view
+        page.show()
+        workers = []
+        with capture_analysis(workers):
+            page.analyze()
+        done = QSignalSpy(page.analysis_finished)
+        workers[0].run()
+        self.wait_for_completion(done)
+        editor, document, model = view.editor, view.editor.document(), view.model
+        source_lines, snapshot = view.source_view.lines, view._snapshot_id
+        location = model.location(0)
+        self.assertTrue(view.bookmarks.add(location, "Keep"))
+        view._search_input.setText("first")
+        view.search_results()
+        wait_for_search(view)
+        editor.selectAll()
+
+        with capture_analysis(workers):
+            page.analyze()
+        self.assertIs(view.editor, editor)
+        self.assertIs(view.editor.document(), document)
+        self.assertIs(view.model, model)
+        self.assertFalse(view.results_ready)
+        self.assertTrue(view.surface.isVisible())
+        self.assertIs(view._view_stack.currentWidget(), view.surface)
+        self.assertEqual(view._analysis_message.text(), "")
+        self.assertEqual(view.loading_status, "")
+        self.assertFalse(view._search_input.isEnabled())
+        self.assertTrue(view._search_count_label.isHidden())
+        self.assertFalse(view.loader.timer.isActive())
+        self.assertFalse(view.bookmarks.strip.isTabEnabled(0))
+        self.assertFalse(view.show_result_location(location))
+        QTest.qWait(60)
+        self.assertTrue(view.surface.isHidden())
+        self.assertIs(view._view_stack.currentWidget(), view._analysis_message)
+        self.assertEqual(view._analysis_message.text(), "Analyzing...")
+        with patch.object(editor, "go_to_search_result") as navigate, patch.object(editor, "copy") as copy:
+            view.find_next()
+            QTest.keyClick(view._analysis_message, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        navigate.assert_not_called()
+        copy.assert_not_called()
+
+        view.set_source_active(True)
+        wait_source(view)
+        self.assertIs(view.source_view.lines, source_lines)
+        self.assertEqual(view._snapshot_id, snapshot)
+        self.assertTrue(view._search_input.isEnabled())
+        self.assertTrue(view.bookmarks.strip.isTabEnabled(0))
+        view.set_source_active(False)
+        self.assertIs(view._view_stack.currentWidget(), view._analysis_message)
+        self.assertEqual(view._analysis_message.text(), "Analyzing...")
+        self.assertFalse(view.loader.timer.isActive())
+
+        done = QSignalSpy(page.analysis_finished)
+        workers[1].run()
+        self.wait_for_completion(done)
+        self.assertTrue(view.results_ready)
+        self.assertTrue(view._analysis_message.isHidden())
+        self.assertIs(view._view_stack.currentWidget(), view.surface)
+        self.assertEqual(view._search_input.text(), "first")
+        self.assertTrue(view._search_input.isEnabled())
+        self.assertEqual(view.bookmarks.items[location.source].name, "Keep")
+        self.assertTrue(view.bookmarks.strip.isTabEnabled(0))
+        self.assertIs(view.source_view.lines, source_lines)
+
+    def test_fast_analysis_clears_delay_before_deferred_rendering_and_tab_switch(self):
+        page = self.first
+        view = page.results_view
+        workers = []
+        with capture_analysis(workers):
+            page.analyze()
+        done = QSignalSpy(page.analysis_finished)
+        workers[0].run()
+        self.wait_for_completion(done)
+        previous = view.surface
+        with capture_analysis(workers):
+            page.analyze()
+        self.assertIs(view._view_stack.currentWidget(), previous)
+        page.set_render_active(False)
+        workers[1].run()
+        self.assertEqual(page.session.phase, AnalysisPhase.RENDERING)
+        self.assertFalse(page._analysis_busy_timer.isActive())
+        self.assertEqual(page.results_view._analysis_message.text(), "")
+        self.assertIs(view._view_stack.currentWidget(), previous)
+        page._show_analysis_busy()
+        self.assertFalse(page.busy_visible)
+        self.assertEqual(page.results_view._analysis_message.text(), "")
+        with patch.object(QThreadPool, "start") as start:
+            page.set_render_active(True)
+        self.assertFalse(page._analysis_busy_timer.isActive())
+        self.assertEqual(page.results_view._analysis_message.text(), "")
+        done = QSignalSpy(page.analysis_finished)
+        start.call_args.args[0].run()
+        self.wait_for_completion(done)
+        self.assertTrue(page.results_view.results_ready)
+        self.assertIs(view._view_stack.currentWidget(), view.surface)
+        self.assertIsNot(view.surface, previous)
+
+    def test_queued_message_changes_to_analyzing_without_another_delay(self):
+        page = self.first
+        view = page.results_view
+        with patch.object(page._scheduler.analysis, "submit"):
+            page.analyze()
+        worker = page._analysis_worker
+        self.assertTrue(page.analysis_queued)
+        self.assertIs(view._view_stack.currentWidget(), view.surface)
+        QTest.qWait(60)
+        self.assertEqual(view._analysis_message.text(), "Queued")
+        self.assertIs(view._view_stack.currentWidget(), view._analysis_message)
+        page._analysis_started(worker.request_id)
+        self.assertEqual(view._analysis_message.text(), "Analyzing...")
+        self.assertFalse(page._analysis_busy_timer.isActive())
+        done = QSignalSpy(page.analysis_finished)
+        worker.run()
+        self.wait_for_completion(done)
+        self.assertTrue(view.results_ready)
+
+    def test_failed_reanalysis_stays_empty_and_retry_replaces_message(self):
+        page = self.first
+        view = page.results_view
+        workers = []
+        with capture_analysis(workers):
+            page.analyze()
+        done = QSignalSpy(page.analysis_finished)
+        workers[0].run()
+        self.wait_for_completion(done)
+        old_editor = view.editor
+        with capture_analysis(workers):
+            page.analyze()
+        page._show_analysis_busy()
+        with patch("logreader.workers.analysis_worker.analyze_lines", side_effect=ValueError("bad pattern")):
+            workers[1].run()
+        self.assertEqual(page.session.phase, AnalysisPhase.IDLE)
+        self.assertFalse(page._analysis_busy_timer.isActive())
+        self.assertEqual(view._analysis_message.text(), "Analysis failed")
+        self.assertFalse(view.results_ready)
+        self.assertIs(view.editor, old_editor)
+        self.assertIs(view._view_stack.currentWidget(), view._analysis_message)
+
+        with capture_analysis(workers):
+            page.analyze()
+        self.assertEqual(view._analysis_message.text(), "")
+        workers[1].signals.failed.emit(workers[1].request_id, "late failure")
+        self.assertEqual(view._analysis_message.text(), "")
+        done = QSignalSpy(page.analysis_finished)
+        workers[2].run()
+        self.wait_for_completion(done)
+        self.assertTrue(view.results_ready)
+        self.assertTrue(view._analysis_message.isHidden())

@@ -81,7 +81,7 @@ class LoadingTests(unittest.TestCase):
                 self.assertEqual(loading.session.load_phase, LoadPhase.LOADING)
                 self.assertFalse(loading.session.has_document)
                 self.assertFalse(self.window._analyze_button.isEnabled())
-                self.assertEqual(self.window._analyze_button.text(), "Loading…")
+                self.assertEqual(self.window._analyze_button.text(), "&Analyze")
                 self.assertIn("Loading", self.window._tabs.tabText(1))
                 self.window.analyze_current()
                 self.assertIsNone(loading._analysis_worker)

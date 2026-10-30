@@ -1605,6 +1605,8 @@ class LogreaderQtTests(unittest.TestCase):
             self.app.processEvents()
             self.assertIs(self.app.focusWidget(), search)
             self.assertEqual(search.selectedText(), "error")
+            button_size = analyze_button.size()
+            message = self.window._document.results_view._analysis_message
 
             try:
                 with patch(
@@ -1614,8 +1616,11 @@ class LogreaderQtTests(unittest.TestCase):
                     analyze_button.click()
                     self.assertTrue(started.wait(1))
                     self.assertFalse(analyze_button.isEnabled())
-                    self.assertEqual(analyze_button.text(), "Analyzing…")
-                    self.assertIs(self.app.focusWidget(), self.window._document.results_view.editor)
+                    self.assertEqual(analyze_button.text(), "&Analyze")
+                    self.assertEqual(analyze_button.size(), button_size)
+                    self.assertIs(self.app.focusWidget(), results)
+                    self.assertTrue(message.isHidden())
+                    self.assertEqual(message.text(), "")
                     self.assertEqual(search.selectedText(), "")
                     self.assertTrue(open_button.isEnabled())
                     self.assertTrue(filter_group.isEnabled())
@@ -1626,15 +1631,19 @@ class LogreaderQtTests(unittest.TestCase):
                     self.assertTrue(self.window._document._analysis_busy_timer.isActive())
                     self.assertEqual(
                         self.window._document._analysis_busy_timer.interval(),
-                        1_000,
+                        40,
                     )
 
                     analyze_button.click()
                     self.assertEqual(mocked_analysis.call_count, 1)
 
-                    self.window._document._show_analysis_busy()
+                    QTest.qWait(60)
                     self.assertFalse(analyze_button.isEnabled())
-                    self.assertEqual(analyze_button.text(), "Analyzing…")
+                    self.assertEqual(analyze_button.text(), "&Analyze")
+                    self.assertEqual(analyze_button.size(), button_size)
+                    self.assertEqual(message.text(), "Analyzing...")
+                    self.assertTrue(message.isVisible())
+                    self.assertIs(self.app.focusWidget(), message)
                     self.assertTrue(open_button.isEnabled())
                     self.assertTrue(filter_group.isEnabled())
                     self.assertIn(
@@ -1642,8 +1651,8 @@ class LogreaderQtTests(unittest.TestCase):
                         self.window.statusBar().currentMessage(),
                     )
 
-                    line_wrap.click()
-                    self.assertTrue(line_wrap.isChecked())
+                    self.assertFalse(line_wrap.isEnabled())
+                    self.assertFalse(search.isEnabled())
 
                     release.set()
                     self._wait_for_signal(completed)
@@ -1652,6 +1661,10 @@ class LogreaderQtTests(unittest.TestCase):
 
         self.assertTrue(analyze_button.isEnabled())
         self.assertEqual(analyze_button.text(), "&Analyze")
+        self.assertEqual(analyze_button.size(), button_size)
+        self.assertTrue(line_wrap.isEnabled())
+        self.assertTrue(search.isEnabled())
+        self.assertTrue(message.isHidden())
         self.assertTrue(open_button.isEnabled())
         self.assertTrue(filter_group.isEnabled())
         self.assertIn(
@@ -1696,8 +1709,11 @@ class LogreaderQtTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     self.window.findChild(QPushButton, "analyzeButton").text(),
-                    "Analyzing…",
+                    "&Analyze",
                 )
+                self.window._document._show_analysis_busy()
+                self.assertEqual(self.window._document.results_view._analysis_message.text(), "")
+                self.assertFalse(self.window._document._analysis_busy_timer.isActive())
                 self.assertFalse(self.window._analyze_button.isEnabled())
                 self.assertEqual(self.window.cursor().shape(), Qt.CursorShape.ArrowCursor)
                 self.assertEqual(

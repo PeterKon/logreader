@@ -45,6 +45,8 @@ class ResultsControls(QWidget):
         self._maximized = False
         self._renderer = None
         self._source_active = False
+        self._results_stale = False
+        self._results_hidden = False
         self._rendering_paused = False
         self._results_query = ""
         self._snapshot_id = uuid4().hex
@@ -238,6 +240,14 @@ class ResultsControls(QWidget):
         self._view_stack = QStackedLayout()
         self._view_stack.addWidget(self._editor)
         self._view_stack.addWidget(self.source_view)
+        self._analysis_message = QLabel(self)
+        self._analysis_message.setObjectName("analysisMessage")
+        self._analysis_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._analysis_message.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._analysis_message.setStyleSheet(
+            f"background: {THEME_COLORS['background']}; color: {THEME_COLORS['muted']};"
+        )
+        self._view_stack.addWidget(self._analysis_message)
         panel_layout.addLayout(self._view_stack, 1)
         self.bookmarks = ResultsBookmarks(self)
         panel_layout.insertWidget(1, self.bookmarks.bar)
@@ -339,7 +349,9 @@ class ResultsControls(QWidget):
     def focus_editor(self) -> None:
         self._search_input.deselect()
         self._search_input.clearFocus()
-        (self.source_view.editor if self._source_active else self._editor).setFocus()
+        target = (self.source_view.editor if self._source_active else
+                  self._analysis_message if self._results_hidden else self._editor)
+        target.setFocus()
 
     @Slot()
     def toggle_maximized(self) -> None:

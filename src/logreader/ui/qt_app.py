@@ -1118,12 +1118,7 @@ class LogreaderWindow(TitleBarWindow):
         self._analyze_button.setEnabled(
             page is not None and page.session.path is not None and not busy
         )
-        loading = page is not None and page.session.load_phase is LoadPhase.LOADING
-        self._analyze_button.setText(
-            "Queued…" if page is not None and (page.load_queued or page.analysis_queued)
-            else "Loading…" if loading else "Analyzing…" if busy else "&Analyze"
-        )
-        if (page is not None and page.busy_visible
+        if (page is not None and page.busy_visible and not page.analysis_queued
                 and page.session.phase is not AnalysisPhase.RENDERING):
             self.setCursor(Qt.CursorShape.WaitCursor)
         else:

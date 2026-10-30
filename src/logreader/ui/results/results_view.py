@@ -134,7 +134,7 @@ class ResultsView(ResultsControls):
         old = self._editor
         font = old.font()
         wrapped = old.lineWrapMode() != QPlainTextEdit.LineWrapMode.NoWrap
-        had_focus = old.hasFocus()
+        had_focus = old.hasFocus() or self._analysis_message.hasFocus()
         if hasattr(self, "loader"):
             self.loader.cancel()
             old.navigation.invalidate()
@@ -165,10 +165,13 @@ class ResultsView(ResultsControls):
         self.surface = ScrollSurface(editor, self)
         self.global_scroll = self.surface.global_scroll
         self._view_stack.insertWidget(0, self.surface)
-        self._view_stack.setCurrentWidget(self.source_view if self.source_active else self.surface)
+        self._results_stale = False
+        self._results_hidden = False
+        self._analysis_message.clear()
+        self._show_active_view()
         self._source_map = SparseProjection(editor)
         self.loader = SparseLoader(editor)
-        self.loader.is_active = lambda: not self._closed and not self._rendering_paused
+        self.loader.is_active = lambda: not self._closed and not self._rendering_paused and not self._results_stale
         self.loader.progressed.connect(self._progress)
         self.loader.completed.connect(self._loaded)
         self.loader.failed.connect(self._loading_failed)
@@ -193,6 +196,42 @@ class ResultsView(ResultsControls):
         editor.set_wrapping(wrapped)
         if had_focus:
             editor.setFocus()
+
+    def _show_active_view(self):
+        target = (self.source_view if self.source_active else
+                  self._analysis_message if self._results_hidden else self.surface)
+        self._view_stack.setCurrentWidget(target)
+        available = self.source_active or not self._results_stale
+        for control in (self._search_input, self._search_navigation, self._line_wrap_check):
+            control.setEnabled(available)
+
+    def begin_analysis(self):
+        # Retain the old document until replacement, without clearing or rebuilding it.
+        self._results_stale = True
+        self.cancel_search()
+        self.loader.set_paused(True)
+        self._editor.navigation.cancel()
+        self._editor._cancel_wheel()
+        self._editor._drag_timer.stop()
+        self._visible_timer.stop()
+        self._navigation_status_timer.stop()
+        self._return_position = None
+        self._search_count_label.hide()
+        self._performance_text = ""
+        self._set_loading_status("")
+        self.set_analysis_message("")
+        self._show_active_view()
+        self.bookmarks.refresh()
+
+    def set_analysis_message(self, text):
+        if self._results_stale:
+            self._analysis_message.setText(text)
+            if text and not self._results_hidden:
+                had_focus = self._editor.hasFocus()
+                self._results_hidden = True
+                self._show_active_view()
+                if had_focus:
+                    self.focus_editor()
 
     def start_rendering(self, request_id, source_name, analysis, config, *, scan_limit=None):
         self.cancel_rendering()
@@ -271,7 +310,7 @@ class ResultsView(ResultsControls):
 
     @property
     def results_ready(self):
-        return self.logical is not None and self.logical.ready
+        return not self._results_stale and self.logical is not None and self.logical.ready
 
     def cancel_rendering(self):
         self._preparation_generation += 1
@@ -317,7 +356,7 @@ class ResultsView(ResultsControls):
 
     def _progress(self):
         self._navigation_status_timer.stop()
-        if self._closed or self.logical is None:
+        if self._closed or self._results_stale or self.logical is None:
             return
         editor = self._editor
         pending = editor.navigation.pending
@@ -368,10 +407,12 @@ class ResultsView(ResultsControls):
             self._editor.navigation.cancel()
             event.accept()
         elif event.matches(QKeySequence.StandardKey.Copy):
-            (self.source_view.editor if self.source_active else self._editor).copy()
+            if self.source_active or not self._results_stale:
+                (self.source_view.editor if self.source_active else self._editor).copy()
             event.accept()
         elif event.matches(QKeySequence.StandardKey.SelectAll):
-            (self.source_view.editor if self.source_active else self._editor).selectAll()
+            if self.source_active or not self._results_stale:
+                (self.source_view.editor if self.source_active else self._editor).selectAll()
             event.accept()
         else:
             super().keyPressEvent(event)
@@ -381,17 +422,21 @@ class ResultsView(ResultsControls):
         return self.logical
 
     def zoom(self, steps: int) -> None:
+        if self._results_stale and not self.source_active:
+            return
         editor = self.source_view.editor if self.source_active else self._editor
         editor.zoomIn(steps)
 
     def reset_zoom(self) -> None:
+        if self._results_stale and not self.source_active:
+            return
         editor = self.source_view.editor if self.source_active else self._editor
         editor.setFont(self._default_source_font if self.source_active else self._default_results_font)
 
     def set_line_wrapping(self, enabled):
         if self.source_active:
             self.source_view.editor.set_wrapping(enabled)
-        else:
+        elif not self._results_stale:
             self._editor.set_wrapping(enabled)
             self._schedule_decorations()
         with QSignalBlocker(self._line_wrap_check):
@@ -402,7 +447,7 @@ class ResultsView(ResultsControls):
 
     def show_result_location(self, location, *, result_set_id=None):
         editor = self._editor
-        if self._closed or self.model is None or (result_set_id is not None and result_set_id is not editor.result_set_id):
+        if self._closed or not self.results_ready or (result_set_id is not None and result_set_id is not editor.result_set_id):
             return False
         if self.model.resolve(location) is None:
             return False
@@ -425,8 +470,9 @@ class ResultsView(ResultsControls):
         editor = self._editor
         if active:
             self._results_query = self._search_input.text()
-            self._return_position = (editor.result_set_id, editor.top_point(), editor.anchor,
-                                     editor.caret, editor.horizontalScrollBar().value())
+            self._return_position = (None if self._results_stale else
+                                     (editor.result_set_id, editor.top_point(), editor.anchor,
+                                      editor.caret, editor.horizontalScrollBar().value()))
             editor.navigation.cancel()
             self._pending_navigation = None
             self._visible_timer.stop()
@@ -434,9 +480,9 @@ class ResultsView(ResultsControls):
             self.source_view.suspend()
         self._source_active = active
         self.source_view.navigation_controls.setVisible(active)
-        self._view_stack.setCurrentWidget(self.source_view if active else self.surface)
+        self._show_active_view()
         self._count_stack.setCurrentWidget(self._source_search_count if active else self._search_count_label)
-        self._search_count_label.setVisible(bool(self._searched_query) and not active)
+        self._search_count_label.setVisible(bool(self._searched_query) and not active and not self._results_stale)
         self._source_button.setText("Go to results" if active else "Go to source")
         self._source_button.setProperty("sourceActive", active)
         self._source_button.setToolTip("Open the results window" if active else "Open the original file")
@@ -466,7 +512,8 @@ class ResultsView(ResultsControls):
                     editor.horizontalScrollBar().setValue(horizontal)
                 editor.navigate_to(top)
             self._schedule_decorations()
-        self.loader.start()
+        if not self._results_stale:
+            self.loader.start()
         self.bookmarks.refresh()
         self.focus_editor()
         self.view_state_changed.emit()
@@ -546,7 +593,7 @@ class ResultsView(ResultsControls):
         self._search_timer.start(1)
 
     def _navigate_search(self, *, forward):
-        if self._closed:
+        if self._closed or not self.results_ready:
             return
         if self._searched_query != self._results_query:
             self._refresh_search_matches()
@@ -580,7 +627,7 @@ class ResultsView(ResultsControls):
 
     def _bookmarks_changed(self):
         rows = {}
-        if self.model is None:
+        if not self.results_ready:
             return
         for source, bookmark in self.bookmarks.items.items():
             if bookmark.source_only:
@@ -594,7 +641,7 @@ class ResultsView(ResultsControls):
         self._schedule_decorations(force=True)
 
     def _schedule_decorations(self, *_args, force=False):
-        if self._closed or self.source_active:
+        if self._closed or self.source_active or self._results_stale:
             return
         if not (force or self._searched_query or self._bookmark_rows or self._formats):
             return
