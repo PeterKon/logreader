@@ -651,17 +651,6 @@ class SearchListResizeHandle(QWidget):
         painter.drawRoundedRect(QRectF((self.width() - 64) / 2, center_y - 1.5, 64, 4), 2, 2)
 
 
-class DisplayControlsGroup(QFrame):
-    def __init__(self, height_reference: QWidget, parent: QWidget) -> None:
-        super().__init__(parent)
-        self._height_reference = height_reference
-
-    def sizeHint(self) -> QSize:  # noqa: N802
-        size = super().sizeHint()
-        size.setHeight(max(size.height(), self._height_reference.sizeHint().height()))
-        return size
-
-
 class FilterPanel(QGroupBox):
     """Own all filter controls and build their shared configuration."""
 
@@ -686,45 +675,80 @@ class FilterPanel(QGroupBox):
 
         options = QWidget(self)
         options.setObjectName("optionsPage")
-        options_layout = QVBoxLayout(options)
-        options_layout.setContentsMargins(12, 4, 0, 4)
-        options_layout.setSpacing(8)
+        options_layout = QHBoxLayout(options)
+        options_layout.setContentsMargins(24, 10, 12, 10)
+        options_layout.setSpacing(12)
         options_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        context_controls = QWidget(options)
+        results_options = QWidget(options)
+        results_options.setObjectName("resultsOptionsGroup")
+        results_options.setAccessibleName("Results")
+        results_layout = QVBoxLayout(results_options)
+        results_layout.setContentsMargins(0, 0, 0, 0)
+        results_layout.setSpacing(6)
+        results_heading = QLabel("Results")
+        results_heading.setObjectName("filterSectionTitle")
+        results_layout.addWidget(results_heading)
+        options_layout.addWidget(results_options, 0, Qt.AlignmentFlag.AlignTop)
+
+        divider = QFrame(options)
+        divider.setObjectName("optionsDivider")
+        divider.setFixedWidth(1)
+        options_layout.addWidget(divider)
+
+        scan_options = QWidget(options)
+        scan_options.setObjectName("scanOptionsGroup")
+        scan_options.setAccessibleName("Scan")
+        scan_layout = QVBoxLayout(scan_options)
+        scan_layout.setContentsMargins(0, 0, 0, 0)
+        scan_layout.setSpacing(6)
+        scan_heading = QLabel("Scan")
+        scan_heading.setObjectName("filterSectionTitle")
+        scan_layout.addWidget(scan_heading)
+        options_layout.addWidget(scan_options, 0, Qt.AlignmentFlag.AlignTop)
+
+        context_controls = QWidget(results_options)
         context_controls.setObjectName("contextControlsGroup")
         context_layout = QHBoxLayout(context_controls)
-        context_layout.setContentsMargins(11, 0, 0, 0)
+        context_layout.setContentsMargins(0, 0, 0, 0)
         context_layout.setSpacing(8)
 
         self._context_spin = ContextSpinBox()
         self._context_spin.setObjectName("contextSpin")
+        self._context_spin.setAccessibleName("Context around matches")
+        self._context_spin.setToolTip("Lines before and after each match.")
         self._context_spin.setFixedWidth(self.fontMetrics().horizontalAdvance("1 000") + 48)
         context_label = QLabel("Context around matches")
         context_label.setObjectName("contextLabel")
+        context_label.setBuddy(self._context_spin)
         context_layout.addWidget(context_label)
         context_layout.addWidget(self._context_spin)
-        options_layout.addWidget(context_controls, 0, Qt.AlignmentFlag.AlignLeft)
+        context_unit = QLabel("lines")
+        context_unit.setObjectName("contextUnit")
+        context_layout.addWidget(context_unit)
+        results_layout.addWidget(context_controls)
 
-        limit_controls = QWidget(options)
+        limit_controls = QWidget(scan_options)
         limit_controls.setObjectName("limitControlsGroup")
         limit_layout = QHBoxLayout(limit_controls)
-        limit_layout.setContentsMargins(11, 0, 0, 0)
+        limit_layout.setContentsMargins(0, 0, 0, 0)
         limit_layout.setSpacing(8)
 
         self._limit_spin = ScanLimitSpinBox()
         self._limit_spin.setObjectName("limitSpin")
+        self._limit_spin.setAccessibleName("Max lines scanned")
         self._limit_spin.setFixedWidth(self.fontMetrics().horizontalAdvance("2 147 483 647") + 48)
         limit_label = QLabel("Max lines scanned")
         limit_label.setObjectName("limitLabel")
+        limit_label.setBuddy(self._limit_spin)
         limit_layout.addWidget(limit_label)
         limit_layout.addWidget(self._limit_spin)
-        options_layout.addWidget(limit_controls, 0, Qt.AlignmentFlag.AlignLeft)
+        scan_layout.addWidget(limit_controls)
 
-        display_controls = DisplayControlsGroup(self._context_spin, options)
+        display_controls = QWidget(results_options)
         display_controls.setObjectName("displayControlsGroup")
         display_layout = QHBoxLayout(display_controls)
-        display_layout.setContentsMargins(10, 4, 10, 4)
+        display_layout.setContentsMargins(0, 0, 0, 0)
         display_layout.setSpacing(12)
 
         self._combined_view = VisibleCheckBox("Combined view")
@@ -744,7 +768,7 @@ class FilterPanel(QGroupBox):
             "Add a small gap as separation between mismatching context/errors in results."
         )
         display_layout.addWidget(self._separate_entries)
-        options_layout.addWidget(display_controls, 0, Qt.AlignmentFlag.AlignLeft)
+        results_layout.addWidget(display_controls, 0, Qt.AlignmentFlag.AlignLeft)
 
         self._filter_header = filter_header = QWidget(self)
         filter_header.setObjectName("filterHeader")

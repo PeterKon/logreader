@@ -617,7 +617,7 @@ class LogreaderQtTests(unittest.TestCase):
         for frame in frames:
             self.assertEqual(frame, expected)
 
-    def test_options_stacks_controls_and_keeps_analyze_at_the_right(self):
+    def test_options_groups_stay_compact_and_keep_analyze_at_the_right(self):
         self.window.show()
         self._wait_for_controls_layout()
         filters = self.window._document.filter_panel
@@ -645,13 +645,25 @@ class LogreaderQtTests(unittest.TestCase):
             self.assertEqual(header.mapTo(self.window._document, QPoint()).y(), 12)
             self.assertEqual(analyze.geometry(), cell.rect())
 
-        groups = [filters.findChild(QWidget, name) for name in (
-            "contextControlsGroup", "limitControlsGroup", "displayControlsGroup",
-        )]
-        self.assertEqual(len({group.x() for group in groups}), 1)
-        self.assertEqual(len({group.height() for group in groups}), 1)
-        for upper, lower in zip(groups, groups[1:]):
-            self.assertLess(upper.geometry().bottom(), lower.y())
+        results = filters.findChild(QWidget, "resultsOptionsGroup")
+        scan = filters.findChild(QWidget, "scanOptionsGroup")
+        page = filters._pages.currentWidget()
+        initial_geometry = [group.geometry() for group in (results, scan)]
+        for width in (820, 1400):
+            self.window.resize(width, self.window.height())
+            self._wait_for_controls_layout()
+            self.assertEqual([group.geometry() for group in (results, scan)], initial_geometry)
+            self.assertEqual(results.y(), scan.y())
+            gap = scan.x() - results.geometry().right() - 1
+            self.assertGreater(gap, 0)
+            self.assertLessEqual(gap, 32)
+            for group in (results, scan):
+                self.assertTrue(page.rect().contains(group.geometry()))
+            self.assertEqual(filters._context_spin.mapTo(page, QPoint()).y(),
+                             filters._limit_spin.mapTo(page, QPoint()).y())
+        context = filters.findChild(QWidget, "contextControlsGroup")
+        display = filters.findChild(QWidget, "displayControlsGroup")
+        self.assertLess(context.geometry().bottom(), display.y())
         self.assertEqual(filters._combined_view.y(), filters._separate_entries.y())
         self._click_analyze_and_wait()
         self.assertEqual(filters._pages.currentIndex(), 3)
