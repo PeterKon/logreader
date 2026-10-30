@@ -9,7 +9,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import qt_application, retire_window, trigger_pattern_action
+    from qt_helpers import qt_application, retire_window, trigger_pattern_action, wait_until
     from qt_helpers import render_results, wait_for_navigation, wait_for_render, wait_for_search, wait_for_load
     from PySide6.QtCore import QEvent, QMimeData, QObject, QPoint, QPointF, Qt, QUrl
     from PySide6.QtGui import (
@@ -1663,7 +1663,7 @@ class LogreaderQtTests(unittest.TestCase):
                     analyze_button.click()
                     self.assertEqual(mocked_analysis.call_count, 1)
 
-                    QTest.qWait(60)
+                    wait_until(lambda: message.text() == "Analyzing...")
                     self.assertFalse(analyze_button.isEnabled())
                     self.assertEqual(analyze_button.text(), "&Analyze")
                     self.assertEqual(analyze_button.size(), button_size)

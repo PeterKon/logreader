@@ -54,6 +54,15 @@ def retire_window(window):
     retire_results()
 
 
+def wait_until(predicate):
+    for _ in range(500):
+        QCoreApplication.processEvents()
+        if predicate():
+            return
+        QTest.qWait(10)
+    raise AssertionError("Work did not reach the expected state")
+
+
 def wait_source(view):
     source = view.source_view
     if not view.source_active or not source.isVisible():

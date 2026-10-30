@@ -17,6 +17,7 @@ from logreader.regex_presets import REGEX_PRESETS
 from logreader.ui.results.results_editor import StructuralBlock
 from logreader.ui.results.results_model import SourceLocation
 from logreader.ui.results.results_view import ResultsView
+from logreader.ui.results.result_coordinates import TextPoint
 from logreader.ui.source_search import utf16_length
 from logreader.ui.theme import THEME_COLORS
 
@@ -318,6 +319,47 @@ class ResultsViewTests(unittest.TestCase):
         self.assertFalse(self.view.show_result_location(SourceLocation("different", 10000041)))
         self.assertFalse(self.view.show_result_location(SourceLocation("snapshot", 1)))
         self.assertEqual(editor.textCursor().position(), before)
+
+    def test_search_controls_center_matches_in_both_viewers_and_result_modes(self):
+        prefix = "ERROR: 😀 " + "wrapped words " * 40
+        lines = tuple((prefix + "needle tail" if i in (120, 220) else
+                       f"{'ERROR:' if i % 2 == 0 else 'INFO'} row {i}") for i in range(400))
+        for combined in (False, True):
+            self.view.set_source_active(False)
+            self.render(lines, LogreaderConfig(context=0, combined_view=combined,
+                                              separate_entries=True, enabled_patterns=("error_colon",)))
+            for source_active in (False, True):
+                self.view.set_source_active(source_active)
+                wait_source(self.view)
+                editor = self.view.source_view.editor if source_active else self.view.editor
+                for wrapped in (False, True):
+                    with self.subTest(combined=combined, source=source_active, wrapped=wrapped):
+                        self.view.set_line_wrapping(wrapped)
+                        editor.navigate_to(TextPoint(0))
+                        wait_for_navigation(self.view)
+                        wait_source(self.view)
+                        self.view._search_input.clear()
+                        self.view._search_input.setText("needle")
+                        self.view._search_input.returnPressed.emit()
+                        wait_for_search(self.view)
+                        wait_source(self.view)
+                        self.assertEqual(editor.top_point(), TextPoint(0))
+                        for action, row in (
+                            (self.view._search_input.returnPressed.emit, 120),
+                            (self.view._search_navigation.stepDown, 220),
+                            (self.view._search_navigation.stepUp, 120),
+                            (self.view._search_input.returnPressed.emit, 220),
+                        ):
+                            action()
+                            wait_for_navigation(self.view)
+                            wait_for_search(self.view)
+                            wait_source(self.view)
+                            self.assertEqual(editor.source_number(editor.textCursor().blockNumber()),
+                                             10000001 + row)
+                            self.assertEqual(editor.caret.column, utf16_length(prefix))
+                            self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
+                                            editor.fontMetrics().height())
+                            self.assertTrue(editor.viewport_evidence()["useful"])
 
     def test_reset_releases_completed_model_and_clears_gutter_projection_and_navigation(self):
         self.render(("ERROR: sample",))

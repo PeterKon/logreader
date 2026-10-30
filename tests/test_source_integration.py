@@ -281,6 +281,8 @@ class SourceIntegrationTests(SourceViewCase):
         self.wait_source_search()
         editor = self.source.editor
         self.assertEqual(editor.caret.row, 4500)
+        self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
+                        editor.fontMetrics().height())
         self.assertEqual(self.source.target_line, 9501)
         self.assertFalse(editor.ranges.contains(2000))
         block = editor._block(4500)

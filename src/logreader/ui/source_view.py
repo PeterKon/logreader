@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from .results.range_loading import ReadingMove, SparseLoader
+from .results.range_loading import SparseLoader
 from .results.result_coordinates import TextPoint
 from .results.result_scrollbar import ScrollSurface
 from .source_editor import SourceEditor
@@ -267,7 +267,7 @@ class SourceView(QWidget):
                 self.loader.set_paused(False)
                 self.ensure_view()
 
-    def go_to_line(self, number, *, highlight=True, center=False):
+    def go_to_line(self, number, *, highlight=True, center=True):
         row = number - self.first_line
         if not 0 <= row < len(self.lines):
             self._show_line_error(f"Line {number:,} is not loaded. {self._retained_range()}")
@@ -280,12 +280,7 @@ class SourceView(QWidget):
         self._saved_position = None
         self._use_viewport_anchor()
         self._materialized = True
-        if center:
-            point = TextPoint(row)
-            half_screen = max(0, (self.editor.viewport().height() // self.editor.fontMetrics().height() - 1) // 2)
-            return self.editor.navigation.request(point, move_caret=True, reveal_column=True,
-                movement=ReadingMove(point, -half_screen, False), center=True)
-        return self.editor.navigate_to(TextPoint(row), move_caret=True, reveal_column=True)
+        return self.editor.jump_to(TextPoint(row), center=center)
 
     def _show_line_error(self, message):
         self.goto_input.setToolTip(message)
@@ -498,7 +493,7 @@ class SourceView(QWidget):
         self.current_match = index % len(self.matches)
         row, column = self.matches.lines[self.current_match], self.matches.starts[self.current_match]
         self._materialized = True
-        self.editor.navigate_to(TextPoint(row, column), move_caret=True, reveal_column=True)
+        self.editor.jump_to(TextPoint(row, column))
         self._search_request = self.editor.navigation.pending
         self._from_viewport = False
         self._status(f"{self.current_match + 1:,} / {len(self.matches):,}")

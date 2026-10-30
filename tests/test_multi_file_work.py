@@ -10,10 +10,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
     from PySide6.QtCore import QMimeData, QPoint, QPointF, QThreadPool, Qt, QUrl
     from PySide6.QtGui import QDragEnterEvent, QDropEvent
-    from PySide6.QtTest import QSignalSpy, QTest
+    from PySide6.QtTest import QSignalSpy
     from PySide6.QtWidgets import QApplication, QSpinBox
 
-    from qt_helpers import wait_for_load
+    from qt_helpers import wait_for_load, wait_until
     from logreader.core import analyze_lines
     from logreader.document_session import LoadPhase
     from logreader.file_loader import LoadedLog
@@ -45,14 +45,6 @@ class MultiFileWorkTests(unittest.TestCase):
         path = self.root / name
         path.write_text(content or f"ERROR: {name}\n", encoding="utf-8")
         return path
-
-    def wait_until(self, predicate):
-        for _ in range(500):
-            self.app.processEvents()
-            if predicate():
-                return
-            QTest.qWait(10)
-        self.fail("Work did not reach the expected state")
 
     def test_picker_batch_preserves_order_first_selection_and_individual_failures(self):
         existing, first, last = [self.log(name) for name in ("existing.log", "first.log", "last.log")]
@@ -167,7 +159,7 @@ class MultiFileWorkTests(unittest.TestCase):
                 self.assertEqual(self.window._analyze_button.text(), "&Analyze")
                 self.assertTrue(pages[2]._analysis_busy_timer.isActive())
                 self.assertEqual(pages[2].results_view._analysis_message.text(), "")
-                QTest.qWait(60)
+                wait_until(lambda: pages[2].results_view._analysis_message.text() == "Queued")
                 self.assertEqual(pages[2].results_view._analysis_message.text(), "Queued")
                 load_paths = [self.root / name for name in ("load-first.log", "load-skip.log", "load-last.log")]
                 self.window.load_files(load_paths)
@@ -191,9 +183,9 @@ class MultiFileWorkTests(unittest.TestCase):
                 release_analysis.set()
                 release_load.set()
                 wait_for_load(load_pages[2])
-                self.wait_until(lambda: self.window._scheduler.analysis._active is None
-                                and not self.window._scheduler.analysis._pending
-                                and pages[2].session.analysis is not None)
+                wait_until(lambda: self.window._scheduler.analysis._active is None
+                           and not self.window._scheduler.analysis._pending
+                           and pages[2].session.analysis is not None)
                 self.assertEqual(calls["analysis"], ["ERROR: a.log", "ERROR: c.log"])
                 self.assertEqual(calls["load"], ["load-first.log", "load-last.log"])
                 self.assertEqual(maximum, {"load": 1, "analysis": 1})
@@ -218,7 +210,7 @@ class MultiFileWorkTests(unittest.TestCase):
             self.assertIs(self.window._scheduler.loading._active, first_worker)
             self.assertEqual(len(workers), 1)
             first_worker.run()
-            self.wait_until(lambda: len(workers) == 2)
+            wait_until(lambda: len(workers) == 2)
             workers[1].run()
         self.assertEqual(self.window._document.session.load_phase, LoadPhase.LOADED)
         self.assertEqual(self.window._document.session.path.name, "second.log")
@@ -250,7 +242,7 @@ class MultiFileWorkTests(unittest.TestCase):
             self.window.analyze_current()
             workers[0].run()
             self.assertIsNone(first.results_view._renderer)
-            self.wait_until(lambda: len(workers) == 2)
+            wait_until(lambda: len(workers) == 2)
             workers[1].run()
             preparation = workers[2]
             self.window._select_document(first)

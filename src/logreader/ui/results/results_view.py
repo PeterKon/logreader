@@ -456,7 +456,7 @@ class ResultsView(ResultsControls):
         self._use_viewport_search_anchor()
         return editor.go_to_location(location, result_set_id=editor.result_set_id)
 
-    def show_source_line(self, number, *, highlight=True, center=False):
+    def show_source_line(self, number, *, highlight=True, center=True):
         self._source_destination = number, highlight, center
         if self.source_active:
             self.source_view.go_to_line(number, highlight=highlight, center=center)

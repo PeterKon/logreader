@@ -6,7 +6,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import capture_analysis, trigger_pattern_action, wait_for_search, wait_source
+    from qt_helpers import capture_analysis, trigger_pattern_action, wait_for_search, wait_source, wait_until
     from PySide6.QtCore import QThreadPool, Qt
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox
@@ -193,7 +193,7 @@ class DocumentPageTests(unittest.TestCase):
         self.assertFalse(view.loader.timer.isActive())
         self.assertFalse(view.bookmarks.strip.isTabEnabled(0))
         self.assertFalse(view.show_result_location(location))
-        QTest.qWait(60)
+        wait_until(lambda: view._analysis_message.text() == "Analyzing...")
         self.assertTrue(view.surface.isHidden())
         self.assertIs(view._view_stack.currentWidget(), view._analysis_message)
         self.assertEqual(view._analysis_message.text(), "Analyzing...")
@@ -267,7 +267,7 @@ class DocumentPageTests(unittest.TestCase):
         worker = page._analysis_worker
         self.assertTrue(page.analysis_queued)
         self.assertIs(view._view_stack.currentWidget(), view.surface)
-        QTest.qWait(60)
+        wait_until(lambda: view._analysis_message.text() == "Queued")
         self.assertEqual(view._analysis_message.text(), "Queued")
         self.assertIs(view._view_stack.currentWidget(), view._analysis_message)
         page._analysis_started(worker.request_id)

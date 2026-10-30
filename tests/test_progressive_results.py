@@ -494,6 +494,75 @@ class ProgressiveResultsTests(unittest.TestCase):
         self.assertEqual(editor.top_point().row, total // 2)
 
 
+    def test_centered_jumps_load_surrounding_text_and_clamp_to_document_boundaries(self):
+        lines = [f"ERROR: row {i}" for i in range(6000)]
+        prefix = "ERROR: 😀 " + "wrapped words " * 80
+        lines[4500] = prefix + "target"
+        for wrapped in (False, True):
+            with self.subTest(wrapped=wrapped):
+                view = self.window(lines=lines, fraction=.001, wrapped=wrapped)
+                editor = view.editor
+                point = TextPoint(editor.presentation.display_row(4500), utf16_length(prefix))
+                for _ in range(2):
+                    editor.jump_to(point)
+                    self.wait_jump(editor)
+                    self.assertEqual(editor.caret, point)
+                    self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
+                                    editor.fontMetrics().height())
+                    self.assertTrue(editor.viewport_evidence()["useful"])
+                    self.assertFalse(editor.ranges.contains(2000))
+                    self.jump(editor, 0)
+                editor.jump_to(TextPoint(editor.ranges.total - 1))
+                self.wait_jump(editor)
+                self.assert_final_screen(view)
+                self.assertEqual(editor.caret.row, editor.ranges.total - 1)
+                editor.jump_to(TextPoint(0))
+                self.wait_jump(editor)
+                self.assertEqual(editor.top_point(), TextPoint(0))
+                self.assertEqual(editor.caret, TextPoint(0))
+
+    def test_centered_jump_remeasures_pending_geometry_and_respects_newer_navigation(self):
+        view = self.window(lines=tuple(f"ERROR: row {i}" for i in range(6000)), fraction=.001)
+        editor, loader = view.editor, view.loader
+        loader.max_rows = 2
+        point = TextPoint(4500)
+        editor.jump_to(point)
+        loader._tick()
+        self.assertIsNotNone(editor.navigation.pending)
+        self.assertIsNone(loader.target)
+        view.resize(800, 700)
+        self.wait_jump(editor)
+        self.assertEqual(editor.caret, point)
+        self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
+                        editor.fontMetrics().height())
+        ensure = loader._ensure
+        resized = []
+
+        def resize_after_center(row, generation, **options):
+            block = ensure(row, generation, **options)
+            if row == 3001 and block is not None and not resized:
+                resized.append(True)
+                view.resize(800, 400)
+            return block
+
+        with patch.object(loader, "_ensure", side_effect=resize_after_center):
+            point = TextPoint(3000)
+            editor.jump_to(point)
+            self.wait_jump(editor)
+        self.assertTrue(resized)
+        self.assertEqual(editor.caret, point)
+        self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
+                        editor.fontMetrics().height())
+        editor.jump_to(TextPoint(2000))
+        obsolete = editor.navigation.pending
+        loader._tick()
+        editor.navigate_to(TextPoint(0))
+        editor.navigation.ready(obsolete)
+        self.wait_jump(editor)
+        self.assertEqual(editor.top_point(), TextPoint(0))
+        self.assertEqual(editor.caret, point)
+        self.assertIsNone(loader.error)
+
     def test_actual_track_click_and_thumb_release_load_chosen_range(self):
         view = self.window()
         bar, editor = view.global_scroll, view.editor

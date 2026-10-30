@@ -1080,10 +1080,8 @@ class BookmarkTests(unittest.TestCase):
                 wait_for_navigation(self.view)
                 wait_source(self.view)
                 self.assertEqual(editor.source_number(editor.textCursor().blockNumber()), location.source.line)
-                if source_active:
-                    self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2), editor.fontMetrics().height() * 2)
-                else:
-                    self.assertLess(editor.cursorRect().top(), editor.fontMetrics().height() * 2)
+                self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
+                                editor.fontMetrics().height())
 
     def test_bookmark_hover_clears_after_dismissing_context_menu_outside_strip(self):
         self.render(("ERROR: first",))

@@ -30,7 +30,8 @@ class SourceRetentionTests(SourceViewCase):
         self.source.goto_button.click()
         self.settle_source()
         self.assertEqual(editor.caret.row, 109999)
-        self.assertEqual(editor.top_point().row, 109999)
+        self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
+                        editor.fontMetrics().height())
         self.assertEqual(editor._block(109999).text(), lines[109999])
         self.assertTrue(editor.ranges.contains(0))
         self.assertFalse(editor.ranges.contains(60000))

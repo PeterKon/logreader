@@ -169,7 +169,7 @@ class SparseLoader(QObject):
         self.paused = False
         request = self.editor.navigation.pending
         self.buffer = None
-        if request is not None and request.movement is None:
+        if request is not None and request.movement is None and not request.center:
             screen = self._cached_screen(request.point)
             if screen is not None and self.valid(request.sequence):
                 top, after = screen
@@ -423,21 +423,56 @@ class SparseLoader(QObject):
                 return True
         return False
 
+    def _resolve_center(self, request):
+        editor = self.editor
+        while not self._spent():
+            block = self._ensure(self.center_row, request.sequence)
+            if block is None:
+                return False
+            layout = block.layout()
+            if self.center_offset is None:
+                line = layout.lineForTextPosition(request.point.column)
+                offset = line.y() + line.height() / 2 - editor.viewport().height() / 2
+            else:
+                offset = self.center_offset + editor.blockBoundingRect(block).height()
+            if offset >= 0 or self.center_row == 0:
+                # Scroll by whole visual lines, using measured heights so result
+                # separators and wrapped text count toward the half-screen.
+                low, high = 0, layout.lineCount() - 1
+                while low < high:
+                    middle = (low + high + 1) // 2
+                    if layout.lineAt(middle).y() <= offset:
+                        low = middle
+                    else:
+                        high = middle - 1
+                self.target = TextPoint(self.center_row, layout.lineAt(low).textStart())
+                return True
+            self.center_row -= 1
+            self.center_offset = offset
+        return False
+
     def _priority(self, request):
         editor = self.editor
-        if request is not self.request:
+        geometry = editor._end_geometry()
+        if (request is not self.request
+                or (request.center and geometry != self.center_geometry)):
             self.request = request
             self.buffer = None
-            self.target = None if request.movement else request.point
+            self.target = None if request.movement or request.center else request.point
             self.row, self.height = request.point.row, 0
-            if request.movement:
+            if request.center:
+                self.center_row, self.center_offset = request.point.row, None
+                self.center_geometry = geometry
+            elif request.movement:
                 self.motion_row = request.movement.origin.row
                 self.motion_column = request.movement.origin.column
                 self.motion_delta = request.movement.delta
                 self.motion_x = 0
             self.geometry = None
-        if self.target is None and not self._resolve_movement(request):
-            return
+        if self.target is None:
+            resolved = self._resolve_center(request) if request.center else self._resolve_movement(request)
+            if not resolved:
+                return
         geometry = editor._end_geometry()
         if geometry != self.geometry:
             self.screen_start = min(self.target, editor.end_top() or self.target)
@@ -473,11 +508,13 @@ class SparseLoader(QObject):
                 self.height += editor.blockBoundingRect(block).height()
                 self.back_row -= 1
             block = self._ensure(self.back_row + 1, request.sequence)
-            if block is None:
+            if block is None or (request.center and editor._end_geometry() != self.center_geometry):
                 return
             top = self._end_point(block, self.back_row + 1, self.height)
             editor.remember_end_top(top)
             top = min(self.screen_start, top)
+        if request.center and editor._end_geometry() != self.center_geometry:
+            return
         if (self.valid(request.sequence) and editor.navigation.valid(request)
                 and (self.height >= editor.viewport().height() or self.row == editor.ranges.total)):
             # Navigate before bounded overscan, so a large adjacent line cannot

@@ -149,14 +149,17 @@ class ProgressiveResultsEditor(StyledWindowEditor):
     def navigate_to(self, point, **options):
         return self.navigation.request(point, **options)
 
+    def jump_to(self, point, *, result_set_id=None, center=True):
+        return self.navigate_to(point, move_caret=True, reveal_column=True,
+                                result_set_id=result_set_id, center=center)
+
     def go_to_location(self, location, *, column=0, result_set_id=None):
         if result_set_id is not None and result_set_id is not self.result_set_id:
             return False
         row = self.presentation.resolve(location)
         if row is None:
             return False
-        return self.navigate_to(TextPoint(row, column), move_caret=True,
-                                reveal_column=True, result_set_id=result_set_id)
+        return self.jump_to(TextPoint(row, column), result_set_id=result_set_id)
 
     def go_to_search_result(self, location, column, *, result_set_id):
         if result_set_id is not self.result_set_id:

@@ -103,19 +103,23 @@ class SourceSelectionTests(SourceViewCase):
             self.view.set_line_wrapping(wrapped)
             self.settle_source()
             self.assertTrue(editor.viewport_evidence()["useful"])
-            self.assertEqual(editor.top_point(), top)
+            self.assertEqual(editor.top_point(), top if wrapped else TextPoint(top.row))
             self.assertEqual((editor.anchor, editor.caret), selection)
             self.assertFalse(editor.ranges.contains(9000))
 
-    def test_centered_source_bookmark_keeps_caret_and_wrapped_target_visible(self):
+    def test_go_to_line_centers_caret_and_keeps_wrapped_target_visible(self):
         self.stage(tuple(f"row {i}: " + "wrap " * (50 if i % 3 else 2) for i in range(1000)))
         self.view.set_source_active(True)
         for wrapped in (False, True):
             self.view.set_line_wrapping(wrapped)
-            self.source.go_to_line(700, center=True)
+            self.source.goto_input.setText("700")
+            if wrapped:
+                QTest.keyClick(self.source.goto_input, Qt.Key.Key_Return)
+            else:
+                self.source.goto_button.click()
             self.settle_source()
             editor = self.source.editor
             self.assertEqual(editor.caret, TextPoint(699))
             self.assertTrue(editor.viewport_evidence()["useful"])
             self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
-                            editor.fontMetrics().height() * 2)
+                            editor.fontMetrics().height())
