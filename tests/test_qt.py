@@ -663,15 +663,19 @@ class LogreaderQtTests(unittest.TestCase):
                              filters._limit_spin.mapTo(page, QPoint()).y())
         self.assertEqual(filters._context_spin.width(), filters._limit_spin.width())
         self.assertGreaterEqual(filters._context_spin.width(), 156)
+        self.assertEqual(results.height(), scan.height())
         for label_name, spin in (("contextLabel", filters._context_spin),
                                  ("limitLabel", filters._limit_spin)):
             label = filters.findChild(QLabel, label_name)
             self.assertLess(label.mapTo(page, label.rect().bottomLeft()).y(),
                             spin.mapTo(page, QPoint()).y())
-            self.assertEqual(label.mapTo(page, QPoint()).x(), spin.mapTo(page, QPoint()).x())
+            self.assertTrue(label.alignment() & Qt.AlignmentFlag.AlignRight)
+            self.assertEqual(label.mapTo(page, label.rect().topRight()).x(),
+                             spin.mapTo(page, spin.rect().topRight()).x())
+            self.assertLessEqual(results.height(), 2 * label.sizeHint().height() + spin.height() + 8)
         context = filters.findChild(QWidget, "contextControlsGroup")
         display = filters.findChild(QWidget, "displayControlsGroup")
-        checkbox_gap = display.x() - context.geometry().right() - 1
+        checkbox_gap = context.x() - display.geometry().right() - 1
         self.assertGreaterEqual(checkbox_gap, 20)
         self.assertLessEqual(checkbox_gap, 28)
         self.assertGreaterEqual(display.y(), context.y())
@@ -679,6 +683,10 @@ class LogreaderQtTests(unittest.TestCase):
                          filters._context_spin.mapTo(page, filters._context_spin.rect().bottomLeft()).y())
         self.assertEqual(filters._separate_entries.y() - filters._combined_view.geometry().bottom() - 1, 4)
         self.assertEqual(filters._combined_view.x(), filters._separate_entries.x())
+        filters._combined_view.setFocus()
+        for control in (filters._separate_entries, filters._context_spin, filters._limit_spin):
+            QTest.keyClick(self.app.focusWidget(), Qt.Key.Key_Tab)
+            self.assertIs(self.app.focusWidget(), control)
         self._click_analyze_and_wait()
         self.assertEqual(filters._pages.currentIndex(), 3)
 
