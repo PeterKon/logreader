@@ -73,6 +73,7 @@ class ResultsView(ResultsControls):
     def __init__(self, parent=None, **options):
         self.logical = None
         self._closed = False
+        self._line_wrapping = False
         self._formats = {}
         self._overlays = {}
         self._bookmark_rows = {}
@@ -133,7 +134,6 @@ class ResultsView(ResultsControls):
     def _install_presentation(self, presentation):
         old = self._editor
         font = old.font()
-        wrapped = old.lineWrapMode() != QPlainTextEdit.LineWrapMode.NoWrap
         had_focus = old.hasFocus() or self._analysis_message.hasFocus()
         if hasattr(self, "loader"):
             self.loader.cancel()
@@ -149,6 +149,8 @@ class ResultsView(ResultsControls):
         self._overlays.clear()
         self._bookmark_rows.clear()
         self._selection_key = self._return_position = self._bookmark_projection = None
+        if self._view_stack.currentWidget() is previous:
+            self._view_stack.setCurrentWidget(self._analysis_message)
         self._view_stack.removeWidget(previous)
         previous.hide()
         old.setObjectName("")
@@ -161,6 +163,7 @@ class ResultsView(ResultsControls):
         self.logical = presentation.logical
         self._editor = DecoratedSparseEditor(presentation, self)
         editor = self._editor
+        editor.request_wrapping(self._line_wrapping)
         editor.setFont(font)
         self.surface = ScrollSurface(editor, self)
         self.global_scroll = self.surface.global_scroll
@@ -193,7 +196,6 @@ class ResultsView(ResultsControls):
         editor.gutter.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         editor.gutter.customContextMenuRequested.connect(lambda point: self._results_context_menu(
             editor.viewport().mapFromGlobal(editor.gutter.mapToGlobal(point))))
-        editor.set_wrapping(wrapped)
         if had_focus:
             editor.setFocus()
 
@@ -434,10 +436,10 @@ class ResultsView(ResultsControls):
         editor.setFont(self._default_source_font if self.source_active else self._default_results_font)
 
     def set_line_wrapping(self, enabled):
-        if self.source_active:
-            self.source_view.editor.set_wrapping(enabled)
-        elif not self._results_stale:
-            self._editor.set_wrapping(enabled)
+        self._line_wrapping = enabled
+        self.source_view.editor.request_wrapping(enabled)
+        self._editor.request_wrapping(enabled)
+        if not self.source_active and not self._results_stale:
             self._schedule_decorations()
         with QSignalBlocker(self._line_wrap_check):
             self._line_wrap_check.setChecked(enabled)
@@ -491,8 +493,7 @@ class ResultsView(ResultsControls):
         self._source_button.update()
         with QSignalBlocker(self._search_input), QSignalBlocker(self._line_wrap_check):
             self._search_input.setText(self.source_view.query if active else self._results_query)
-            shown_editor = self.source_view.editor if active else editor
-            self._line_wrap_check.setChecked(shown_editor.lineWrapMode() != QPlainTextEdit.LineWrapMode.NoWrap)
+            self._line_wrap_check.setChecked(self._line_wrapping)
         self._search_input.setAccessibleName("Search retained source" if active else "Search results")
         self._search_input.setToolTip("Search all loaded source lines" if active else "Search for matches in the results")
         if active:

@@ -62,6 +62,20 @@ class TabTests(unittest.TestCase):
             QTest.qWait(10)
         self.fail("Analysis did not finish")
 
+    def test_line_wrapping_is_shared_between_views_but_independent_between_tabs(self):
+        self.window.show()
+        first = self.open_log("first.log").results_view
+        first.set_line_wrapping(True)
+        second = self.open_log("second.log").results_view
+        for index, view, enabled in ((0, first, True), (1, second, False), (0, first, True)):
+            self.window._tabs.setCurrentIndex(index)
+            for source_active in (True, False):
+                view.set_source_active(source_active)
+                wait_source(view)
+                editor = view.source_view.editor if source_active else view.editor
+                self.assertEqual(view._line_wrap_check.isChecked(), enabled)
+                self.assertEqual(editor.lineWrapMode() != editor.LineWrapMode.NoWrap, enabled)
+
     def test_view_menu_actions_follow_header_controls_and_empty_state(self):
         self.window.show()
         menu = self.window._view_menu

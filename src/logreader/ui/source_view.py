@@ -109,7 +109,7 @@ class SourceView(QWidget):
     def _install_editor(self, presentation):
         old = self.editor
         font = old.font() if old is not None else None
-        wrapped = old is not None and old.lineWrapMode() != old.LineWrapMode.NoWrap
+        wrapped = old is not None and old.requested_wrapping
         if old is not None:
             old.set_context_target(None)
             old.window_changed.disconnect(self._refresh)
@@ -131,7 +131,7 @@ class SourceView(QWidget):
         self.editor = SourceEditor(presentation, self)
         if font is not None:
             self.editor.setFont(font)
-        self.editor.set_wrapping(wrapped)
+        self.editor.request_wrapping(wrapped)
         surface = self.surface = ScrollSurface(self.editor, self)
         self.global_scroll = surface.global_scroll
         for bar in (self.global_scroll, self.editor.horizontalScrollBar()):
@@ -228,6 +228,7 @@ class SourceView(QWidget):
     def ensure_view(self):
         if not self._active or not self.isVisible():
             return
+        self.editor.apply_requested_wrapping()
         saved, self._saved_position = self._saved_position, None
         if saved is not None and saved[0] is self.editor.result_set_id:
             _, top, anchor, caret, horizontal = saved

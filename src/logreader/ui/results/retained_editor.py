@@ -337,6 +337,7 @@ class SparseResultsEditor(ProgressiveResultsEditor):
     insertion_history_limit = 256
 
     def __init__(self, presentation, parent=None):
+        self.requested_wrapping = False
         self.ranges = RangeIndex(presentation.row_count)
         self.insertions = []
         self.insertion_count = self.inserted_rows = 0
@@ -1012,9 +1013,25 @@ class SparseResultsEditor(ProgressiveResultsEditor):
                 self.navigate_to(self.top_point())
 
     def set_wrapping(self, enabled):
+        self.requested_wrapping = enabled
+        if enabled == (self.lineWrapMode() != self.LineWrapMode.NoWrap):
+            return
         was_bottom = self.at_bottom() and self.top_point() != TextPoint(0)
         super().set_wrapping(enabled)
         self._refresh_end_screen(was_bottom)
+
+    def request_wrapping(self, enabled):
+        self.requested_wrapping = enabled
+        if self.isVisible():
+            self.apply_requested_wrapping()
+
+    def apply_requested_wrapping(self):
+        if self.requested_wrapping != (self.lineWrapMode() != self.LineWrapMode.NoWrap):
+            self.set_wrapping(self.requested_wrapping)
+
+    def showEvent(self, event):  # noqa: N802
+        self.apply_requested_wrapping()
+        super().showEvent(event)
 
     def resizeEvent(self, event):  # noqa: N802
         was_bottom = (self._end_screen is not None and self._end_screen[1] != TextPoint(0)

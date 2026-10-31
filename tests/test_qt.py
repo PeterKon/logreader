@@ -792,6 +792,8 @@ class LogreaderQtTests(unittest.TestCase):
         self.assertEqual(button.toolTip(), "Expand results window")
 
     def test_line_wrapping_can_be_toggled_from_results_header(self):
+        self.window.show()
+        self.app.processEvents()
         results = self.window.findChild(QPlainTextEdit, "resultsView")
         label = self.window.findChild(QLabel, "lineWrapLabel")
         checkbox = self.window.findChild(QCheckBox, "lineWrapCheck")

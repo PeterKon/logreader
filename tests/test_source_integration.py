@@ -196,7 +196,54 @@ class SourceIntegrationTests(SourceViewCase):
         return (editor.top_point(), editor.anchor, editor.caret, editor.selected_text(),
                 editor.horizontalScrollBar().value(), editor.lineWrapMode(), editor.font().toString())
 
-    def test_views_keep_independent_search_selection_scroll_wrap_and_zoom(self):
+    def test_shared_wrapping_defers_hidden_layout_and_applies_only_the_latest_choice(self):
+        self.stage(tuple("ERROR: " + "long payload " * 40 for _ in range(400)))
+        self.render()
+        result, source = self.view.editor, self.source.editor
+        for active, hidden, visible in ((False, source, result), (True, result, source)):
+            with self.subTest(source_active=active):
+                self.view.set_source_active(active)
+                self.settle_source()
+                before = hidden.layout_visits, hidden.insertion_count
+                initial = hidden.lineWrapMode() != hidden.LineWrapMode.NoWrap
+                with patch.object(hidden, "set_wrapping", wraps=hidden.set_wrapping) as wrap:
+                    for enabled in (not initial, initial, not initial):
+                        self.view.set_line_wrapping(enabled)
+                    self.app.processEvents()
+                    wrap.assert_not_called()
+                    self.assertEqual((hidden.layout_visits, hidden.insertion_count), before)
+                    self.assertEqual(hidden.lineWrapMode() != hidden.LineWrapMode.NoWrap, initial)
+                    self.assertEqual(visible.lineWrapMode() != visible.LineWrapMode.NoWrap, not initial)
+                    self.view.set_source_active(not active)
+                    self.settle_source()
+                    wait_for_navigation(self.view)
+                    wrap.assert_called_once_with(not initial)
+                    self.view.set_source_active(active)
+                    self.view.set_source_active(not active)
+                    self.settle_source()
+                    wrap.assert_called_once_with(not initial)
+
+    def test_pending_wrapping_survives_source_and_results_replacement(self):
+        self.stage(tuple("ERROR: " + "payload " * 30 for _ in range(100)))
+        self.render()
+        self.view.set_line_wrapping(True)
+        old_source = self.source.editor
+        self.stage(tuple("ERROR: replacement " + "payload " * 30 for _ in range(100)))
+        self.assertIsNot(self.source.editor, old_source)
+        self.assertEqual(self.source.editor.lineWrapMode(), self.source.editor.LineWrapMode.NoWrap)
+        self.view.set_source_active(True)
+        self.settle_source()
+        self.assertEqual(self.source.editor.lineWrapMode(), self.source.editor.LineWrapMode.WidgetWidth)
+        old_results = self.view.editor
+        self.render()
+        self.assertIsNot(self.view.editor, old_results)
+        self.assertEqual(self.view.editor.lineWrapMode(), self.view.editor.LineWrapMode.NoWrap)
+        self.view.set_source_active(False)
+        wait_for_navigation(self.view)
+        self.assertEqual(self.view.editor.lineWrapMode(), self.view.editor.LineWrapMode.WidgetWidth)
+        self.assertTrue(self.view._line_wrap_check.isChecked())
+
+    def test_views_keep_independent_search_selection_scroll_and_zoom_with_shared_wrapping(self):
         self.stage(tuple(f"ERROR: result {i} needle sourceflag " + "payload " * 40 for i in range(500)))
         self.render(LogreaderConfig(context=0, combined_view=True, enabled_patterns=("error_colon",)))
         result = self.view.editor
@@ -206,6 +253,7 @@ class SourceIntegrationTests(SourceViewCase):
         self.view.find_next()
         wait_for_search(self.view)
         self.view.zoom(2)
+        self.view.set_line_wrapping(True)
         result.navigate_to(TextPoint(result.presentation.display_row(300)))
         wait_for_navigation(self.view)
         result.select(TextPoint(result.presentation.display_row(100), 2),
@@ -237,7 +285,7 @@ class SourceIntegrationTests(SourceViewCase):
             self.assertIs(self.view._search_matches, result_matches)
             self.assertEqual(self.view._current_search_match, result_current)
             self.assertEqual(self.view._search_input.text(), "needle")
-            self.assertFalse(self.view._line_wrap_check.isChecked())
+            self.assertTrue(self.view._line_wrap_check.isChecked())
             self.view.set_source_active(True)
             self.settle_source()
             self.wait_source_search()
