@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import re
 import unittest
 
@@ -54,6 +55,33 @@ class RegexPresetTests(unittest.TestCase):
                 for address in (full, compressed):
                     self.assert_matches("IPv6 addresses", f"[{address}]:443", [address])
         self.assert_matches("IPv6 addresses", "::ffff:192.0.2.128", ["::ffff:192.0.2.128"])
+
+    def test_ipv6_ignores_proxy_regex_and_banner_separators(self):
+        noise = (
+            "-Dserver.tomcat.remoteip.internal-proxies="
+            "(fe80|fd[0-9a-fA-F]{2})(:{1,2}[0-9a-fA-F]{0,4}){0,7}"
+            r"(%[0-9a-zA-Z]+)?$|::1|0:0:0:0:0:0:0:1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+            "\n:: Application name ::     ExampleApp"
+            "\n:: Application version ::  3.41.8"
+            "\n:: Spring Boot version ::  2.7.18\n"
+        )
+        for text in (noise, json.dumps({"message": noise})):
+            with self.subTest(text=text):
+                self.assert_matches("IPv6 addresses", text, [])
+                self.assert_matches("IPv6 addresses", text + " peer=[::1]:443 local=2001:db8::1",
+                                    ["::1", "2001:db8::1"])
+        for expression in ("^::1$", "^2001:db8::1$", "(::1|2001:db8::2)", "2001:db8::1.*"):
+            self.assert_matches("IPv6 addresses", expression, [])
+
+    def test_ipv6_keeps_loopback_and_explicit_unspecified_addresses(self):
+        for address in ("::1", "0:0:0:0:0:0:0:1", "2001:db8::1"):
+            for text in (address, f"peer={address}", f'{{"peer":"{address}"}}',
+                         f"Connected to {address}.", f"http://[{address}]:8080/"):
+                self.assert_matches("IPv6 addresses", text, [address])
+        for text in ("::", "[::]:8080", "listen=::", 'listen="::"', "listen='::'",
+                     '{"listen":"::"}', "route=::/0", "http://[::]:8080/"):
+            self.assert_matches("IPv6 addresses", text, ["::"])
+        self.assert_matches("IPv6 addresses", "bind=::%eth0", ["::%eth0"])
 
     def test_ipv6_does_not_extract_fragments_of_invalid_addresses(self):
         for invalid in ("2001:db8:1", "1:2:3:4:5:6:7:8:9", "1:2:3:4:5:6:7::8",

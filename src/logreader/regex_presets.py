@@ -13,12 +13,17 @@ def _ipv6_expression() -> str:
         prefix = rf"{_HEX}(?::{_HEX}){{{left - 1}}}" if left else ""
         remaining = 7 - left
         suffix = rf"(?:{_HEX}(?::{_HEX}){{0,{remaining - 1}}})?" if remaining else ""
+        if not left:
+            suffix = rf"{_HEX}(?::{_HEX}){{0,6}}"
         forms.append(prefix + "::" + suffix)
         if left <= 5:
             forms.append(prefix + rf"::(?:{_HEX}:){{0,{5 - left}}}{_IPV4}")
+    # Bare :: needs address context to distinguish it from banner separators.
+    forms.append(r'''(?:(?<=\[)::(?=\])|(?<=")::(?=")|(?<=')::(?=')|'''
+                 r"(?<==)::|::(?=/[0-9]|%)|(?m:^::$))")
     address = "(?:" + "|".join(forms) + ")"
     zone = r"(?:%[\w~-]+(?:\.[\w~-]+)*)?"
-    return rf"(?<![\w:.%]){address}{zone}(?![\w:%]|\.[\w])"
+    return rf"(?<![\w:.%|^]){address}{zone}(?![\w:%|$?*+]|\.(?:\w|[*+?]))"
 
 
 _URL_CHAR = r"[^\s<>\"'`(){}\[\]]"
