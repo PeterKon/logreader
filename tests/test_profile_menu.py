@@ -72,13 +72,14 @@ class ProfileMenuTests(unittest.TestCase):
             try:
                 self.assertIsNotNone(menu)
                 self.assertEqual(menu.objectName(), "profileOptionsMenu")
-                self.assertEqual([action.text() for action in menu.actions()], ["Rename…", "Delete…"])
+                self.assertEqual([action.text() for action in menu.actions()], ["Overwrite with current settings", "Rename…", "Delete…"])
+                page = self.window._document
+                self.assertEqual(menu.actions()[0].isEnabled(), page is not None and not page.session.is_busy)
                 for action in menu.actions():
                     # The full row must respond and highlight, including past the label.
                     point = QPoint(menu.width() - 3, menu.actionGeometry(action).center().y())
                     QTest.mouseMove(menu, point)
                     self.assertEqual(menu.actionAt(point), action)
-                    self.assertEqual(menu.activeAction(), action)
                 self.assertTrue(self.controller._row_options.outline.isVisible())
                 self.assertFalse(self.controller._row_options.button.isVisible())
                 inspected.append(menu.objectName())
@@ -103,9 +104,8 @@ class ProfileMenuTests(unittest.TestCase):
     def test_menu_empty_state_tab_selection_and_reopening_discover_saved_profiles(self):
         self.controller.menu.aboutToShow.emit()
         self.assertEqual([action.text() for action in self.controller.menu.actions()],
-                         ["Save as new profile…", "Update profile", "", "No saved profiles", "",
+                         ["Save as new profile…", "", "No saved profiles", "",
                           "Open profiles folder"])
-        self.assertFalse(self.menu_action("Update profile").isEnabled())
         self.assertFalse(self.menu_action("Save as new profile…").isEnabled())
         self.assertFalse(self.menu_action("No saved profiles").isEnabled())
         self.assertTrue(self.menu_action("Open profiles folder").isEnabled())
@@ -412,26 +412,33 @@ class ProfileMenuTests(unittest.TestCase):
         self.controller.refresh()
         first.filter_panel._context_spin.setValue(42)
         self.assertTrue(first.profile_modified)
-        self.assertEqual(self.profile_action(profile).text(), "Shared (modified)")
-        self.assertTrue(self.menu_action("Update profile").isEnabled())
-        self.menu_action("Update profile").trigger()
+        self.assertEqual(self.profile_action(profile).text(), "Shared")
+        self.assertFalse(self.profile_action(profile).isChecked())
+        menu = self.show_menu()
+        action = self.profile_action(profile)
+        self.use_profile_options(
+            lambda: QTest.mouseClick(menu, Qt.MouseButton.RightButton, pos=menu.actionGeometry(action).center()),
+            "Overwrite with current settings",
+        )
         updated = self.controller.store.get(profile.profile_id)
         self.assertEqual(updated.filters.context, 42)
         self.assertFalse(first.profile_modified)
-        self.assertFalse(self.menu_action("Update profile").isEnabled())
+        self.assertTrue(self.profile_action(profile).isChecked())
         self.assertEqual(first.results_view.editor.toPlainText(), first_results)
         self.assertEqual(second.filter_panel.capture_snapshot(), second_snapshot)
         self.assertTrue(second.profile_modified)
         self.assertEqual(second.applied_profile, updated)
         self.window._select_document(second)
-        self.assertEqual(self.profile_action(profile).text(), "Shared (modified)")
+        self.assertEqual(self.profile_action(profile).text(), "Shared")
+        self.assertFalse(self.profile_action(profile).isChecked())
         self.assertEqual(third.filter_panel.capture_snapshot(), third_snapshot)
         self.assertIsNone(third.applied_profile)
         self.profile_action(profile).trigger()
         self.assertFalse(second.profile_modified)
+        self.assertTrue(self.profile_action(profile).isChecked())
         self.assertEqual(second.filter_panel.capture_snapshot(), updated.filters)
 
-    def test_modified_indicator_includes_disabled_options_but_not_unfinished_drafts(self):
+    def test_profile_checkmark_tracks_saved_settings_including_disabled_options_but_not_drafts(self):
         profile = Profile("Retained", FilterSnapshot(
             custom_patterns=(PatternSnapshot("inactive", enabled=False, exclude=True, match_case=True),),
         ))
@@ -442,6 +449,7 @@ class ProfileMenuTests(unittest.TestCase):
         page.filter_panel._custom_pattern.setText("draft")
         page.filter_panel._regex_pattern.setText("[")
         self.assertFalse(page.profile_modified)
+        self.assertTrue(self.profile_action(profile).isChecked())
         patterns = page.filter_panel._custom_pattern_list
         before_config = page.build_config()
         trigger_pattern_action(patterns, 0, "Enable")
@@ -449,10 +457,40 @@ class ProfileMenuTests(unittest.TestCase):
         trigger_pattern_action(patterns, 0, "Disable")
         self.assertEqual(page.build_config(), before_config)
         self.assertTrue(page.profile_modified)
-        self.assertTrue(self.menu_action("Update profile").isEnabled())
+        self.assertFalse(self.profile_action(profile).isChecked())
         page.filter_panel.restore_snapshot(profile.filters)
         self.assertFalse(page.profile_modified)
-        self.assertFalse(self.menu_action("Update profile").isEnabled())
+        self.assertTrue(self.profile_action(profile).isChecked())
+
+    def test_overwrite_targets_context_profile_using_current_tab_settings(self):
+        original = Profile("Original", FilterSnapshot(context=2))
+        target = Profile("Target", FilterSnapshot(context=9))
+        for profile in (original, target):
+            self.controller.store.create(profile)
+        other = self.open_log("other.log")
+        self.controller.apply(target)
+        other_snapshot = other.filter_panel.capture_snapshot()
+        page = self.open_log("active.log")
+        self.controller.apply(original)
+        page.filter_panel._context_spin.setValue(42)
+        page.filter_panel._custom_pattern.setText("unfinished draft")
+        snapshot = page.filter_panel.capture_snapshot()
+        menu = self.show_menu()
+        action = self.profile_action(target)
+        QTest.mouseMove(menu, menu.actionGeometry(action).center())
+        self.use_profile_options(
+            lambda: QTest.mouseClick(self.controller._row_options.button, Qt.MouseButton.LeftButton),
+            "Overwrite with current settings",
+        )
+        updated = self.controller.store.get(target.profile_id)
+        self.assertEqual(updated.filters, snapshot)
+        self.assertEqual(updated.name, target.name)
+        self.assertEqual(self.controller.store.get(original.profile_id), original)
+        self.assertEqual(page.applied_profile, updated)
+        self.assertFalse(page.profile_modified)
+        self.assertEqual(page.filter_panel._custom_pattern.text(), "unfinished draft")
+        self.assertEqual(other.filter_panel.capture_snapshot(), other_snapshot)
+        self.assertTrue(other.profile_modified)
 
     def test_rename_preserves_identity_and_saved_filters_while_retaining_tab_edits(self):
         profile = Profile("Original", FilterSnapshot(context=12))
@@ -492,7 +530,8 @@ class ProfileMenuTests(unittest.TestCase):
         self.assertFalse(first.profile_modified)
         self.assertEqual(second.filter_panel.capture_snapshot(), unsaved)
         self.assertTrue(second.profile_modified)
-        self.assertEqual(self.profile_action(renamed).text(), "New <name> && label (modified)")
+        self.assertEqual(self.profile_action(renamed).text(), "New <name> && label")
+        self.assertFalse(self.profile_action(renamed).isChecked())
 
     def test_delete_requires_explicit_confirmation_and_keeps_open_tabs_intact(self):
         profile = Profile("Saved <name>", FilterSnapshot())
@@ -530,7 +569,6 @@ class ProfileMenuTests(unittest.TestCase):
                 self.assertEqual(first.results_view.editor.toPlainText(), results)
         self.assertIsNone(first.applied_profile)
         self.assertIsNone(second.applied_profile)
-        self.assertFalse(self.menu_action("Update profile").isEnabled())
         self.assertEqual(self.controller.store.load_all().profiles, ())
 
     def test_update_and_delete_failures_do_not_change_saved_or_tab_state(self):
@@ -541,7 +579,7 @@ class ProfileMenuTests(unittest.TestCase):
         page.filter_panel._context_spin.setValue(77)
         before = page.filter_panel.capture_snapshot()
         with patch.object(self.controller.store, "_write", side_effect=ProfileError("Disk full")):
-            self.controller.update_profile()
+            self.controller.update_profile(profile)
         self.assertIn("Disk full", self.warning.call_args.args[2])
         self.assertEqual(self.controller.store.load(path), profile)
         self.assertEqual(page.applied_profile, profile)
@@ -555,16 +593,15 @@ class ProfileMenuTests(unittest.TestCase):
         self.assertEqual(page.applied_profile, profile)
         external = replace(profile, filters=FilterSnapshot(context=2))
         self.controller.store.save(external)
-        self.controller.update_profile()
+        self.controller.update_profile(profile)
         self.assertIn("has changed", self.warning.call_args.args[2])
         self.assertEqual(self.controller.store.load(path), external)
         path.unlink()
-        self.controller.update_profile()
+        self.controller.update_profile(profile)
         self.assertIn("no longer available", self.warning.call_args.args[2])
         self.assertFalse(path.exists())
         self.controller.refresh()
         self.assertFalse(page.profile_available)
-        self.assertFalse(self.menu_action("Update profile").isEnabled())
 
     def test_profile_changed_during_rename_or_delete_is_not_overwritten(self):
         profile = Profile("Saved", FilterSnapshot())
@@ -615,7 +652,7 @@ class ProfileMenuTests(unittest.TestCase):
             controller.apply(saved)
             self.assertEqual(restored.filter_panel.capture_snapshot(), saved.filters)
             restored.filter_panel._context_spin.setValue(61)
-            controller.update_profile()
+            controller.update_profile(saved)
             updated = controller.store.get(saved.profile_id)
             self.assertEqual(updated.filters.context, 61)
             restarted.close_tab(0)

@@ -118,7 +118,7 @@ class ProfileStore:
         if (self.directory / (profile.profile_id + PROFILE_EXTENSION)).exists() or any(
             saved.profile_id == profile.profile_id for saved in self.load_all().profiles
         ):
-            raise ProfileError("This profile already exists. Use Update profile to save changes.")
+            raise ProfileError("This profile already exists. Use Overwrite with current settings to save changes.")
         return self.save(profile)
 
     def update(self, expected: Profile, filters: FilterSnapshot) -> Profile:

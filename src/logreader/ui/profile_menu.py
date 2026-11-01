@@ -237,8 +237,6 @@ class ProfileMenuController(QObject):
         self.menu.clear()
         self._save_action = self.menu.addAction("Save as new profile…")
         self._save_action.triggered.connect(self.save_new)
-        self._update_action = self.menu.addAction("Update profile")
-        self._update_action.triggered.connect(self.update_profile)
         self.menu.addSeparator()
         self._profile_actions = []
         for profile in self._profiles:
@@ -266,6 +264,8 @@ class ProfileMenuController(QObject):
         options = TitleMenu(self.window)
         options.setObjectName("profileOptionsMenu")
         options.setStyleSheet(CONTEXT_MENU_STYLE_SHEET)
+        overwrite = options.addAction("Overwrite with current settings")
+        overwrite.setEnabled(self._editable_page() is not None and self._folder_available)
         rename = options.addAction("Rename…")
         delete = options.addAction("Delete…")
         self.menu.setActiveAction(action)
@@ -278,7 +278,9 @@ class ProfileMenuController(QObject):
             options.deleteLater()
         if selected is not None:
             self.menu.close()
-            if selected is rename:
+            if selected is overwrite:
+                self.update_profile(profile)
+            elif selected is rename:
                 self.rename(profile)
             elif selected is delete:
                 self.delete(profile)
@@ -287,15 +289,11 @@ class ProfileMenuController(QObject):
         page = self.current_page()
         available = page is not None and not page._disposed and not page.session.is_busy
         self._save_action.setEnabled(available and self._folder_available)
-        self._update_action.setEnabled(available and self._folder_available
-                                       and page.profile_available and page.profile_modified)
         for action in self._profile_actions:
             action.setEnabled(available)
             selected = (page is not None and page.applied_profile is not None
                         and page.applied_profile.profile_id == action.data())
-            action.setChecked(selected)
-            name = action.property("profileName")
-            action.setText(name.replace("&", "&&") + (" (modified)" if selected and page.profile_modified else ""))
+            action.setChecked(selected and not page.profile_modified)
 
     def _editable_page(self) -> DocumentPage | None:
         page = self.current_page()
@@ -332,13 +330,13 @@ class ProfileMenuController(QObject):
         page.applied_profile = profile
         page._set_status(f"Profile saved: {profile.name}")
 
-    def update_profile(self) -> None:
+    def update_profile(self, selected: Profile) -> None:
         page = self._editable_page()
-        if page is None or page.applied_profile is None or not page.profile_available:
+        if page is None:
             return
         try:
             snapshot = page.filter_panel.capture_snapshot()
-            updated = self.store.update(page.applied_profile, snapshot)
+            updated = self.store.update(selected, snapshot)
             page.applied_profile = updated
             page._set_status(f"Profile updated: {updated.name}")
             self.refresh()
