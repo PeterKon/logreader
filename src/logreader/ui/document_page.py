@@ -12,6 +12,7 @@ from ..config import LogreaderConfig
 from ..core import AnalysisResult
 from ..document_session import AnalysisPhase, DocumentSession
 from ..file_loader import DEFAULT_MAX_LINES_SCANNED, LoadedLog
+from ..profiles import Profile, ProfileError
 from ..workers.load_worker import LoadWorker
 from .filter_panel import FilterPanel, VisibleCheckBox, VisibleSpinBox
 from .results.results_view import ResultsView
@@ -29,6 +30,7 @@ class DocumentPage(QWidget):
     status_changed = Signal(str)
     busy_changed = Signal()
     load_finished = Signal()
+    profile_state_changed = Signal()
 
     def __init__(
         self, parent: QWidget | None = None, *, scheduler: WorkScheduler | None = None,
@@ -37,6 +39,10 @@ class DocumentPage(QWidget):
         super().__init__(parent)
         self.setObjectName("centralWidget")
         self.session = DocumentSession()
+        self._applied_profile: Profile | None = None
+        self.profile_available = False
+        self.profile_modified = False
+        self._updating_profile_state = False
         self.show_performance = show_performance
         self.status_message = "Open a file to begin"
         self.busy_visible = False
@@ -80,6 +86,47 @@ class DocumentPage(QWidget):
         self.results_view.view_state_changed.connect(self._emit_active_status)
         self.results_view.source_view.status_changed.connect(self._emit_active_status)
         root_layout.addWidget(self.results_view, 1)
+        self.filter_panel.filters_changed.connect(self._update_profile_state)
+
+    @property
+    def applied_profile(self) -> Profile | None:
+        return self._applied_profile
+
+    @applied_profile.setter
+    def applied_profile(self, profile: Profile | None) -> None:
+        self._applied_profile = profile
+        self.profile_available = profile is not None
+        self._update_profile_state()
+
+    def sync_saved_profile(self, profile: Profile | None) -> None:
+        """Refresh saved metadata without replacing this tab's controls."""
+        if profile is not None:
+            self._applied_profile = profile
+        self.profile_available = profile is not None
+        self._update_profile_state()
+
+    def _update_profile_state(self) -> None:
+        if self._disposed or self._updating_profile_state:
+            return
+        self._updating_profile_state = True
+        try:
+            profile = self.applied_profile
+            self.profile_modified = False
+            if profile is not None:
+                try:
+                    self.profile_modified = self.filter_panel.capture_snapshot() != profile.filters
+                except ValueError:
+                    self.profile_modified = True
+            self.profile_state_changed.emit()
+        finally:
+            self._updating_profile_state = False
+
+    def apply_profile(self, profile: Profile) -> None:
+        if self._disposed or self.session.is_busy:
+            raise ProfileError("Wait for this tab to finish before applying a profile.")
+        self.filter_panel.restore_snapshot(profile.filters)
+        self.applied_profile = profile
+        self._set_status(f"Profile applied: {profile.name}")
 
     @Slot(bool)
     def _set_results_maximized(self, maximized: bool) -> None:

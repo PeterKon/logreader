@@ -1,6 +1,10 @@
 import os
+import json
 import re
+import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -39,6 +43,8 @@ try:
     from logreader.ui.filter_panel import FilterPanel, PatternEditDialog
     from logreader.ui.qt_app import INTERFACE_STYLE_SHEET
     from logreader.core import analyze_lines
+    from logreader.filter_snapshot import FilterSnapshot, PatternSnapshot
+    from logreader.profiles import Profile, ProfileError, ProfileStore
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
 else:
@@ -95,6 +101,141 @@ class FilterPanelTests(unittest.TestCase):
         )
         self.assertTrue(config.separate_entries)
         self.assertTrue(config.combined_view)
+
+    def test_profile_round_trip_restores_all_controls_and_disabled_row_options(self):
+        panel = self.panel
+        for key, checkbox in panel._pattern_checkboxes.items():
+            checkbox.setChecked(key in ("error", "failed", "tls_certificates"))
+        for entry, pattern_list, add in (
+            (panel._custom_pattern, panel._custom_pattern_list, panel.add_custom_pattern),
+            (panel._regex_pattern, panel._regex_pattern_list, panel.add_regex_pattern),
+        ):
+            for text in ("blå", "Skip", "Tenant", "disabled", "Tenant"):
+                entry.setText(text)
+                add()
+            for index, mode in ((1, "Exclude"), (2, "Exclusive"), (3, "Exclude"), (4, "Exclusive")):
+                trigger_pattern_action(pattern_list, index, mode)
+            for index in (0, 2, 4):
+                trigger_pattern_action(pattern_list, index, "Case sensitive")
+            for index in (3, 4):
+                trigger_pattern_action(pattern_list, index, "Disable")
+        preset = panel.findChild(QPushButton, "regexPresetButton").menu().actions()[0]
+        preset.trigger()
+        trigger_pattern_action(panel._regex_pattern_list, 5, "Disable")
+        panel._context_spin.lineEdit().setText("37 lines")
+        panel._limit_spin.lineEdit().setText("123 456")
+        panel._combined_view.setChecked(False)
+        panel._separate_entries.setChecked(False)
+        panel._custom_pattern.setText("unfinished text")
+        panel._regex_pattern.setText("[")
+        snapshot = panel.capture_snapshot()
+        expected_config = panel.build_config()
+        self.assertEqual(snapshot.context, 37)
+        self.assertEqual(snapshot.max_lines_scanned, 123456)
+        self.assertEqual(snapshot.custom_patterns, (
+            PatternSnapshot("blå", match_case=True), PatternSnapshot("Skip", exclude=True),
+            PatternSnapshot("Tenant", exclusive=True, match_case=True),
+            PatternSnapshot("disabled", enabled=False, exclude=True),
+            PatternSnapshot("Tenant", enabled=False, exclusive=True, match_case=True),
+        ))
+        self.assertEqual(snapshot.regex_patterns[:5], snapshot.custom_patterns)
+        self.assertEqual(snapshot.regex_patterns[5].text, preset.data())
+        self.assertFalse(snapshot.regex_patterns[5].enabled)
+
+        target = FilterPanel()
+        try:
+            target._custom_pattern.setText("old entry")
+            target.add_custom_pattern()
+            target._custom_pattern.setText("keep text draft")
+            target._regex_pattern.setText("keep regex draft")
+            target._select_editor(3)
+            with tempfile.TemporaryDirectory() as directory:
+                path = ProfileStore(directory).save(Profile("Investigation", snapshot))
+                loaded = ProfileStore(directory).load(path)
+                target.restore_snapshot(loaded.filters)
+            self.assertEqual(target.capture_snapshot(), snapshot)
+            self.assertEqual(target.build_config(), expected_config)
+            self.assertEqual(target._custom_pattern.text(), "keep text draft")
+            self.assertEqual(target._regex_pattern.text(), "keep regex draft")
+            self.assertEqual(target._pages.currentIndex(), 3)
+            self.assertEqual(target._tab_counts[2].text(), "(6/11)")
+            self.assertEqual(target._exclusions_label.text(), "2 exclusions")
+            self.assertEqual(panel._custom_pattern.text(), "unfinished text")
+            self.assertEqual(panel._regex_pattern.text(), "[")
+            for pattern_list in (target._custom_pattern_list, target._regex_pattern_list):
+                item = pattern_list.item(4)
+                row = pattern_list.itemWidget(item)
+                self.assertEqual(row.findChild(QLabel, "patternModeLabel").text(), "(disabled)")
+                self.assertFalse(row.findChild(QLabel, "patternCaseLabel").isHidden())
+                trigger_pattern_action(pattern_list, 4, "Enable")
+                self.assertEqual(row.findChild(QLabel, "patternModeLabel").text(), "(exclusive)")
+            config = target.build_config()
+            self.assertEqual(config.custom_pattern_exclusive, (False, False, True, True))
+            self.assertEqual(config.regex_pattern_exclusive, (False, False, True, True))
+            restored_preset = target._regex_pattern_list.itemWidget(target._regex_pattern_list.item(5))
+            self.assertEqual(restored_preset.findChild(QLabel).text(), preset.text())
+            restored_preset.remove_button.click()
+            self.assertEqual(target._regex_pattern_list.count(), 5)
+            self.assertEqual(panel.capture_snapshot(), snapshot)
+        finally:
+            target.close()
+            target.deleteLater()
+
+    def test_invalid_snapshot_leaves_all_controls_and_drafts_intact(self):
+        self.panel._custom_pattern.setText("existing")
+        self.panel.add_custom_pattern()
+        self.panel._regex_pattern.setText("unfinished")
+        before = self.panel.capture_snapshot()
+        for field, value, message in (
+            ("version", 999, "version"), ("context", 1001, "Context"),
+            ("enabled_patterns", ["unknown"], "Unknown patterns"),
+            ("regex_patterns", [
+                {**PatternSnapshot("valid").to_dict(), "text": "a\nb"},
+            ], "one line"),
+            ("custom_patterns", [{**PatternSnapshot("bad").to_dict(), "enabled": "false"}], "true or false"),
+        ):
+            with self.subTest(field=field):
+                data = FilterSnapshot(enabled_patterns=(), context=0, combined_view=False).to_dict()
+                data[field] = value
+                with self.assertRaisesRegex(ValueError, message):
+                    self.panel.restore_snapshot(data)
+                self.assertEqual(self.panel.capture_snapshot(), before)
+                self.assertEqual(self.panel._regex_pattern.text(), "unfinished")
+        with tempfile.TemporaryDirectory() as directory:
+            store = ProfileStore(directory)
+            path = store.save(Profile("Bad regex", FilterSnapshot()))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["filters"]["regex_patterns"] = [PatternSnapshot("[").to_dict()]
+            path.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(ProfileError, "Invalid regex"):
+                self.panel.restore_snapshot(store.load(path).filters)
+            self.assertEqual(self.panel.capture_snapshot(), before)
+            self.assertEqual(self.panel._regex_pattern.text(), "unfinished")
+
+    def test_embedded_current_snapshot_restores_without_its_original_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ProfileStore(directory)
+            original = Profile("Original", self.panel.capture_snapshot())
+            path = store.save(original)
+            self.panel._context_spin.setValue(71)
+            self.panel._custom_pattern.setText("unsaved change")
+            self.panel.add_custom_pattern()
+            trigger_pattern_action(self.panel._custom_pattern_list, 0, "Exclusive")
+            self.panel._regex_pattern.setText("[")
+            self.panel.add_regex_pattern()
+            current = self.panel.capture_snapshot()
+            embedded = json.loads(json.dumps(current.to_dict()))
+            store.save(replace(original, filters=FilterSnapshot(context=1)))
+            for deleted in (False, True):
+                with self.subTest(profile_deleted=deleted):
+                    if deleted:
+                        path.unlink()
+                    self.panel.restore_snapshot(FilterSnapshot())
+                    self.panel.restore_snapshot(embedded)
+                    self.assertEqual(self.panel.capture_snapshot(), current)
+                    self.assertEqual(list(Path(directory).iterdir()), [] if deleted else [path])
+                    if not deleted:
+                        self.assertEqual(store.load(path).filters.context, 1)
 
     def test_matching_menu_targets_rows_and_switches_modes(self):
         from logreader.ui.filter_panel import EXCLUDE_TOOLTIP, EXCLUSIVE_TOOLTIP

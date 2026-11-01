@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Callable
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSignalBlocker, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup, QColor, QCursor, QFont, QFontDatabase, QMouseEvent, QPainter, QPainterPath, QPalette, QPen, QRegion, QValidator
 from PySide6.QtWidgets import (
     QApplication,
@@ -41,6 +41,8 @@ from ..config import (
     DATABASE_PATTERN_KEYS,
     DEFAULT_CONTEXT,
     DEFAULT_ENABLED_PATTERNS,
+    MAX_CONTEXT,
+    MAX_LINES_SCANNED,
     PAIRED_PATTERN_KEYS,
     PATTERN_KEYS,
     PATTERN_PRESETS_BY_KEY,
@@ -52,6 +54,7 @@ from .theme import THEME_COLORS, configure_action_button, configure_clear_button
 from .dialogs import CompactDialog
 from .title_bar import TITLE_MENU_STYLE_SHEET, TitleMenu
 from ..file_loader import DEFAULT_MAX_LINES_SCANNED
+from ..filter_snapshot import FilterSnapshot, PatternSnapshot
 from ..regex_presets import REGEX_PRESET_NAMES, REGEX_PRESETS
 from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
 
@@ -495,7 +498,7 @@ class ContextSpinBox(TieredSpinBox):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setRange(0, 1_000)
+        self.setRange(0, MAX_CONTEXT)
         self.setValue(DEFAULT_CONTEXT)
         self.setSuffix(" lines")
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -513,7 +516,7 @@ class ScanLimitSpinBox(TieredSpinBox):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setRange(1, 2_147_483_647)
+        self.setRange(1, MAX_LINES_SCANNED)
         self.setValue(DEFAULT_MAX_LINES_SCANNED)
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.setKeyboardTracking(False)
@@ -655,6 +658,8 @@ class SearchListResizeHandle(QWidget):
 class FilterPanel(QGroupBox):
     """Own all filter controls and build their shared configuration."""
 
+    filters_changed = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("filterGroup")
@@ -666,6 +671,10 @@ class FilterPanel(QGroupBox):
             checkbox.toggled.connect(self._update_summary)
         for pattern_list in (self._custom_pattern_list, self._regex_pattern_list):
             pattern_list.itemChanged.connect(self._update_summary)
+        for spin in (self._context_spin, self._limit_spin):
+            spin.valueChanged.connect(self.filters_changed)
+        for checkbox in (self._combined_view, self._separate_entries):
+            checkbox.toggled.connect(self.filters_changed)
         self._update_summary()
 
     def _build_interface(self) -> None:
@@ -1012,6 +1021,7 @@ class FilterPanel(QGroupBox):
         for button, keys in self._bulk_buttons:
             verb = "Clear" if all(self._pattern_checkboxes[key].isChecked() for key in keys) else "Select"
             button.setText(verb + " all")
+        self.filters_changed.emit()
 
     def _set_tab_count(self, index: int, text: str, description: str) -> None:
         label = self._tab_counts[index]
@@ -1248,6 +1258,68 @@ class FilterPanel(QGroupBox):
             return PATTERN_PRESETS_BY_KEY[key].label
         return PATTERN_PRESETS_BY_KEY[key].label.capitalize()
 
+    def capture_snapshot(self) -> FilterSnapshot:
+        """Capture committed filters, including disabled entries and their options."""
+        self._context_spin.interpretText()
+        self._limit_spin.interpretText()
+
+        def entries(pattern_list: QListWidget) -> tuple[PatternSnapshot, ...]:
+            return tuple(
+                PatternSnapshot(
+                    text=str(item.data(Qt.ItemDataRole.UserRole)),
+                    enabled=not bool(item.data(DISABLED_ROLE)),
+                    match_case=bool(item.data(MATCH_CASE_ROLE)),
+                    exclude=bool(item.data(EXCLUDE_ROLE)),
+                    exclusive=bool(item.data(EXCLUSIVE_ROLE)),
+                )
+                for index in range(pattern_list.count())
+                for item in (pattern_list.item(index),)
+            )
+
+        return FilterSnapshot(
+            enabled_patterns=tuple(key for key in PATTERN_KEYS if self._pattern_checkboxes[key].isChecked()),
+            custom_patterns=entries(self._custom_pattern_list),
+            regex_patterns=entries(self._regex_pattern_list),
+            context=self._context_spin.value(),
+            max_lines_scanned=self._limit_spin.value(),
+            combined_view=self._combined_view.isChecked(),
+            separate_entries=self._separate_entries.isChecked(),
+        )
+
+    def restore_snapshot(self, snapshot: FilterSnapshot | dict) -> None:
+        """Validate before replacing filters; leave drafts and navigation untouched."""
+        if not isinstance(snapshot, FilterSnapshot):
+            snapshot = FilterSnapshot.from_dict(snapshot)
+        controls = (
+            *self._pattern_checkboxes.values(), self._custom_pattern_list, self._regex_pattern_list,
+            self._context_spin, self._limit_spin, self._combined_view, self._separate_entries,
+        )
+        blockers = [QSignalBlocker(control) for control in controls]
+        try:
+            for key, checkbox in self._pattern_checkboxes.items():
+                checkbox.setChecked(key in snapshot.enabled_patterns)
+            self._context_spin.setValue(snapshot.context)
+            self._limit_spin.setValue(snapshot.max_lines_scanned)
+            self._combined_view.setChecked(snapshot.combined_view)
+            self._separate_entries.setChecked(snapshot.separate_entries)
+            for pattern_list, entries, button_name, remove_handler in (
+                (self._custom_pattern_list, snapshot.custom_patterns,
+                 "customPatternRemoveButton", self.remove_custom_pattern),
+                (self._regex_pattern_list, snapshot.regex_patterns,
+                 "regexPatternRemoveButton", self.remove_regex_pattern),
+            ):
+                pattern_list.clear()
+                for entry in entries:
+                    self._append_search_list_item(
+                        pattern_list, button_name, remove_handler, entry.text,
+                        enabled=entry.enabled, match_case=entry.match_case,
+                        exclude=entry.exclude, exclusive=entry.exclusive,
+                    )
+        finally:
+            for blocker in blockers:
+                blocker.unblock()
+        self._update_summary()
+
     def build_config(self) -> LogreaderConfig:
         """Build the shared configuration represented by the controls."""
 
@@ -1337,20 +1409,27 @@ class FilterPanel(QGroupBox):
         if not pattern:
             return
 
-        item = QListWidgetItem()
-        item.setData(Qt.ItemDataRole.UserRole, pattern)
-        item.setData(EXCLUSIVE_ROLE, False)
-        item.setData(EXCLUDE_ROLE, False)
-        item.setData(MATCH_CASE_ROLE, False)
-        item.setData(DISABLED_ROLE, False)
-        item.setSizeHint(QSize(0, 18))
-        pattern_list.addItem(item)
-        self._set_search_list_item_widget(pattern_list, item, remove_button_object_name, remove_handler)
+        self._append_search_list_item(pattern_list, remove_button_object_name, remove_handler, pattern)
 
         if from_draft:
             input_box.clear()
         input_box.setFocus()
         self._update_summary()
+
+    def _append_search_list_item(
+        self, pattern_list: QListWidget, remove_button_object_name: str,
+        remove_handler: Callable[[QListWidgetItem], None], pattern: str, *,
+        enabled: bool = True, match_case: bool = False, exclude: bool = False, exclusive: bool = False,
+    ) -> None:
+        item = QListWidgetItem()
+        item.setData(Qt.ItemDataRole.UserRole, pattern)
+        item.setData(EXCLUSIVE_ROLE, exclusive)
+        item.setData(EXCLUDE_ROLE, exclude)
+        item.setData(MATCH_CASE_ROLE, match_case)
+        item.setData(DISABLED_ROLE, not enabled)
+        item.setSizeHint(QSize(0, 18))
+        pattern_list.addItem(item)
+        self._set_search_list_item_widget(pattern_list, item, remove_button_object_name, remove_handler)
 
     def _set_search_list_item_widget(
         self, pattern_list: QListWidget, item: QListWidgetItem,

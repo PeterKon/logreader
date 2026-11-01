@@ -47,6 +47,8 @@ from .system_matchers import (
 
 APP_VERSION = f"Logreader v{__version__}"
 DEFAULT_CONTEXT = 5
+MAX_CONTEXT = 1_000
+MAX_LINES_SCANNED = 2_147_483_647
 COMBINED_CATEGORY_LABEL = "Total matches"
 
 

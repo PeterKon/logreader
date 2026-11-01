@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 from ..config import APP_VERSION, LogreaderConfig
 from .app_icon import application_icon, application_logo, set_windows_app_id
 from .document_page import DocumentPage
+from .profile_menu import ProfileMenuController
 from .dialogs import show_warning
 from .widgets.menu_style import MenuTheme
 from ..document_session import AnalysisPhase, LoadPhase
@@ -601,6 +602,10 @@ class LogreaderWindow(TitleBarWindow):
         QApplication.instance().installEventFilter(self)
         self.install_title_bar()
         self._build_view_menu()
+        self._profiles_menu = ProfileMenuController(
+            self, self.title_menus.findChild(QMenu, "profilesMenu"), lambda: self._document,
+            lambda: tuple(self._pages.widget(index) for index in range(self._pages.count())),
+        )
 
     def _build_view_menu(self) -> None:
         self._view_menu = self.title_menus.findChild(QMenu, "viewMenu")
@@ -1083,6 +1088,7 @@ class LogreaderWindow(TitleBarWindow):
         page.results_view.view_state_changed.connect(self._update_view_menu)
         page.results_view.view_state_changed.connect(self._refresh_loading_status)
         page.busy_changed.connect(self._present_analysis_busy)
+        page.profile_state_changed.connect(self._profiles_menu.update_state)
         page.analysis_failed.connect(self._present_analysis_failure)
         page.analysis_finished.connect(self.analysis_finished.emit)
         page.load_file(path)
@@ -1118,6 +1124,8 @@ class LogreaderWindow(TitleBarWindow):
             self.setCursor(Qt.CursorShape.WaitCursor)
         else:
             self.unsetCursor()
+        if hasattr(self, "_profiles_menu"):
+            self._profiles_menu.update_state()
 
     @Slot(str)
     def _present_analysis_failure(self, message: str) -> None:
