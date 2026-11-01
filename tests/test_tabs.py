@@ -192,8 +192,41 @@ class TabTests(unittest.TestCase):
         reset.trigger()
         self.assertEqual(second.results_view.editor.font().pointSizeF(), second_size)
 
+    def test_view_toggles_keep_menu_open_and_update_labels(self):
+        view = self.open_log("view.log").results_view
+        self.window.show()
+        menu = self.window._view_menu
+        self.addCleanup(menu.close)
+        menu.popup(QPoint(80, 80))
+        self.app.processEvents()
+        for key in (None, Qt.Key.Key_Return):
+            for source_active in (True, False):
+                action = self.window._toggle_source_action
+                menu.setActiveAction(action)
+                if key is None:
+                    QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(action).center())
+                else:
+                    QTest.keyClick(menu, key)
+                wait_source(view)
+                self.assertEqual(view.source_active, source_active)
+                self.assertEqual(action.text(), "Go to results" if source_active else "Go to source")
+                self.assertTrue(menu.isVisible())
+                for expanded in (True, False):
+                    action = self.window._expand_results_action
+                    menu.setActiveAction(action)
+                    if key is None:
+                        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(action).center())
+                    else:
+                        QTest.keyClick(menu, key)
+                    self.assertEqual(view.is_maximized, expanded)
+                    self.assertEqual(action.text(), "Restore results" if expanded else "Expand results")
+                    self.assertTrue(menu.isVisible())
+        QTest.keyClick(menu, Qt.Key.Key_Escape)
+        self.assertFalse(menu.isVisible())
+
     def test_zoom_clicks_keep_menus_open_for_repeated_adjustments(self):
         editor = self.open_log("zoom.log").results_view.editor
+        initial_size = editor.font().pointSizeF()
         self.window.show()
         self.app.processEvents()
         view, zoom = self.window._view_menu, self.window._zoom_menu
@@ -213,9 +246,21 @@ class TabTests(unittest.TestCase):
                 self.assertGreater((editor.font().pointSizeF() - before) * direction, 0)
                 self.assertTrue(view.isVisible())
                 self.assertTrue(zoom.isVisible())
-        QTest.mouseClick(zoom, Qt.MouseButton.LeftButton,
-                         pos=zoom.actionGeometry(self.window._reset_zoom_action).center())
+        for key in (None, Qt.Key.Key_Return):
+            self.window._zoom_in_action.trigger()
+            action = self.window._reset_zoom_action
+            zoom.setActiveAction(action)
+            if key is None:
+                QTest.mouseClick(zoom, Qt.MouseButton.LeftButton, pos=zoom.actionGeometry(action).center())
+            else:
+                QTest.keyClick(zoom, key)
+            self.assertEqual(editor.font().pointSizeF(), initial_size)
+            self.assertTrue(zoom.isVisible())
+            self.assertTrue(view.isVisible())
+        QTest.keyClick(zoom, Qt.Key.Key_Escape)
         self.assertFalse(zoom.isVisible())
+        self.assertTrue(view.isVisible())
+        QTest.keyClick(view, Qt.Key.Key_Escape)
         self.assertFalse(view.isVisible())
 
     def test_reset_zoom_restores_initial_size_after_wheel_zoom_and_reanalysis(self):
