@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QDialogButtonBox
 
@@ -461,6 +461,43 @@ class ProfileMenuTests(unittest.TestCase):
         page.filter_panel.restore_snapshot(profile.filters)
         self.assertFalse(page.profile_modified)
         self.assertTrue(self.profile_action(profile).isChecked())
+
+    def test_profile_checkmark_renders_beside_options_and_updates_while_menu_is_open(self):
+        profile = Profile("Errors, warnings and network connections", FilterSnapshot(context=8))
+        self.controller.store.save(profile)
+        page = self.open_log("active.log")
+        self.controller.apply(profile)
+        menu = self.show_menu()
+        action = self.profile_action(profile)
+        bounds = menu.actionGeometry(action)
+        QTest.mouseMove(menu, bounds.center())
+        check = self.controller._symbols.check_rect(bounds).toAlignedRect()
+        button = self.controller._row_options.button
+        self.assertLess(check.right(), button.geometry().left())
+        self.assertLess(bounds.left() + 30 + menu.fontMetrics().horizontalAdvance(profile.name), check.left())
+
+        def has_accent(rect):
+            self.app.processEvents()
+            image = menu.grab(rect).toImage()
+            return any(
+                color.blue() > color.red() + 50 and color.green() > color.red() + 30
+                for y in range(image.height()) for x in range(image.width())
+                for color in (image.pixelColor(x, y),)
+            )
+
+        icon = QRect(bounds.left() + 8, bounds.center().y() - 7, 14, 15)
+        self.assertTrue(has_accent(icon))
+        menu.setActiveAction(None)
+        self.assertFalse(has_accent(icon))
+        self.assertTrue(has_accent(check))
+        menu.setActiveAction(action)
+        self.assertTrue(has_accent(icon))
+        self.assertTrue(has_accent(check))
+        page.filter_panel._context_spin.setValue(9)
+        self.assertFalse(has_accent(check))
+        page.filter_panel._context_spin.setValue(8)
+        self.assertTrue(has_accent(check))
+        menu.close()
 
     def test_overwrite_targets_context_profile_using_current_tab_settings(self):
         original = Profile("Original", FilterSnapshot(context=2))

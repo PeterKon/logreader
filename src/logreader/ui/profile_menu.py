@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QContextMenuEvent, QDesktopServices
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QContextMenuEvent, QDesktopServices, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QLineEdit, QMenu, QWidget
 
 from ..filter_snapshot import FilterSnapshot
@@ -17,6 +17,100 @@ from .title_bar import TitleMenu
 from .widgets.input_menus import InputContextMenu
 from .widgets.menu_style import CONTEXT_MENU_STYLE_SHEET
 from .widgets.row_menu_button import RowMenuButton
+
+
+class _ProfileMenuSymbols(QWidget):
+    def __init__(self, menu: QMenu) -> None:
+        super().__init__(menu)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        menu.installEventFilter(self)
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if event.type() in (QEvent.Type.Show, QEvent.Type.Resize, QEvent.Type.LayoutRequest,
+                            QEvent.Type.ActionAdded, QEvent.Type.ActionRemoved, QEvent.Type.ActionChanged):
+            self.setGeometry(watched.rect())
+            self.update()
+        return False
+
+    @staticmethod
+    def check_rect(bounds) -> QRectF:
+        return QRectF(bounds.right() - 52, bounds.center().y() - 6.5, 14, 14)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        menu = self.parentWidget()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for action in menu.actions():
+            symbol = action.property("profileSymbol")
+            if not symbol or not action.isVisible():
+                continue
+            bounds = menu.actionGeometry(action)
+            muted_profile = symbol == "profile" and action is not menu.activeAction()
+            color = THEME_COLORS["ui_disabled_text" if not action.isEnabled() or muted_profile else
+                                 "ui_accent" if action.isChecked() else "ui_muted"]
+            painter.setPen(QPen(QColor(color), 1.2, Qt.PenStyle.SolidLine,
+                                Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.save()
+            if muted_profile:
+                painter.setOpacity(0.55)
+            painter.translate(bounds.left() + 8, bounds.center().y() - 6.5)
+            _paint_profile_symbol(painter, symbol)
+            painter.restore()
+            if symbol == "profile" and action.isChecked():
+                painter.save()
+                pen = painter.pen()
+                pen.setColor(QColor(THEME_COLORS["ui_accent" if action.isEnabled() else "ui_disabled_text"]))
+                painter.setPen(pen)
+                painter.translate(self.check_rect(bounds).topLeft())
+                path = QPainterPath(QPointF(2, 7))
+                path.lineTo(5.3, 10.3)
+                path.lineTo(12, 3.6)
+                painter.drawPath(path)
+                painter.restore()
+
+
+def _paint_profile_symbol(painter: QPainter, symbol: str) -> None:
+    def stroke(*points) -> None:
+        path = QPainterPath(QPointF(*points[0]))
+        for point in points[1:]:
+            path.lineTo(QPointF(*point))
+        painter.drawPath(path)
+
+    if symbol == "save":
+        stroke((11, 1.5), (12.5, 3), (12.5, 12.5), (1.5, 12.5), (1.5, 1.5), (11, 1.5))
+        stroke((4, 1.5), (4, 5), (9.5, 5), (9.5, 1.5))
+        stroke((4, 12.5), (4, 8), (10, 8), (10, 12.5))
+    elif symbol == "profile":
+        for y, x in ((3, 9), (7, 4), (11, 8)):
+            stroke((1, y), (x - 1.5, y))
+            stroke((x + 1.5, y), (13, y))
+            painter.drawEllipse(QPointF(x, y), 1.5, 1.5)
+    elif symbol == "folder":
+        stroke((1.5, 11.5), (1.5, 2.5), (5, 2.5), (6.5, 4), (12, 4), (12, 6))
+        stroke((1.5, 11.5), (3.5, 6), (13, 6), (11, 11.5), (1.5, 11.5))
+    elif symbol == "overwrite":
+        painter.drawArc(QRectF(1.5, 1.5, 11, 11), 30 * 16, 150 * 16)
+        painter.drawArc(QRectF(1.5, 1.5, 11, 11), 210 * 16, 150 * 16)
+        stroke((9, 4.3), (12, 4.3), (12, 1.3))
+        stroke((5, 9.7), (2, 9.7), (2, 12.7))
+    elif symbol == "rename":
+        path = QPainterPath(QPointF(2, 9.4))
+        path.lineTo(1.4, 12.6)
+        path.lineTo(4.6, 12)
+        path.lineTo(12.1, 4.5)
+        path.quadTo(13, 3.6, 12.1, 2.7)
+        path.lineTo(11.3, 1.9)
+        path.quadTo(10.4, 1, 9.5, 1.9)
+        path.closeSubpath()
+        painter.drawPath(path)
+        stroke((8.3, 3.1), (10.9, 5.7))
+    elif symbol == "delete":
+        stroke((1.5, 3.5), (12.5, 3.5))
+        stroke((5, 3.5), (5, 1.5), (9, 1.5), (9, 3.5))
+        stroke((3, 3.5), (3.5, 12.5), (10.5, 12.5), (11, 3.5))
+        stroke((5.5, 6), (5.5, 10))
+        stroke((8.5, 6), (8.5, 10))
 
 
 class _ProfileRowOptions(QObject):
@@ -41,8 +135,11 @@ class _ProfileRowOptions(QObject):
         self._layout_timer.timeout.connect(self._refresh)
         menu.installEventFilter(self)
         menu.hovered.connect(self.show_for)
-        # Reserve the button's space even while hidden, keeping names stationary.
-        menu.setStyleSheet("QMenu#profilesMenu::item { padding-right: 40px; }")
+        # Reserve the icons, checkmark and button even while hidden.
+        menu.setStyleSheet("""
+            QMenu#profilesMenu::item { padding-left: 30px; padding-right: 62px; }
+            QMenu#profilesMenu::indicator { width: 0; height: 0; }
+        """)
 
     def set_actions(self, actions) -> None:
         self.show_for(None)
@@ -205,6 +302,7 @@ class ProfileMenuController(QObject):
         self._load_errors = ""
         self._folder_available = True
         self._profile_actions = []
+        self._symbols = _ProfileMenuSymbols(menu)
         self._row_options = _ProfileRowOptions(menu)
         self._row_options.requested.connect(self._show_profile_options)
         self._rebuild_menu()
@@ -236,6 +334,7 @@ class ProfileMenuController(QObject):
         self._row_options.set_actions([])
         self.menu.clear()
         self._save_action = self.menu.addAction("Save as new profile…")
+        self._save_action.setProperty("profileSymbol", "save")
         self._save_action.triggered.connect(self.save_new)
         self.menu.addSeparator()
         self._profile_actions = []
@@ -243,6 +342,7 @@ class ProfileMenuController(QObject):
             action = self.menu.addAction(profile.name.replace("&", "&&"))
             action.setData(profile.profile_id)
             action.setProperty("profileName", profile.name)
+            action.setProperty("profileSymbol", "profile")
             action.setCheckable(True)
             action.triggered.connect(lambda _checked=False, saved=profile: self.apply(saved))
             self._profile_actions.append(action)
@@ -254,7 +354,9 @@ class ProfileMenuController(QObject):
         if self._load_errors:
             self.menu.addAction("Show load errors…").triggered.connect(self.show_load_errors)
         self.menu.addSeparator()
-        self.menu.addAction("Open profiles folder").triggered.connect(self.open_folder)
+        folder = self.menu.addAction("Open profiles folder")
+        folder.setProperty("profileSymbol", "folder")
+        folder.triggered.connect(self.open_folder)
         self.update_state()
 
     def _show_profile_options(self, action, position: QPoint) -> None:
@@ -263,11 +365,17 @@ class ProfileMenuController(QObject):
             return
         options = TitleMenu(self.window)
         options.setObjectName("profileOptionsMenu")
-        options.setStyleSheet(CONTEXT_MENU_STYLE_SHEET)
+        options.setStyleSheet(CONTEXT_MENU_STYLE_SHEET + """
+            QMenu#profileOptionsMenu::item { padding-left: 30px; }
+        """)
+        _ProfileMenuSymbols(options)
         overwrite = options.addAction("Overwrite with current settings")
+        overwrite.setProperty("profileSymbol", "overwrite")
         overwrite.setEnabled(self._editable_page() is not None and self._folder_available)
         rename = options.addAction("Rename…")
+        rename.setProperty("profileSymbol", "rename")
         delete = options.addAction("Delete…")
+        delete.setProperty("profileSymbol", "delete")
         self.menu.setActiveAction(action)
         self._row_options.show_for(action)
         self._row_options.set_context_target(True)
