@@ -84,6 +84,8 @@ class TabTests(unittest.TestCase):
                          ["Go to source", "Expand results", "", "Zoom"])
         self.assertTrue(separator.isSeparator())
         self.assertTrue(all(not item.isEnabled() for item in (navigate, expand, zoom)))
+        self.assertTrue(all(not item.icon().isNull() for item in (navigate, expand, zoom)))
+        source_icon, expand_icon = navigate.icon().cacheKey(), expand.icon().cacheKey()
         page = self.open_log("view.log")
         view = page.results_view
         self.assertTrue(navigate.isEnabled())
@@ -93,9 +95,11 @@ class TabTests(unittest.TestCase):
         wait_source(view)
         self.assertIn("ERROR: example", view.source_view.editor.toPlainText())
         self.assertEqual(navigate.text(), "Go to results")
+        self.assertNotEqual(navigate.icon().cacheKey(), source_icon)
         navigate.trigger()
         self.assertFalse(view.source_active)
         self.assertEqual(navigate.text(), "Go to source")
+        self.assertEqual(navigate.icon().cacheKey(), source_icon)
         view._source_button.click()
         self.assertEqual(navigate.text(), "Go to results")
 
@@ -105,7 +109,9 @@ class TabTests(unittest.TestCase):
         self.assertTrue(self.window.title_menus.isVisible())
         self.assertTrue(view._line_wrap_check.isVisible())
         self.assertEqual(expand.text(), "Restore results")
+        self.assertNotEqual(expand.icon().cacheKey(), expand_icon)
         expand.trigger()
+        self.assertEqual(expand.icon().cacheKey(), expand_icon)
         self.assertFalse(view.is_maximized)
         self.assertFalse(page.controls_container.isHidden())
         view._maximize_button.click()
@@ -156,6 +162,7 @@ class TabTests(unittest.TestCase):
                          ["Zoom in\tCtrl + Wheel ↑", "Zoom out\tCtrl + Wheel ↓", "Reset zoom"])
         self.assertTrue(separator.isSeparator())
         self.assertTrue(all(action.shortcut().isEmpty() for action in (zoom_in, zoom_out, reset)))
+        self.assertTrue(all(not action.icon().isNull() for action in (zoom_in, zoom_out, reset)))
         self.assertTrue(all(not action.isEnabled() for action in (zoom_in, zoom_out, reset)))
         first = self.open_log("first.log")
         results = first.results_view.editor

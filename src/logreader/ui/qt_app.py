@@ -53,6 +53,7 @@ from ..document_session import AnalysisPhase, LoadPhase
 from .theme import THEME_COLORS, analyze_icon, configure_action_button
 from .window_frame import TitleBarShadow, apply_title_bar_colors
 from .title_bar import TitleBarWindow, TitleMenu
+from .view_menu import view_menu_icons
 from ..workers.work_queue import WorkScheduler
 
 
@@ -608,8 +609,10 @@ class LogreaderWindow(TitleBarWindow):
         )
 
     def _build_view_menu(self) -> None:
+        self._view_icons = view_menu_icons()
         self._view_menu = self.title_menus.findChild(QMenu, "viewMenu")
         self._view_menu.clear()
+        self._view_menu.setStyleSheet("QMenu::icon { left: 6px; }")
         self._toggle_source_action = self._view_menu.addAction("Go to source")
         self._toggle_source_action.triggered.connect(self._toggle_source)
         self._expand_results_action = self._view_menu.addAction("Expand results")
@@ -617,13 +620,17 @@ class LogreaderWindow(TitleBarWindow):
         self._view_menu.addSeparator()
         self._zoom_menu = TitleMenu("Zoom", self._view_menu)
         self._zoom_menu.setObjectName("zoomMenu")
+        self._zoom_menu.setIcon(self._view_icons["zoom"])
         self._view_menu.addMenu(self._zoom_menu)
         self._zoom_in_action = self._zoom_menu.addAction("Zoom in\tCtrl + Wheel ↑")
+        self._zoom_in_action.setIcon(self._view_icons["zoom_in"])
         self._zoom_in_action.triggered.connect(lambda: self._zoom_active_view(1))
         self._zoom_out_action = self._zoom_menu.addAction("Zoom out\tCtrl + Wheel ↓")
+        self._zoom_out_action.setIcon(self._view_icons["zoom_out"])
         self._zoom_out_action.triggered.connect(lambda: self._zoom_active_view(-1))
         self._zoom_menu.addSeparator()
         self._reset_zoom_action = self._zoom_menu.addAction("Reset zoom")
+        self._reset_zoom_action.setIcon(self._view_icons["reset"])
         self._reset_zoom_action.triggered.connect(self._reset_zoom)
         self._view_menu.aboutToShow.connect(self._update_view_menu)
         self._update_view_menu()
@@ -636,9 +643,15 @@ class LogreaderWindow(TitleBarWindow):
         self._toggle_source_action.setText(
             "Go to results" if view is not None and view.source_active else "Go to source"
         )
+        self._toggle_source_action.setIcon(
+            self._view_icons["results" if view is not None and view.source_active else "source"]
+        )
         self._expand_results_action.setEnabled(view is not None)
         self._expand_results_action.setText(
             "Restore results" if view is not None and view.is_maximized else "Expand results"
+        )
+        self._expand_results_action.setIcon(
+            self._view_icons["restore" if view is not None and view.is_maximized else "expand"]
         )
         self._zoom_menu.setEnabled(view is not None)
         for action in (self._zoom_in_action, self._zoom_out_action, self._reset_zoom_action):
