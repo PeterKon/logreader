@@ -57,6 +57,7 @@ from ..file_loader import DEFAULT_MAX_LINES_SCANNED
 from ..filter_snapshot import FilterSnapshot, PatternSnapshot
 from ..regex_presets import REGEX_PRESET_NAMES, REGEX_PRESETS
 from .widgets.input_menus import InputContextMenu, ScrollbarContextMenu
+from .widgets.row_menu_button import RowMenuButton
 
 
 MATCH_CASE_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -293,22 +294,9 @@ class SearchPatternRow(QWidget):
         self._context_target = False
         self._hovered = False
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.menu_button = QPushButton("⋯", self)
+        self.menu_button = RowMenuButton(self)
         self.menu_button.setObjectName("patternMenuButton")
-        self.menu_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.menu_button.setFixedSize(24, 16)
         self.menu_button.setToolTip("Exclusive matching or exclusion")
-        policy = self.menu_button.sizePolicy()
-        policy.setRetainSizeWhenHidden(True)
-        self.menu_button.setSizePolicy(policy)
-        self.menu_button.setStyleSheet(
-            "QPushButton { background: transparent; border: none; border-radius: 3px;"
-            f" color: {THEME_COLORS['ui_text']};"
-            " font-size: 16px; padding: 0; min-height: 0; }"
-            f"QPushButton:hover {{ background: {THEME_COLORS['ui_button_hover']}; }}"
-            f"QPushButton:pressed {{ background: {THEME_COLORS['ui_button_pressed']}; }}"
-        )
-        self.menu_button.hide()
         self.remove_button = QPushButton("-", self)
         self.remove_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         policy = self.remove_button.sizePolicy()

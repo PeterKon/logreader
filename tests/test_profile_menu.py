@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QDialogButtonBox
 
@@ -57,13 +57,55 @@ class ProfileMenuTests(unittest.TestCase):
         return next(action for action in self.controller.menu.actions()
                     if action.data() == profile.profile_id)
 
+    def show_menu(self):
+        self.window.show()
+        self.controller.menu.popup(QPoint(80, 80))
+        self.app.processEvents()
+        return self.controller.menu
+
+    def use_profile_options(self, open_options, choice=None):
+        inspected = []
+        errors = []
+
+        def respond():
+            menu = self.app.activePopupWidget()
+            try:
+                self.assertIsNotNone(menu)
+                self.assertEqual(menu.objectName(), "profileOptionsMenu")
+                self.assertEqual([action.text() for action in menu.actions()], ["Rename…", "Delete…"])
+                for action in menu.actions():
+                    # The full row must respond and highlight, including past the label.
+                    point = QPoint(menu.width() - 3, menu.actionGeometry(action).center().y())
+                    QTest.mouseMove(menu, point)
+                    self.assertEqual(menu.actionAt(point), action)
+                    self.assertEqual(menu.activeAction(), action)
+                self.assertTrue(self.controller._row_options.outline.isVisible())
+                self.assertFalse(self.controller._row_options.button.isVisible())
+                inspected.append(menu.objectName())
+                if choice is None:
+                    QTest.keyClick(menu, Qt.Key.Key_Escape)
+                else:
+                    action = next(action for action in menu.actions() if action.text() == choice)
+                    QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(action).center())
+            except Exception as error:
+                errors.append(error)
+            finally:
+                if menu is not None:
+                    menu.close()
+
+        QTimer.singleShot(0, respond)
+        open_options()
+        self.app.processEvents()
+        if errors:
+            raise errors[0]
+        self.assertEqual(inspected, ["profileOptionsMenu"])
+
     def test_menu_empty_state_tab_selection_and_reopening_discover_saved_profiles(self):
         self.controller.menu.aboutToShow.emit()
         self.assertEqual([action.text() for action in self.controller.menu.actions()],
                          ["Save as new profile…", "Update profile", "", "No saved profiles", "",
-                          "Rename", "Delete", "", "Open profiles folder"])
-        for name in ("Update profile", "Rename", "Delete"):
-            self.assertFalse(self.menu_action(name).isEnabled())
+                          "Open profiles folder"])
+        self.assertFalse(self.menu_action("Update profile").isEnabled())
         self.assertFalse(self.menu_action("Save as new profile…").isEnabled())
         self.assertFalse(self.menu_action("No saved profiles").isEnabled())
         self.assertTrue(self.menu_action("Open profiles folder").isEnabled())
@@ -75,8 +117,6 @@ class ProfileMenuTests(unittest.TestCase):
         self.controller.menu.aboutToShow.emit()
         self.assertEqual([action.text() for action in self.controller._profile_actions], ["Alpha && beta", "Zulu"])
         self.assertFalse(self.profile_action(alpha).isEnabled())
-        self.assertTrue(self.menu_action("Rename").isEnabled())
-        self.assertTrue(self.menu_action("Delete").isEnabled())
         first = self.open_log("first.log")
         self.assertTrue(self.profile_action(alpha).isEnabled())
         self.profile_action(alpha).trigger()
@@ -101,6 +141,80 @@ class ProfileMenuTests(unittest.TestCase):
             self.assertEqual(reopened._profiles_menu._profiles, (alpha, zulu))
         finally:
             retire_window(reopened)
+
+    def test_profile_row_options_support_hover_right_click_and_keyboard_without_applying(self):
+        first = Profile("First", FilterSnapshot(context=8))
+        second = Profile("Second", FilterSnapshot(context=12))
+        for profile in (first, second):
+            self.controller.store.save(profile)
+        page = self.open_log("active.log")
+        before = page.filter_panel.capture_snapshot()
+        menu = self.show_menu()
+        button = self.controller._row_options.button
+        first_action, second_action = self.profile_action(first), self.profile_action(second)
+        first_bounds = menu.actionGeometry(first_action)
+        second_bounds = menu.actionGeometry(second_action)
+        QTest.mouseMove(menu, menu.actionGeometry(self.menu_action("Save as new profile…")).center())
+        self.assertFalse(button.isVisible())
+        QTest.mouseMove(menu, first_bounds.center())
+        self.assertTrue(button.isVisible())
+        self.assertEqual(button.text(), "⋯")
+        self.assertTrue(first_bounds.contains(button.geometry()))
+        self.use_profile_options(lambda: QTest.mouseClick(button, Qt.MouseButton.LeftButton))
+        self.assertTrue(menu.isVisible())
+        self.assertTrue(button.isVisible())
+        QTest.mouseMove(menu, second_bounds.center())
+        self.assertTrue(second_bounds.contains(button.geometry()))
+        self.assertEqual(menu.actionGeometry(first_action), first_bounds)
+        self.use_profile_options(lambda: QTest.mouseClick(menu, Qt.MouseButton.RightButton, pos=second_bounds.center()))
+        self.assertTrue(menu.isVisible())
+        menu.setActiveAction(first_action)
+        QTest.keyClick(menu, Qt.Key.Key_Down)
+        self.assertEqual(menu.activeAction(), second_action)
+        self.assertTrue(second_bounds.contains(button.geometry()))
+        self.use_profile_options(lambda: QTest.keyClick(menu, Qt.Key.Key_F10, Qt.KeyboardModifier.ShiftModifier))
+        self.assertIsNone(page.applied_profile)
+        self.assertEqual(page.filter_panel.capture_snapshot(), before)
+        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=first_bounds.center())
+        self.assertFalse(menu.isVisible())
+        self.assertEqual(page.applied_profile, first)
+
+    def test_profile_row_management_targets_clicked_profile_without_tabs_or_while_busy(self):
+        profiles = [Profile("First", FilterSnapshot(context=8)), Profile("Second", FilterSnapshot(context=12))]
+        for profile in profiles:
+            self.controller.store.save(profile)
+        for busy in (False, True):
+            with self.subTest(busy=busy):
+                workers = []
+                if busy:
+                    page = self.open_log("busy.log")
+                    with capture_analysis(workers):
+                        page.analyze()
+                try:
+                    for index, profile in enumerate(profiles):
+                        menu = self.show_menu()
+                        action = self.profile_action(profile)
+                        self.assertFalse(action.isEnabled())
+                        bounds = menu.actionGeometry(action)
+                        QTest.mouseMove(menu, QPoint(3, 3))
+                        QTest.mouseMove(menu, bounds.center())
+                        button = self.controller._row_options.button
+                        self.assertTrue(button.isVisible())
+                        with patch.object(self.controller, "delete") as delete:
+                            self.use_profile_options(
+                                lambda: QTest.mouseClick(button, Qt.MouseButton.LeftButton) if index == 0 else
+                                QTest.mouseClick(menu, Qt.MouseButton.RightButton, pos=bounds.center()),
+                                "Delete…",
+                            )
+                            delete.assert_called_once_with(profile)
+                        self.assertFalse(menu.isVisible())
+                    if busy:
+                        self.assertIsNone(page.applied_profile)
+                finally:
+                    for worker in workers:
+                        worker.run()
+                    if busy:
+                        wait_until(lambda: not page.session.is_busy)
 
     def test_save_uses_current_controls_and_rejects_duplicate_names_without_replacing_files(self):
         other = self.open_log("other.log")
@@ -364,9 +478,12 @@ class ProfileMenuTests(unittest.TestCase):
             return dialog.result()
 
         with patch.object(ProfileNameDialog, "exec", rename):
-            action = next(action for action in self.menu_action("Rename").menu().actions()
-                          if action.data() == profile.profile_id)
-            action.trigger()
+            menu = self.show_menu()
+            action = self.profile_action(profile)
+            self.use_profile_options(
+                lambda: QTest.mouseClick(menu, Qt.MouseButton.RightButton, pos=menu.actionGeometry(action).center()),
+                "Rename…",
+            )
         renamed = self.controller.store.load(path)
         self.assertEqual(renamed.profile_id, profile.profile_id)
         self.assertEqual(renamed.filters, profile.filters)

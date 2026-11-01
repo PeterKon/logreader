@@ -23,6 +23,7 @@ THEME_COLORS = {
     "ui_excluded": "#ff7b72",
     "ui_button": "#263445",
     "ui_button_hover": "#32445a",
+    "ui_button_hover_on_selected": "#465b73",
     "ui_button_pressed": "#1d2937",
     "ui_open_tab": "#384b60",
     "ui_primary": "#1f6feb",

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QObject, Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QContextMenuEvent, QDesktopServices
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QLineEdit, QMenu, QWidget
 
 from ..filter_snapshot import FilterSnapshot
@@ -15,6 +15,103 @@ from .document_page import DocumentPage
 from .theme import THEME_COLORS
 from .title_bar import TitleMenu
 from .widgets.input_menus import InputContextMenu
+from .widgets.menu_style import CONTEXT_MENU_STYLE_SHEET
+from .widgets.row_menu_button import RowMenuButton
+
+
+class _ProfileRowOptions(QObject):
+    requested = Signal(object, QPoint)
+
+    def __init__(self, menu: QMenu) -> None:
+        super().__init__(menu)
+        self.menu = menu
+        self.actions = []
+        self._action = None
+        self._context_target = False
+        self.button = RowMenuButton(menu, hover_color=THEME_COLORS['ui_button_hover_on_selected'])
+        self.button.setObjectName("profileMenuButton")
+        self.button.clicked.connect(self._request_from_button)
+        self.button.installEventFilter(self)
+        self.outline = QWidget(menu)
+        self.outline.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.outline.setStyleSheet(f"background: transparent; border: 1px solid {THEME_COLORS['ui_accent']};")
+        self.outline.hide()
+        self._layout_timer = QTimer(self)
+        self._layout_timer.setSingleShot(True)
+        self._layout_timer.timeout.connect(self._refresh)
+        menu.installEventFilter(self)
+        menu.hovered.connect(self.show_for)
+        # Reserve the button's space even while hidden, keeping names stationary.
+        menu.setStyleSheet("QMenu#profilesMenu::item { padding-right: 40px; }")
+
+    def set_actions(self, actions) -> None:
+        self.show_for(None)
+        self.actions = actions
+
+    def show_for(self, action) -> None:
+        if not self._context_target:
+            self._action = action if action in self.actions else None
+        self._refresh()
+
+    def _refresh(self) -> None:
+        action = self._action
+        visible = self.menu.isVisible() and action in self.actions and action is not None
+        self.button.setVisible(visible and not self._context_target)
+        self.outline.setVisible(visible and self._context_target)
+        if not visible:
+            return
+        bounds = self.menu.actionGeometry(action)
+        self.button.move(bounds.right() - self.button.width() - 6,
+                         bounds.center().y() - self.button.height() // 2)
+        self.button.setAccessibleName(f"Options for {action.property('profileName')}")
+        self.outline.setGeometry(bounds)
+        self.outline.raise_()
+        self.button.raise_()
+
+    def set_context_target(self, active: bool) -> None:
+        self._context_target = active
+        self._refresh()
+
+    def _request_from_button(self) -> None:
+        if self._action in self.actions:
+            self.requested.emit(self._action, self.button.mapToGlobal(self.button.rect().bottomLeft()))
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        kind = event.type()
+        if kind in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease) and (
+            event.button() == Qt.MouseButton.RightButton
+        ):
+            if kind == QEvent.Type.MouseButtonRelease:
+                action = self._action if watched is self.button else self.menu.actionAt(event.position().toPoint())
+                if action in self.actions:
+                    self.show_for(action)
+                    self.requested.emit(action, event.globalPosition().toPoint())
+            return True
+        if kind == QEvent.Type.ContextMenu:
+            # Mouse releases above also work on platforms that do not synthesize
+            # context-menu events. Consume the subsequent native event once.
+            if event.reason() == QContextMenuEvent.Reason.Keyboard:
+                self.show_for(self.menu.activeAction())
+                self._request_from_button()
+            return True
+        if watched is not self.menu:
+            return False
+        if kind == QEvent.Type.KeyPress and (
+            event.key() in (Qt.Key.Key_Menu, Qt.Key.Key_Right)
+            or (event.key() == Qt.Key.Key_F10 and event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        ) and self.menu.activeAction() in self.actions:
+            self.show_for(self.menu.activeAction())
+            self._request_from_button()
+            return True
+        if kind == QEvent.Type.MouseMove:
+            self.show_for(self.menu.actionAt(event.position().toPoint()))
+        elif kind in (QEvent.Type.Show, QEvent.Type.Resize, QEvent.Type.LayoutRequest, QEvent.Type.ActionChanged):
+            self._layout_timer.start(0)
+        elif kind == QEvent.Type.Hide:
+            self._layout_timer.stop()
+            self.button.hide()
+            self.outline.hide()
+        return False
 
 
 class ProfileNameDialog(CompactDialog):
@@ -108,7 +205,8 @@ class ProfileMenuController(QObject):
         self._load_errors = ""
         self._folder_available = True
         self._profile_actions = []
-        self._management_menus = []
+        self._row_options = _ProfileRowOptions(menu)
+        self._row_options.requested.connect(self._show_profile_options)
         self._rebuild_menu()
         self.menu.aboutToShow.connect(self.refresh)
 
@@ -135,10 +233,8 @@ class ProfileMenuController(QObject):
         self._rebuild_menu()
 
     def _rebuild_menu(self) -> None:
+        self._row_options.set_actions([])
         self.menu.clear()
-        for menu in self._management_menus:
-            menu.deleteLater()
-        self._management_menus = []
         self._save_action = self.menu.addAction("Save as new profile…")
         self._save_action.triggered.connect(self.save_new)
         self._update_action = self.menu.addAction("Update profile")
@@ -152,6 +248,7 @@ class ProfileMenuController(QObject):
             action.setCheckable(True)
             action.triggered.connect(lambda _checked=False, saved=profile: self.apply(saved))
             self._profile_actions.append(action)
+        self._row_options.set_actions(self._profile_actions)
         if not self._profiles:
             self.menu.addAction(
                 "No saved profiles" if self._folder_available else "Profiles unavailable"
@@ -159,18 +256,32 @@ class ProfileMenuController(QObject):
         if self._load_errors:
             self.menu.addAction("Show load errors…").triggered.connect(self.show_load_errors)
         self.menu.addSeparator()
-        for title, handler in (("Rename", self.rename), ("Delete", self.delete)):
-            submenu = TitleMenu(title, self.menu)
-            submenu.setEnabled(bool(self._profiles))
-            self.menu.addMenu(submenu)
-            self._management_menus.append(submenu)
-            for profile in self._profiles:
-                action = submenu.addAction(profile.name.replace("&", "&&"))
-                action.setData(profile.profile_id)
-                action.triggered.connect(lambda _checked=False, saved=profile, callback=handler: callback(saved))
-        self.menu.addSeparator()
         self.menu.addAction("Open profiles folder").triggered.connect(self.open_folder)
         self.update_state()
+
+    def _show_profile_options(self, action, position: QPoint) -> None:
+        profile = next((profile for profile in self._profiles if profile.profile_id == action.data()), None)
+        if profile is None:
+            return
+        options = TitleMenu(self.window)
+        options.setObjectName("profileOptionsMenu")
+        options.setStyleSheet(CONTEXT_MENU_STYLE_SHEET)
+        rename = options.addAction("Rename…")
+        delete = options.addAction("Delete…")
+        self.menu.setActiveAction(action)
+        self._row_options.show_for(action)
+        self._row_options.set_context_target(True)
+        try:
+            selected = options.exec(position)
+        finally:
+            self._row_options.set_context_target(False)
+            options.deleteLater()
+        if selected is not None:
+            self.menu.close()
+            if selected is rename:
+                self.rename(profile)
+            elif selected is delete:
+                self.delete(profile)
 
     def update_state(self) -> None:
         page = self.current_page()
