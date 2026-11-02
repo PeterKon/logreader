@@ -52,7 +52,7 @@ class _ProfileMenuSymbols(QWidget):
                                 Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
             painter.save()
             if muted_profile:
-                painter.setOpacity(0.55)
+                painter.setOpacity(0.20)
             painter.translate(bounds.left() + 8, bounds.center().y() - 6.5)
             _paint_profile_symbol(painter, symbol)
             painter.restore()
