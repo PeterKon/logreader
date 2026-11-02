@@ -73,6 +73,33 @@ class DialogCloseButton(QPushButton):
         painter.drawLine(center.x() + 4, center.y() - 4, center.x() - 4, center.y() + 4)
 
 
+class _ResizeHandle(QWidget):
+    def __init__(self, dialog, edges, cursor):
+        super().__init__(dialog)
+        self.edges = edges
+        self.setCursor(cursor)
+
+    def fit_border(self, width, height):
+        border = 5
+        x, w = border, width - 2 * border
+        y, h = border, height - 2 * border
+        if self.edges & Qt.Edge.LeftEdge:
+            x, w = 0, border
+        elif self.edges & Qt.Edge.RightEdge:
+            x, w = width - border, border
+        if self.edges & Qt.Edge.TopEdge:
+            y, h = 0, border
+        elif self.edges & Qt.Edge.BottomEdge:
+            y, h = height - border, border
+        self.setGeometry(x, y, w, h)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.window().windowHandle().startSystemResize(self.edges):
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class CompactDialog(QDialog):
     def __init__(self, title, parent=None, *, resizable=False):
         super().__init__(parent, Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
@@ -84,7 +111,6 @@ class CompactDialog(QDialog):
         self.setFont(font)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet(COMPACT_DIALOG_STYLE)
-        self._resizable = resizable
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         self.frame = QFrame(self)
@@ -127,10 +153,19 @@ class CompactDialog(QDialog):
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         frame_layout.addWidget(self.buttons)
+        self._resize_handles = []
+        if resizable:
+            left, right = Qt.Edge.LeftEdge, Qt.Edge.RightEdge
+            top, bottom = Qt.Edge.TopEdge, Qt.Edge.BottomEdge
+            shape = Qt.CursorShape
+            self._resize_handles = [_ResizeHandle(self, edges, cursor) for edges, cursor in (
+                (left, shape.SizeHorCursor), (right, shape.SizeHorCursor),
+                (top, shape.SizeVerCursor), (bottom, shape.SizeVerCursor),
+                (top | left, shape.SizeFDiagCursor), (bottom | right, shape.SizeFDiagCursor),
+                (top | right, shape.SizeBDiagCursor), (bottom | left, shape.SizeBDiagCursor),
+            )]
         self.grip = QSizeGrip(self) if resizable else None
-        for widget in (self, self.frame, self.caption):
-            widget.setMouseTracking(True)
-            widget.installEventFilter(self)
+        self.caption.installEventFilter(self)
 
     def set_buttons(self, buttons, *, default, destructive=None):
         self.buttons.setStandardButtons(buttons)
@@ -150,41 +185,17 @@ class CompactDialog(QDialog):
         self.resize(self.width(), height if height >= 0 else layout.sizeHint().height())
 
     def eventFilter(self, watched, event):  # noqa: N802
-        if event.type() in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress):
-            point = self.mapFromGlobal(event.globalPosition().toPoint())
-            edges = Qt.Edge(0)
-            if self._resizable:
-                if point.x() < 5:
-                    edges |= Qt.Edge.LeftEdge
-                elif point.x() >= self.width() - 5:
-                    edges |= Qt.Edge.RightEdge
-                if point.y() < 5:
-                    edges |= Qt.Edge.TopEdge
-                elif point.y() >= self.height() - 5:
-                    edges |= Qt.Edge.BottomEdge
-            horizontal = bool(edges & (Qt.Edge.LeftEdge | Qt.Edge.RightEdge))
-            vertical = bool(edges & (Qt.Edge.TopEdge | Qt.Edge.BottomEdge))
-            cursor = Qt.CursorShape.ArrowCursor
-            if horizontal and vertical:
-                cursor = (Qt.CursorShape.SizeFDiagCursor if edges in (
-                    Qt.Edge.TopEdge | Qt.Edge.LeftEdge, Qt.Edge.BottomEdge | Qt.Edge.RightEdge,
-                ) else Qt.CursorShape.SizeBDiagCursor)
-            elif horizontal:
-                cursor = Qt.CursorShape.SizeHorCursor
-            elif vertical:
-                cursor = Qt.CursorShape.SizeVerCursor
-            watched.setCursor(cursor)
-            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
-                handle = self.windowHandle()
-                if handle is not None:
-                    if edges:
-                        return handle.startSystemResize(edges)
-                    if watched is self.caption:
-                        return handle.startSystemMove()
+        if (watched is self.caption and event.type() == QEvent.Type.MouseButtonPress
+                and event.button() == Qt.MouseButton.LeftButton):
+            handle = self.windowHandle()
+            if handle is not None:
+                return handle.startSystemMove()
         return super().eventFilter(watched, event)
 
     def resizeEvent(self, event):  # noqa: N802
         super().resizeEvent(event)
+        for handle in self._resize_handles:
+            handle.fit_border(self.width(), self.height())
         if self.grip is not None:
             self.grip.setGeometry(self.width() - 13, self.height() - 13, 12, 12)
             self.grip.raise_()

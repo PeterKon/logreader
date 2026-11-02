@@ -56,12 +56,41 @@ class CompactDialogTests(unittest.TestCase):
         ) as resize:
             QTest.mouseClick(dialog.caption, Qt.MouseButton.LeftButton, pos=QPoint(100, 18))
             move.assert_called_once()
-            QTest.mouseClick(dialog.frame, Qt.MouseButton.LeftButton, pos=QPoint(2, 2))
+            QTest.mouseClick(dialog.windowHandle(), Qt.MouseButton.LeftButton, pos=QPoint(2, 2))
             resize.assert_called_once_with(Qt.Edge.TopEdge | Qt.Edge.LeftEdge)
         fixed = self.show(BookmarkNameDialog("Add bookmark", "Line 10"))
         with patch.object(QWindow, "startSystemResize", return_value=True) as resize:
-            QTest.mouseClick(fixed.frame, Qt.MouseButton.LeftButton, pos=QPoint(2, 2))
+            QTest.mouseClick(fixed.windowHandle(), Qt.MouseButton.LeftButton, pos=QPoint(2, 2))
             resize.assert_not_called()
+
+    def test_resize_cursors_stay_on_the_border(self):
+        dialog = self.show(PatternEditDialog("original", is_regex=True, parent=None))
+        dialog.resize(dialog.width() + 60, dialog.height() + 40)
+        self.app.processEvents()
+        width, height = dialog.width(), dialog.height()
+        shape = Qt.CursorShape
+        body = dialog.body_layout.parentWidget()
+        blank = body.mapTo(dialog, QPoint(8, 8))
+        viewport = dialog.editor.viewport()
+        text = viewport.mapTo(dialog, viewport.rect().center())
+        cancel = dialog.buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        button = cancel.mapTo(dialog, cancel.rect().center())
+
+        def check_cursor(point, expected):
+            QTest.mouseMove(dialog.windowHandle(), point)
+            self.assertEqual(dialog.childAt(point).cursor().shape(), expected)
+
+        for x, y, expected in (
+            (0, height // 2, shape.SizeHorCursor), (width - 1, height // 2, shape.SizeHorCursor),
+            (width // 2, 0, shape.SizeVerCursor), (width // 2, height - 1, shape.SizeVerCursor),
+            (1, 1, shape.SizeFDiagCursor), (width - 2, 1, shape.SizeBDiagCursor),
+            (1, height - 2, shape.SizeBDiagCursor), (width - 2, height - 2, shape.SizeFDiagCursor),
+        ):
+            with self.subTest(edge=(x, y)):
+                check_cursor(QPoint(x, y), expected)
+                check_cursor(blank, shape.ArrowCursor)
+                check_cursor(text, shape.IBeamCursor)
+                check_cursor(button, shape.ArrowCursor)
 
     def test_long_note_scrolls_without_moving_caption_or_actions(self):
         source = SourceLocation("sample", 12480)
