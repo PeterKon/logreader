@@ -5,7 +5,7 @@ from bisect import bisect_right
 from dataclasses import dataclass, field, replace
 from typing import Iterator
 
-from ...core import AnalysisResult, ResultLine
+from ...core import AnalysisResult, CategoryIdentity, ResultLine
 from .presentation import CategoryPresentation, build_category_presentations
 
 
@@ -15,16 +15,6 @@ class SourceLocation:
 
     snapshot_id: str
     line: int
-
-
-@dataclass(frozen=True, slots=True)
-class CategoryIdentity:
-    """Pattern identity independent of custom/regex list positions."""
-
-    kind: str
-    value: str
-    case_sensitive: bool = False
-    occurrence: int = 0
 
 
 @dataclass(frozen=True, slots=True)

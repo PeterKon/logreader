@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, Signal
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..session_snapshot import BookmarkSnapshot
 from .widgets.input_menus import InputContextMenu
 from .widgets.menu_style import style_checkbox_menu, style_menu
 from .dialogs import CompactDialog
@@ -31,6 +33,8 @@ class Bookmark:
     converted: bool = False
     convert_when_shown: bool = False
     note: str = ""
+    # Retain the original evidence when there is no verified source line to hash.
+    unresolved_sha256: str | None = None
 
     @property
     def source_only(self) -> bool:
@@ -368,6 +372,42 @@ class ResultsBookmarks(QObject):
         return (source.snapshot_id == self.view._snapshot_id and
                 source_view.first_line <= source.line <= source_view.total_line_count)
 
+    def _line_digest(self, source: SourceLocation) -> str | None:
+        if not self._retained(source):
+            return None
+        view = self.view.source_view
+        text = view.lines[source.line - view.first_line]
+        return sha256(text.encode("utf-8")).hexdigest()
+
+    def capture(self) -> tuple[BookmarkSnapshot, ...]:
+        records = []
+        for source, bookmark in self.items.items():
+            digest = bookmark.unresolved_sha256 or self._line_digest(source)
+            if digest is None:
+                raise ValueError(f"Could not capture bookmark on line {source.line:,}")
+            location = bookmark.location
+            records.append(BookmarkSnapshot(
+                line=source.line, line_sha256=digest, name=bookmark.name, note=bookmark.note,
+                category=location.category if isinstance(location, ResultLocation) else None,
+                converted=bookmark.converted, convert_when_shown=bookmark.convert_when_shown,
+            ))
+        return tuple(records)
+
+    def restore(self, records: tuple[BookmarkSnapshot, ...]) -> None:
+        self.items.clear()
+        while self.strip.count():
+            self.strip.removeTab(self.strip.count() - 1)
+        for record in records:
+            source = SourceLocation(self.view._snapshot_id, record.line)
+            verified = self._line_digest(source) == record.line_sha256
+            self.items[source] = Bookmark(
+                location=ResultLocation(source, record.category) if record.category is not None else source,
+                name=record.name, note=record.note, converted=record.converted,
+                convert_when_shown=record.convert_when_shown,
+                unresolved_sha256=None if verified else record.line_sha256,
+            )
+        self.refresh()
+
     @staticmethod
     def _name(name: str, source: SourceLocation) -> str:
         return name.strip() or f"Line {source.line:,}"
@@ -460,7 +500,10 @@ class ResultsBookmarks(QObject):
     def add_menu_actions(self, menu: QMenu, location: ResultLocation | SourceLocation) -> None:
         style_menu(menu)
         source = location.source if isinstance(location, ResultLocation) else location
-        if source in self.items:
+        bookmark = self.items.get(source)
+        if bookmark is not None and bookmark.unresolved_sha256 is not None:
+            menu.addAction("Unresolved bookmark on this line").setEnabled(False)
+        elif bookmark is not None:
             menu.addAction("Rename bookmark", lambda: self.rename(source))
             menu.addAction("Delete bookmark", lambda: self.request_remove(source))
             self._add_extra_menu_actions(menu, source)
@@ -531,7 +574,12 @@ class ResultsBookmarks(QObject):
 
     def activate(self, source: SourceLocation) -> None:
         bookmark = self.items.get(source)
-        if bookmark is None or not self._retained(source):
+        if bookmark is None:
+            return
+        if bookmark.unresolved_sha256 is not None:
+            self.strip.show_tooltip(source)
+            return
+        if not self._retained(source):
             return
         if self.view.source_active:
             self.view.source_view.target_line = None
@@ -562,6 +610,13 @@ class ResultsBookmarks(QObject):
             if self.strip.tabData(index) not in sources:
                 self.strip.removeTab(index)
         for index, (source, bookmark) in enumerate(self.items.items()):
+            if bookmark.unresolved_sha256 is not None:
+                reason = "has changed" if self._retained(source) else "is unavailable in the loaded source"
+                line = f"Line {source.line:,}"
+                title = "" if bookmark.name == line else f"{bookmark.name}\n"
+                self._show_tab(index, source, bookmark, "Unresolved - ", "ui_muted",
+                               f"{title}{line} {reason}.", enabled=True)
+                continue
             rows = model.rows_for_source(source) if model is not None else ()
             if isinstance(bookmark.location, SourceLocation):
                 if bookmark.convert_when_shown and rows:
@@ -575,22 +630,13 @@ class ResultsBookmarks(QObject):
                 bookmark.converted = isinstance(bookmark.location, ResultLocation) and not rows
             for row in rows:
                 blocks[self.view._source_map.block(row)] = row == preferred
-            label = ("(c) " if bookmark.converted else "") + bookmark.name.replace("&", "&&")
-            if index == self.strip.count():
-                self.strip.addTab(label)
-                self.strip.setTabData(index, source)
-            else:
-                self.strip.setTabText(index, label)
-            self.strip.setTabTextColor(index, QColor(THEME_COLORS[
-                "bookmark_source_text" if bookmark.source_only else "bookmark_text"
-            ]))
             if bookmark.source_only:
                 tooltip = f"Source-only bookmark\nLine {source.line:,}"
                 if bookmark.converted:
                     tooltip += ("\nConverted to source bookmark. Match no longer appears on results. "
                                 "Re-analysis needed.")
             elif not self.view.results_ready and not self.view.source_active:
-                destination = "Results are updating. Open the original file to use this bookmark."
+                destination = "Open Source to visit this line."
             elif self.view.source_active:
                 destination = "Open this line in the original file."
             else:
@@ -600,16 +646,29 @@ class ResultsBookmarks(QObject):
             if not bookmark.source_only:
                 title = "" if bookmark.name == f"Line {source.line:,}" else f"{bookmark.name}\n"
                 tooltip = f"{title}Line {source.line:,}\n{destination}"
-            if bookmark.note:
-                tooltip += f"\n\nNote: {bookmark.note_preview}"
-            self.strip.setTabToolTip(index, tooltip)
-            self.strip.setTabEnabled(index, bookmark.source_only or self.view.results_ready
-                                     or self.view.source_active)
-            self.strip.set_note_icon(index, bool(bookmark.note))
+            self._show_tab(index, source, bookmark, "(c) " if bookmark.converted else "",
+                           "bookmark_source_text" if bookmark.source_only else "bookmark_text", tooltip,
+                           enabled=bookmark.source_only or self.view.results_ready or self.view.source_active)
         self._select(selected)
         self.strip.setVisible(bool(self.items))
         self.bar.setVisible(bool(self.items))
         self.reorder_button.setEnabled(len(self.items) > 1)
         self.view.editor.set_bookmarked_blocks(blocks)
         self.view.editor.verticalScrollBar().set_bookmark_blocks(blocks, self.view.editor.document())
-        self.view.source_view.set_bookmarks({s.line for s in self.items if self._retained(s)})
+        self.view.source_view.set_bookmarks({
+            s.line for s, item in self.items.items() if item.unresolved_sha256 is None and self._retained(s)
+        })
+
+    def _show_tab(self, index, source, bookmark, prefix, color, tooltip, *, enabled):
+        label = prefix + bookmark.name.replace("&", "&&")
+        if index == self.strip.count():
+            self.strip.addTab(label)
+            self.strip.setTabData(index, source)
+        else:
+            self.strip.setTabText(index, label)
+        self.strip.setTabTextColor(index, QColor(THEME_COLORS[color]))
+        if bookmark.note:
+            tooltip += f"\n\nNote: {bookmark.note_preview}"
+        self.strip.setTabToolTip(index, tooltip)
+        self.strip.setTabEnabled(index, enabled)
+        self.strip.set_note_icon(index, bool(bookmark.note))

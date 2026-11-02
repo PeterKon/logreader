@@ -6,15 +6,14 @@ from typing import Callable
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QContextMenuEvent, QDesktopServices, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QLineEdit, QMenu, QWidget
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QMenu, QWidget
 
 from ..filter_snapshot import FilterSnapshot
 from ..profiles import Profile, ProfileError, ProfileStore
-from .dialogs import CompactDialog, show_warning
+from .dialogs import CompactDialog, NameDialog, show_warning
 from .document_page import DocumentPage
 from .theme import THEME_COLORS
 from .title_bar import TitleMenu
-from .widgets.input_menus import InputContextMenu
 from .widgets.menu_style import CONTEXT_MENU_STYLE_SHEET
 from .widgets.row_menu_button import RowMenuButton
 
@@ -211,55 +210,14 @@ class _ProfileRowOptions(QObject):
         return False
 
 
-class ProfileNameDialog(CompactDialog):
+class ProfileNameDialog(NameDialog):
     def __init__(
         self, parent: QWidget, save: Callable[[str], None], *, initial_name: str = "",
     ) -> None:
-        super().__init__("Rename profile" if initial_name else "Save as new profile", parent)
-        self._save = save
-        self.setObjectName("profileNameDialog")
-        self.setFixedWidth(420)
-        self.body_layout.setContentsMargins(14, 12, 14, 12)
-        self.buttons.setContentsMargins(14, 0, 14, 12)
-        self.name_input = QLineEdit()
-        self.name_input.setObjectName("profileNameInput")
-        self.name_input.setAccessibleName("Profile name")
-        InputContextMenu(self.name_input, undo=True, redo=True, cut=True)
-        label = QLabel("Name")
-        label.setBuddy(self.name_input)
-        self.body_layout.addWidget(label)
-        self.body_layout.addWidget(self.name_input)
-        self.error_label = QLabel()
-        self.error_label.setObjectName("profileNameError")
-        self.error_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.error_label.setWordWrap(True)
-        self.error_label.setStyleSheet(f"color: {THEME_COLORS['ui_excluded']};")
-        self.error_label.hide()
-        self.body_layout.addWidget(self.error_label)
-        self.set_buttons(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel,
-            default=QDialogButtonBox.StandardButton.Save,
-        )
-        self.fit_content()
+        super().__init__(parent, "Rename profile" if initial_name else "Save as new profile",
+                         "profile", save, initial_name=initial_name)
         if initial_name:
-            self.name_input.setText(initial_name)
-            self.name_input.selectAll()
             self.buttons.button(QDialogButtonBox.StandardButton.Save).setText("Rename")
-        self.name_input.setFocus()
-
-    def accept(self) -> None:
-        try:
-            name = self.name_input.text().strip()
-            if not name:
-                raise ProfileError("Enter a profile name.")
-            self._save(name)
-        except (ValueError, OSError) as error:
-            self.error_label.setText(str(error))
-            self.error_label.show()
-            self.fit_content()
-            self.name_input.setFocus()
-            return
-        super().accept()
 
 
 class ProfileDeletionDialog(CompactDialog):

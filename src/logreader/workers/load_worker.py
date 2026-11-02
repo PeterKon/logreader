@@ -18,12 +18,13 @@ class LoadWorkerSignals(QObject):
 class LoadWorker(QRunnable):
     def __init__(
         self, request_id: int, source_path: Path,
-        max_lines_scanned: int = DEFAULT_MAX_LINES_SCANNED,
+        max_lines_scanned: int = DEFAULT_MAX_LINES_SCANNED, *, include_error_path: bool = True,
     ) -> None:
         super().__init__()
         self.request_id = request_id
         self.source_path: Path | None = source_path
         self.max_lines_scanned = max_lines_scanned
+        self.include_error_path = include_error_path
         self.cancellation = CancellationToken()
         self.signals = LoadWorkerSignals()
 
@@ -50,7 +51,10 @@ class LoadWorker(QRunnable):
             pass
         except Exception as error:
             if not self.cancellation.is_cancelled:
-                self.signals.failed.emit(self.request_id, str(error))
+                message = str(error)
+                if not self.include_error_path and isinstance(error, OSError) and error.strerror:
+                    message = error.strerror
+                self.signals.failed.emit(self.request_id, message)
         finally:
             self.source_path = None
             self.signals.finished.emit(self.request_id)

@@ -13,7 +13,7 @@ from .file_loader import DEFAULT_MAX_LINES_SCANNED
 SNAPSHOT_VERSION = 1
 
 
-def _object_fields(value: object, fields: set[str], label: str) -> dict:
+def object_fields(value: object, fields: set[str], label: str) -> dict:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be an object")
     missing = fields - value.keys()
@@ -53,7 +53,7 @@ class PatternSnapshot:
 
     @classmethod
     def from_dict(cls, value: object) -> PatternSnapshot:
-        data = _object_fields(
+        data = object_fields(
             value, {"text", "enabled", "match_case", "exclude", "exclusive"}, "Pattern",
         )
         return cls(**data)
@@ -112,7 +112,7 @@ class FilterSnapshot:
 
     @classmethod
     def from_dict(cls, value: object) -> FilterSnapshot:
-        data = _object_fields(value, {
+        data = object_fields(value, {
             "version", "enabled_patterns", "custom_patterns", "regex_patterns", "context",
             "max_lines_scanned", "combined_view", "separate_entries",
         }, "Filter snapshot")

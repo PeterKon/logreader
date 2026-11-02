@@ -1246,6 +1246,13 @@ class FilterPanel(QGroupBox):
             return PATTERN_PRESETS_BY_KEY[key].label
         return PATTERN_PRESETS_BY_KEY[key].label.capitalize()
 
+    def pattern_drafts(self) -> tuple[str, str]:
+        return self._custom_pattern.text(), self._regex_pattern.text()
+
+    def set_pattern_drafts(self, custom: str, regex: str) -> None:
+        self._custom_pattern.setText(custom)
+        self._regex_pattern.setText(regex)
+
     def capture_snapshot(self) -> FilterSnapshot:
         """Capture committed filters, including disabled entries and their options."""
         self._context_spin.interpretText()

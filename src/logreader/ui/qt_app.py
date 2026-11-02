@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
@@ -44,9 +45,11 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import APP_VERSION, LogreaderConfig
+from ..session_snapshot import SavedSession, SessionTab
 from .app_icon import application_icon, application_logo, set_windows_app_id
 from .document_page import DocumentPage
 from .profile_menu import ProfileMenuController
+from .session_menu import SessionMenuController
 from .dialogs import show_warning
 from .widgets.menu_style import MenuTheme
 from ..document_session import AnalysisPhase, LoadPhase
@@ -498,6 +501,14 @@ QToolTip {{
 """
 
 
+def _document_path(source_path: str | Path) -> Path:
+    path = Path(source_path)
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return Path(os.path.abspath(path))
+
+
 class DocumentTabBar(QTabBar):
     """Keep long filenames from consuming the neighboring tabs' label space."""
 
@@ -602,6 +613,7 @@ class LogreaderWindow(TitleBarWindow):
         self.setAcceptDrops(True)
         QApplication.instance().installEventFilter(self)
         self.install_title_bar()
+        self._session_menu = SessionMenuController(self, self.title_menus.findChild(QMenu, "fileMenu"))
         self._build_view_menu()
         self._profiles_menu = ProfileMenuController(
             self, self.title_menus.findChild(QMenu, "profilesMenu"), lambda: self._document,
@@ -965,6 +977,7 @@ class LogreaderWindow(TitleBarWindow):
         self._refresh_loading_status()
         self._present_analysis_busy()
 
+        self._session_menu.update_state()
         self._update_view_menu()
 
     def _set_window_title(self, title: str) -> None:
@@ -1022,6 +1035,9 @@ class LogreaderWindow(TitleBarWindow):
                 label += " (Failed)"
             self._tabs.setTabText(index, label.replace("&", "&&"))
             self._tabs.setTabToolTip(index, str(path))
+            close = self._tabs.tabButton(index, QTabBar.ButtonPosition.RightSide)
+            if close is not None:
+                close.setAccessibleName(f"Close {path.name}")
 
     def _apply_interface_palette(self) -> None:
         palette = self.palette()
@@ -1084,24 +1100,65 @@ class LogreaderWindow(TitleBarWindow):
             self._select_document(first)
         return first is not None
 
-    def _open_path(self, source_path: str | Path) -> DocumentPage:
-        path = Path(source_path)
+    def capture_session(self) -> tuple[tuple[SessionTab, ...], int]:
+        """Capture the tabs in display order and the selected index for SessionStore.save."""
+        if not self._tabs.count():
+            raise ValueError("Open a file before saving a session.")
+        tabs = tuple(self._pages.widget(i).capture_session_tab() for i in range(self._tabs.count()))
+        return tabs, self._tabs.currentIndex()
+
+    @staticmethod
+    def validate_session(session: SavedSession | dict) -> SavedSession:
+        if not isinstance(session, SavedSession):
+            session = SavedSession.from_dict(session)
+        # Apply the same path resolution as Open file, then recheck uniqueness.
+        return replace(session, tabs=tuple(
+            replace(tab, path=_document_path(tab.path)) for tab in session.tabs
+        ))
+
+    def restore_session(self, session: SavedSession | dict) -> None:
+        """Prepare the saved tabs before disposing the workspace they will replace."""
+        session = self.validate_session(session)
+        pages = []
         try:
-            path = path.resolve()
-        except (OSError, ValueError):
-            path = Path(os.path.abspath(path))
-        key = os.path.normcase(str(path))
-        existing = self._documents_by_path.get(key)
+            for tab in session.tabs:
+                page = self._new_document()
+                pages.append(page)
+                page.restore_session_tab(tab)
+        except Exception:
+            for page in pages:
+                page.dispose()
+            raise
+
+        while self._tabs.count():
+            self.close_tab(self._tabs.count() - 1)
+        for page in pages:
+            self._add_document(page)
+        self._tabs.setCurrentIndex(session.selected_tab)
+
+    def _open_path(self, source_path: str | Path) -> DocumentPage:
+        path = _document_path(source_path)
+        existing = self._documents_by_path.get(os.path.normcase(str(path)))
         if existing is not None:
             if existing.session.load_phase is LoadPhase.FAILED:
                 existing.load_file(path)
             return existing
 
+        page = self._new_document()
+        page.load_file(path)
+        self._add_document(page)
+        return page
+
+    def _new_document(self) -> DocumentPage:
         page = DocumentPage(
             self._pages, scheduler=self._scheduler,
-            show_performance=self._show_performance,
+            show_performance=self._show_performance, claim_replacement=self._claim_replacement,
         )
         page.set_render_active(False)
+        return page
+
+    def _add_document(self, page: DocumentPage) -> None:
+        path = page.session.path
         page.status_changed.connect(self._present_document_status)
         page.results_view.loading_status_changed.connect(self._present_loading_status)
         page.results_view.maximized_changed.connect(self._update_view_menu)
@@ -1109,23 +1166,53 @@ class LogreaderWindow(TitleBarWindow):
         page.results_view.view_state_changed.connect(self._refresh_loading_status)
         page.busy_changed.connect(self._present_analysis_busy)
         page.profile_state_changed.connect(self._profiles_menu.update_state)
+        page.replace_file_requested.connect(self._choose_replacement)
         page.analysis_failed.connect(self._present_analysis_failure)
         page.analysis_finished.connect(self.analysis_finished.emit)
-        page.load_file(path)
-        self._documents_by_path[key] = page
+        self._documents_by_path[os.path.normcase(str(path))] = page
         self._pages.addWidget(page)
         # Keep the neutral target eligible when Qt restores focus on tab return.
         page.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         page.setFocus(Qt.FocusReason.OtherFocusReason)
         index = self._tabs.addTab(path.name)
         close_button = TabCloseButton(self._tabs)
-        close_button.setAccessibleName(f"Close {path.name}")
         close_button.clicked.connect(
             lambda _checked=False, document=page: self.close_tab(self._pages.indexOf(document))
         )
         self._tabs.setTabButton(index, QTabBar.ButtonPosition.RightSide, close_button)
         self._refresh_tab_labels()
-        return page
+
+    @Slot()
+    def _choose_replacement(self) -> None:
+        page = self.sender()
+        if not page.unavailable_session_file:
+            return
+        expected = page.session.path
+        generation = page.session.request_generation
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Replace file", str(expected.parent), "Log and text files (*.log *.txt);;All files (*)",
+        )
+        # The native picker can process a tab close or another restore.
+        if not filename or self._documents_by_path.get(os.path.normcase(str(expected))) is not page:
+            return
+        if not page.unavailable_session_file or page.session.request_generation != generation:
+            return
+        path = _document_path(filename)
+        owner = self._documents_by_path.get(os.path.normcase(str(path)))
+        if owner is not None and owner is not page:
+            page.file_warning.set_detail(f"{path}\nThis file is already open in another tab.")
+            return
+        page.try_replacement(path)
+
+    def _claim_replacement(self, page: DocumentPage, path: Path) -> bool:
+        """Rekey a successfully read file on the GUI thread, just before its page commits it."""
+        old_key = os.path.normcase(str(page.session.path))
+        new_key = os.path.normcase(str(path))
+        if self._documents_by_path.get(old_key) is not page or new_key in self._documents_by_path:
+            return False
+        del self._documents_by_path[old_key]
+        self._documents_by_path[new_key] = page
+        return True
 
     def analyze_current(self) -> None:
         """Dispatch Analyze to the document owning the controls and results."""
@@ -1137,7 +1224,7 @@ class LogreaderWindow(TitleBarWindow):
         page = self._document
         busy = page is not None and page.session.is_busy
         self._analyze_button.setEnabled(
-            page is not None and page.session.path is not None and not busy
+            page is not None and page.session.path is not None and not busy and not page.unavailable_session_file
         )
         if (page is not None and page.busy_visible and not page.analysis_queued
                 and page.session.phase is not AnalysisPhase.RENDERING):

@@ -46,13 +46,13 @@ class ProfileStoreTests(unittest.TestCase):
 
     def test_default_location_and_override_do_not_depend_on_the_checkout(self):
         with patch.dict(os.environ, {}, clear=True), patch(
-            "logreader.profiles.QStandardPaths.writableLocation", return_value=str(self.root / "appdata"),
+            "logreader.local_storage.QStandardPaths.writableLocation", return_value=str(self.root / "appdata"),
         ) as location:
             self.assertEqual(profile_directory(), self.root / "appdata" / "Logreader" / "profiles")
             location.assert_called_once_with(QStandardPaths.StandardLocation.GenericDataLocation)
         override = self.root / "isolated"
         with patch.dict(os.environ, {"LOGREADER_PROFILE_DIR": str(override)}), patch(
-            "logreader.profiles.QStandardPaths.writableLocation", side_effect=AssertionError("used default"),
+            "logreader.local_storage.QStandardPaths.writableLocation", side_effect=AssertionError("used default"),
         ):
             store = ProfileStore()
             self.assertEqual(store.save(self.profile).parent, override)
@@ -135,7 +135,7 @@ class ProfileStoreTests(unittest.TestCase):
                 def errorString(self):
                     return "Simulated disk failure"
 
-            with self.subTest(failure=failure), patch("logreader.profiles.QSaveFile", FailedSaveFile):
+            with self.subTest(failure=failure), patch("logreader.local_storage.QSaveFile", FailedSaveFile):
                 with self.assertRaisesRegex(ProfileError, "Could not save.*Simulated disk failure"):
                     self.store.save(updated)
                 self.assertEqual(path.read_bytes(), before)

@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import QIODevice, QSaveFile, QStandardPaths
-
 from .filter_snapshot import FilterSnapshot
+from .local_storage import data_directory, write_json
 
 
 PROFILE_VERSION = 1
@@ -89,17 +87,10 @@ class ProfileLoadResult:
 
 
 def profile_directory() -> Path:
-    override = os.environ.get("LOGREADER_PROFILE_DIR")
-    if override is not None:
-        if not override.strip():
-            raise ProfileError("LOGREADER_PROFILE_DIR cannot be empty")
-        return Path(override).expanduser().resolve()
-    # GenericDataLocation is Local AppData on Windows, independent of the
-    # executable, working directory, and any QApplication organization name.
-    location = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericDataLocation)
-    if not location:
-        raise ProfileError("Could not locate the application data folder")
-    return Path(location) / "Logreader" / "profiles"
+    try:
+        return data_directory("profiles", "LOGREADER_PROFILE_DIR")
+    except ValueError as error:
+        raise ProfileError(str(error)) from error
 
 
 class ProfileStore:
@@ -172,19 +163,9 @@ class ProfileStore:
 
     def _write(self, profile: Profile, path: Path) -> Path:
         try:
-            payload = (json.dumps(profile.to_dict(), ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-            self.directory.mkdir(parents=True, exist_ok=True)
+            write_json(path, profile.to_dict())
         except (OSError, UnicodeError) as error:
             raise ProfileError(f"Could not save profile '{profile.name}': {error}") from error
-        output = QSaveFile(str(path))
-        if not output.open(QIODevice.OpenModeFlag.WriteOnly):
-            raise ProfileError(f"Could not save profile '{profile.name}': {output.errorString()}")
-        if output.write(payload) != len(payload):
-            message = output.errorString()
-            output.cancelWriting()
-            raise ProfileError(f"Could not save profile '{profile.name}': {message}")
-        if not output.commit():
-            raise ProfileError(f"Could not save profile '{profile.name}': {output.errorString()}")
         return path
 
     def load(self, path: str | Path) -> Profile:

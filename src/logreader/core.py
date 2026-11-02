@@ -18,6 +18,16 @@ COMBINED_CATEGORY_KEY = "combined"
 
 
 @dataclass(frozen=True, slots=True)
+class CategoryIdentity:
+    """Pattern identity independent of custom/regex list positions."""
+
+    kind: str
+    value: str
+    case_sensitive: bool = False
+    occurrence: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class SearchPattern:
     """Configuration for a literal or regex search, optionally matching case."""
 

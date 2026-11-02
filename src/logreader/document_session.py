@@ -57,6 +57,7 @@ class DocumentSession:
     active_request: AnalysisRequest | None = None
     load_phase: LoadPhase = LoadPhase.EMPTY
     active_load_id: int | None = None
+    loading_path: Path | None = None
     load_error: str | None = None
 
     @property
@@ -71,12 +72,17 @@ class DocumentSession:
 
         return self.phase is not AnalysisPhase.IDLE or self.load_phase is LoadPhase.LOADING
 
-    def begin_loading(self, source_path: str | Path) -> int:
-        """Reserve the path and generation before background loading starts."""
-        self.clear()
+    def begin_loading(self, source_path: str | Path, *, replacement: bool = False) -> int:
+        """Keep an unavailable document's path until its replacement is readable."""
+        if replacement:
+            if self.load_phase is not LoadPhase.FAILED:
+                raise RuntimeError("Only an unavailable file can be replaced")
+        else:
+            self.clear()
+            self.path = Path(source_path)
         self.request_generation += 1
         self.active_load_id = self.request_generation
-        self.path = Path(source_path)
+        self.loading_path = Path(source_path)
         self.load_phase = LoadPhase.LOADING
         return self.active_load_id
 
@@ -86,7 +92,7 @@ class DocumentSession:
             return False
         self.active_load_id = None
         self.load_phase = LoadPhase.EMPTY
-        self.stage_loaded_log(self.path, loaded)
+        self.stage_loaded_log(self.loading_path, loaded)
         return True
 
     def fail_loading(self, request_id: int, message: str) -> bool:
@@ -95,7 +101,9 @@ class DocumentSession:
             return False
         self.active_load_id = None
         self.load_phase = LoadPhase.FAILED
-        self.load_error = message
+        if self.loading_path == self.path:
+            self.load_error = message
+        self.loading_path = None
         return True
 
     def stage_loaded_log(
@@ -109,6 +117,7 @@ class DocumentSession:
             self.cancel_request()
 
         self.path = Path(source_path)
+        self.loading_path = None
         self.lines = loaded.lines
         self.snapshot_id = uuid4().hex
         self.total_line_count = loaded.total_line_count
@@ -161,6 +170,7 @@ class DocumentSession:
         self.rendering_seconds = None
         self.load_phase = LoadPhase.EMPTY
         self.active_load_id = None
+        self.loading_path = None
         self.load_error = None
 
     def begin_rendering(
@@ -223,6 +233,7 @@ class DocumentSession:
         self.request_generation += 1
         if self.load_phase is LoadPhase.LOADING:
             self.active_load_id = None
+            self.loading_path = None
             self.load_phase = LoadPhase.EMPTY
         self._finish_request()
         return True

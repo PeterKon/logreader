@@ -1,12 +1,15 @@
+from typing import Callable
+
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QSizeGrip, QStyle, QVBoxLayout, QWidget,
+    QLineEdit, QSizeGrip, QStyle, QVBoxLayout, QWidget,
 )
 
 from .app_icon import application_icon
 from .theme import THEME_COLORS as C
+from .widgets.input_menus import InputContextMenu
 from .widgets.menu_style import MenuTheme
 
 
@@ -185,6 +188,58 @@ class CompactDialog(QDialog):
         if self.grip is not None:
             self.grip.setGeometry(self.width() - 13, self.height() - 13, 12, 12)
             self.grip.raise_()
+
+
+class NameDialog(CompactDialog):
+    def __init__(
+        self, parent: QWidget, title: str, subject: str, save: Callable[[str], bool | None], *, initial_name: str = "",
+    ) -> None:
+        super().__init__(title, parent)
+        self._subject = subject
+        self._save = save
+        self.setObjectName(f"{subject}NameDialog")
+        self.setFixedWidth(420)
+        self.body_layout.setContentsMargins(14, 12, 14, 12)
+        self.buttons.setContentsMargins(14, 0, 14, 12)
+        self.name_input = QLineEdit()
+        self.name_input.setObjectName(f"{subject}NameInput")
+        self.name_input.setAccessibleName(f"{subject.capitalize()} name")
+        InputContextMenu(self.name_input, undo=True, redo=True, cut=True)
+        label = QLabel("Name")
+        label.setBuddy(self.name_input)
+        self.body_layout.addWidget(label)
+        self.body_layout.addWidget(self.name_input)
+        self.error_label = QLabel()
+        self.error_label.setObjectName(f"{subject}NameError")
+        self.error_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.error_label.setWordWrap(True)
+        self.error_label.setStyleSheet(f"color: {C['ui_excluded']};")
+        self.error_label.hide()
+        self.body_layout.addWidget(self.error_label)
+        self.set_buttons(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel,
+            default=QDialogButtonBox.StandardButton.Save,
+        )
+        self.fit_content()
+        if initial_name:
+            self.name_input.setText(initial_name)
+            self.name_input.selectAll()
+        self.name_input.setFocus()
+
+    def accept(self) -> None:
+        try:
+            name = self.name_input.text().strip()
+            if not name:
+                raise ValueError(f"Enter a {self._subject} name.")
+            if self._save(name) is False:
+                return
+        except (ValueError, OSError) as error:
+            self.error_label.setText(str(error))
+            self.error_label.show()
+            self.fit_content()
+            self.name_input.setFocus()
+            return
+        super().accept()
 
 
 def show_warning(parent, title, message):

@@ -631,7 +631,7 @@ class ResultsView(ResultsControls):
         if not self.results_ready:
             return
         for source, bookmark in self.bookmarks.items.items():
-            if bookmark.source_only:
+            if bookmark.source_only or bookmark.unresolved_sha256 is not None:
                 continue
             preferred = self.model.resolve(bookmark.location)
             for row in self.model.rows_for_source(source):

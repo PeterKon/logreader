@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from PySide6.QtCore import QTimer, Signal, Slot
 from PySide6.QtWidgets import QVBoxLayout, QWidget
@@ -10,12 +11,14 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from ..workers.analysis_worker import AnalysisWorker
 from ..config import LogreaderConfig
 from ..core import AnalysisResult
-from ..document_session import AnalysisPhase, DocumentSession
+from ..document_session import AnalysisPhase, DocumentSession, LoadPhase
 from ..file_loader import DEFAULT_MAX_LINES_SCANNED, LoadedLog
 from ..profiles import Profile, ProfileError
+from ..session_snapshot import BookmarkSnapshot, SessionTab
 from ..workers.load_worker import LoadWorker
 from .filter_panel import FilterPanel, VisibleCheckBox, VisibleSpinBox
 from .results.results_view import ResultsView
+from .unavailable_file import UnavailableFileWarning
 from ..workers.work_queue import WorkScheduler
 
 
@@ -31,10 +34,12 @@ class DocumentPage(QWidget):
     busy_changed = Signal()
     load_finished = Signal()
     profile_state_changed = Signal()
+    replace_file_requested = Signal()
 
     def __init__(
         self, parent: QWidget | None = None, *, scheduler: WorkScheduler | None = None,
         show_performance: bool = False,
+        claim_replacement: Callable[[DocumentPage, Path], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("centralWidget")
@@ -50,6 +55,9 @@ class DocumentPage(QWidget):
         self._workers: dict[int, AnalysisWorker | LoadWorker] = {}
         self._load_worker: LoadWorker | None = None
         self._pending_analysis: LogreaderConfig | None = None
+        self._from_saved_session = False
+        self._claim_replacement = claim_replacement
+        self._pending_bookmarks: tuple[BookmarkSnapshot, ...] | None = None
         self._disposed = False
         self._bookmark_reset_notice = False
         self._scheduler = scheduler if scheduler is not None else WorkScheduler(self)
@@ -65,6 +73,10 @@ class DocumentPage(QWidget):
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
+        self.file_warning = UnavailableFileWarning(self)
+        self.file_warning.retry.clicked.connect(self.retry_session_file)
+        self.file_warning.replace.clicked.connect(self.replace_file_requested.emit)
+        root_layout.addWidget(self.file_warning)
         self.controls_container = QWidget(self)
         self.controls_container.setObjectName("controlsContainer")
         self.controls_layout = QVBoxLayout(self.controls_container)
@@ -128,6 +140,35 @@ class DocumentPage(QWidget):
         self.applied_profile = profile
         self._set_status(f"Profile applied: {profile.name}")
 
+    def capture_session_tab(self) -> SessionTab:
+        if self._disposed or self.session.path is None:
+            raise ValueError("A session tab must have a file")
+        custom, regex = self.filter_panel.pattern_drafts()
+        return SessionTab(
+            path=self.session.path.absolute(), filters=self.filter_panel.capture_snapshot(),
+            custom_draft=custom, regex_draft=regex, bookmarks=self._capture_bookmarks(),
+        )
+
+    def restore_session_tab(self, tab: SessionTab) -> None:
+        """Reload the saved source with the tab's own controls and annotations."""
+        if self._disposed:
+            raise ValueError("Cannot restore a closed tab")
+        self.applied_profile = None
+        self.filter_panel.restore_snapshot(tab.filters)
+        self.filter_panel.set_pattern_drafts(tab.custom_draft, tab.regex_draft)
+        self.load_file(tab.path, max_lines_scanned=tab.filters.max_lines_scanned,
+                       session_bookmarks=tab.bookmarks)
+
+    def _capture_bookmarks(self) -> tuple[BookmarkSnapshot, ...]:
+        if self._pending_bookmarks is not None:
+            return self._pending_bookmarks
+        return self.results_view.bookmarks.capture()
+
+    def _restore_pending_bookmarks(self) -> None:
+        if self._pending_bookmarks is not None:
+            self.results_view.bookmarks.restore(self._pending_bookmarks)
+            self._pending_bookmarks = None
+
     @Slot(bool)
     def _set_results_maximized(self, maximized: bool) -> None:
         self.controls_container.setVisible(not maximized)
@@ -163,6 +204,8 @@ class DocumentPage(QWidget):
         """Replace this document, invalidating its previous work."""
         if self._disposed:
             return
+        self._from_saved_session = False
+        self._pending_bookmarks = None
         if self._waiting_load is not None:
             waiting, self._waiting_load = self._waiting_load, None
             waiting.discard()
@@ -179,22 +222,36 @@ class DocumentPage(QWidget):
         self._show_loaded_log(path, loaded)
 
     def _show_loaded_log(self, path: Path, loaded: LoadedLog) -> None:
+        self.file_warning.hide()
         self.results_view.reset_for_loaded_file(path.name)
         self.results_view.set_source(
             loaded.lines, loaded.total_line_count, snapshot_id=self.session.snapshot_id,
         )
+        if self._pending_bookmarks is not None:
+            self._restore_pending_bookmarks()
+            self._bookmark_reset_notice = False
         self.busy_changed.emit()
         self._set_status(f"Loaded as {loaded.encoding}: {path.name}")
         self._bookmark_reset_notice = False
 
     def load_file(
         self, path: Path, *,
-        max_lines_scanned: int = DEFAULT_MAX_LINES_SCANNED,
+        max_lines_scanned: int | None = None,
         analyze_after_load: LogreaderConfig | None = None,
+        session_bookmarks: tuple[BookmarkSnapshot, ...] | None = None,
     ) -> None:
         """Start a document-owned load without blocking the GUI thread."""
         if self._disposed:
             return
+        if session_bookmarks is None and self._from_saved_session and path == self.session.path:
+            # Retry and scan-limit expansion reread the same restored tab.
+            session_bookmarks = self._capture_bookmarks()
+        if max_lines_scanned is None:
+            max_lines_scanned = (self.filter_panel.capture_snapshot().max_lines_scanned
+                                 if session_bookmarks is not None else DEFAULT_MAX_LINES_SCANNED)
+        self._from_saved_session = session_bookmarks is not None
+        self._pending_bookmarks = session_bookmarks
+        self.file_warning.hide()
         if self._waiting_load is not None:
             waiting, self._waiting_load = self._waiting_load, None
             waiting.discard()
@@ -204,11 +261,36 @@ class DocumentPage(QWidget):
         request_id = self.session.begin_loading(path)
         self._finish_analysis_request()
         self.results_view.reset_for_loaded_file(path.name)
+        if self._from_saved_session:
+            self._bookmark_reset_notice = False
         self.results_view.source_view.reset("Loading source…")
+        self._queue_load(request_id, path, max_lines_scanned)
+
+    @property
+    def unavailable_session_file(self) -> bool:
+        return not self._disposed and self._from_saved_session and self.session.load_phase is LoadPhase.FAILED
+
+    def retry_session_file(self) -> None:
+        if self.unavailable_session_file:
+            self.load_file(self.session.path)
+
+    def try_replacement(self, path: Path) -> None:
+        if not self.unavailable_session_file:
+            return
+        if path == self.session.path:
+            self.retry_session_file()
+            return
+        limit = self.filter_panel.capture_snapshot().max_lines_scanned
+        request_id = self.session.begin_loading(path, replacement=True)
+        self.file_warning.set_detail(f"Trying {path}", busy=True)
+        self._queue_load(request_id, path, limit)
+        self.busy_changed.emit()
+
+    def _queue_load(self, request_id: int, path: Path, max_lines_scanned: int) -> None:
         self.load_queued = True
         message = f"Queued to load: {path.name}"
         self._set_status(message)
-        worker = LoadWorker(request_id, path, max_lines_scanned)
+        worker = LoadWorker(request_id, path, max_lines_scanned, include_error_path=not self._from_saved_session)
         worker.signals.started.connect(self._load_started)
         worker.signals.completed.connect(self._complete_load)
         worker.signals.failed.connect(self._fail_load)
@@ -233,12 +315,22 @@ class DocumentPage(QWidget):
         if self._disposed or self.session.active_load_id != request_id:
             return
         self.load_queued = False
-        message = f"Loading {self.session.path.name}…"
+        message = f"Loading {self.session.loading_path.name}…"
         self._set_status(message)
         self.busy_changed.emit()
 
     @Slot(int, object)
     def _complete_load(self, request_id: int, loaded: LoadedLog) -> None:
+        if self.session.active_load_id != request_id:
+            return
+        candidate = self.session.loading_path
+        if candidate != self.session.path:
+            # Include any note edits made while the candidate was being read.
+            records = self._capture_bookmarks()
+            if self._claim_replacement is not None and not self._claim_replacement(self, candidate):
+                self._fail_load(request_id, "This file is already open in another tab.")
+                return
+            self._pending_bookmarks = records
         if not self.session.complete_loading(request_id, loaded):
             return
         self._load_worker = None
@@ -252,22 +344,33 @@ class DocumentPage(QWidget):
 
     @Slot(int, str)
     def _fail_load(self, request_id: int, message: str) -> None:
+        attempted = self.session.loading_path
         if not self.session.fail_loading(request_id, message):
             return
         self._load_worker = None
         self.load_queued = False
         self._pending_analysis = None
-        self._set_status(f"Could not load {self.session.path.name}: {message}. Press Analyze to retry.")
-        self._bookmark_reset_notice = False
-        self.results_view.reset_for_loaded_file(self.session.path.name)
-        self.results_view.source_view.reset(f"Could not load the file: {message}. Press Analyze to retry.")
+        if self.unavailable_session_file:
+            self.file_warning.show_failure(self.session.path, self.session.load_error)
+            if attempted != self.session.path:
+                self.file_warning.set_detail(f"Could not use {attempted}\n{message}")
+            self._set_status(f"File unavailable: {self.session.path.name}")
+        else:
+            self._set_status(f"Could not load {self.session.path.name}: {message}. Press Analyze to retry.")
+        if attempted == self.session.path:
+            self._bookmark_reset_notice = False
+            self.results_view.reset_for_loaded_file(self.session.path.name)
+            placeholder = ("Source file unavailable." if self.unavailable_session_file else
+                           f"Could not load the file: {message}. Press Analyze to retry.")
+            self.results_view.source_view.reset(placeholder)
+            self._restore_pending_bookmarks()
         self.busy_changed.emit()
         self.load_finished.emit()
 
     def analyze(self) -> None:
         """Analyze the loaded file using the current controls."""
 
-        if self._disposed or self.session.path is None or self.session.is_busy:
+        if self._disposed or self.session.path is None or self.session.is_busy or self.unavailable_session_file:
             return
 
         try:
@@ -371,6 +474,7 @@ class DocumentPage(QWidget):
             waiting, self._waiting_load = self._waiting_load, None
             waiting.discard()
         self._pending_analysis = None
+        self._pending_bookmarks = None
         self.session.clear()
         for worker in tuple(self._workers.values()):
             self._scheduler.cancel(worker)
