@@ -20,6 +20,23 @@ from .theme import THEME_COLORS as C
 Button = QDialogButtonBox.StandardButton
 
 
+def _confirm_session_action(parent, title, question, action):
+    prompt = CompactDialog(title, parent)
+    prompt.setFixedWidth(420)
+    message = QLabel(question)
+    message.setTextFormat(Qt.TextFormat.PlainText)
+    message.setWordWrap(True)
+    prompt.body_layout.addWidget(message)
+    prompt.set_buttons(Button.Yes | Button.Cancel, default=Button.Cancel, destructive=Button.Yes)
+    prompt.buttons.button(Button.Yes).setText(action)
+    prompt.buttons.button(Button.Cancel).setFocus()
+    prompt.fit_content()
+    try:
+        return prompt.exec() == QDialog.DialogCode.Accepted
+    finally:
+        prompt.deleteLater()
+
+
 class SaveSessionDialog(NameDialog):
     def __init__(self, parent, store, tabs, selected_tab):
         self.store = store
@@ -34,21 +51,9 @@ class SaveSessionDialog(NameDialog):
             self.store.save(self.tabs, self.selected_tab, name=None if name == self.suggestion else name,
                             saved_at=self.saved_at)
         except SessionExistsError:
-            prompt = CompactDialog("Overwrite session", self)
-            prompt.setFixedWidth(420)
-            message = QLabel(f'Overwrite “{name}” with the current tabs?')
-            message.setTextFormat(Qt.TextFormat.PlainText)
-            message.setWordWrap(True)
-            prompt.body_layout.addWidget(message)
-            prompt.set_buttons(Button.Yes | Button.Cancel, default=Button.Cancel, destructive=Button.Yes)
-            prompt.buttons.button(Button.Yes).setText("Overwrite")
-            prompt.buttons.button(Button.Cancel).setFocus()
-            prompt.fit_content()
-            try:
-                if prompt.exec() != QDialog.DialogCode.Accepted:
-                    return False
-            finally:
-                prompt.deleteLater()
+            if not _confirm_session_action(self, "Overwrite session", f'Overwrite “{name}” with the current tabs?',
+                                           "Overwrite"):
+                return False
             self.store.save(self.tabs, self.selected_tab, name=name, saved_at=self.saved_at, overwrite=True)
         return True
 
@@ -79,16 +84,24 @@ class OpenSessionDialog(CompactDialog):
         """)
         self.body_layout.addWidget(self.list)
         self.set_buttons(Button.Open | Button.Cancel, default=Button.Open)
+        self.buttons.setStyleSheet(f"""
+            QPushButton:disabled {{ color: {C['ui_disabled_text']}; background: {C['ui_disabled']};
+                border-color: {C['ui_border']}; }}
+        """)
+        self.delete_button = self.buttons.addButton("Delete…", QDialogButtonBox.ButtonRole.ResetRole)
+        self.delete_button.setAutoDefault(False)
+        self.delete_button.clicked.connect(self._delete_selected)
         browse = self.buttons.addButton("Browse…", QDialogButtonBox.ButtonRole.ActionRole)
         browse.setAutoDefault(False)
         browse.clicked.connect(self._browse)
-        self.list.currentItemChanged.connect(self._update_open_button)
+        self.list.itemSelectionChanged.connect(self._update_buttons)
         self.list.itemActivated.connect(self.accept)
         self._fill_list()
-        self._update_open_button()
+        self._update_buttons()
         self.list.setFocus()
 
-    def _fill_list(self):
+    def _fill_list(self, selected_row=0):
+        self.list.clear()
         try:
             store = SessionStore()
             self.directory = store.directory
@@ -113,13 +126,30 @@ class OpenSessionDialog(CompactDialog):
             item.setData(0, Qt.ItemDataRole.UserRole, str(error.path))
             item.setToolTip(0, error.message)
         if self.list.topLevelItemCount():
-            self.list.setCurrentItem(self.list.topLevelItem(0))
+            self.list.setCurrentItem(self.list.topLevelItem(min(selected_row, self.list.topLevelItemCount() - 1)))
         else:
             QTreeWidgetItem(self.list, ["No saved sessions"]).setDisabled(True)
 
-    def _update_open_button(self):
-        item = self.list.currentItem()
-        self.buttons.button(Button.Open).setEnabled(bool(item and item.data(0, Qt.ItemDataRole.UserRole)))
+    def _update_buttons(self):
+        enabled = bool(self.list.selectedItems())
+        self.buttons.button(Button.Open).setEnabled(enabled)
+        self.delete_button.setEnabled(enabled)
+
+    def _delete_selected(self):
+        items = self.list.selectedItems()
+        if not items:
+            return
+        item = items[0]
+        path = Path(item.data(0, Qt.ItemDataRole.UserRole))
+        if not _confirm_session_action(self, "Delete session", f'Delete saved session “{item.text(0)}”?', "Delete"):
+            return
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as error:
+            show_warning(self, "Could not delete session", str(error))
+            return
+        self._fill_list(self.list.indexOfTopLevelItem(item))
+        self.list.setFocus()
 
     def accept(self):
         item = self.list.currentItem()

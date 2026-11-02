@@ -9,7 +9,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QTimer
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QMenu
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QMenu
 
 from qt_helpers import qt_application, retire_window, wait_for_load, wait_source, wait_until
 from logreader.filter_snapshot import FilterSnapshot, PatternSnapshot
@@ -318,6 +318,50 @@ class SessionMenuTests(unittest.TestCase):
                 patch.object(ReplaceTabsDialog, "exec", self.click(Button.Discard)):
             self.open.trigger()
         self.assertEqual(self.window.capture_session(), ((self.incoming,), 0))
+
+    def test_delete_confirms_the_selected_session_and_keeps_the_dialog_open(self):
+        page = self.open_original()
+        tabs, selected = self.window.capture_session()
+        first = self.store.save(tabs, selected, name="Keep")
+        target = self.store.save(tabs, selected, name="Investigation").rename(self.store.directory / "renamed.lrsess")
+        dialog = OpenSessionDialog(self.window)
+        self.addCleanup(dialog.close)
+        dialog.show()
+        row = next(dialog.list.topLevelItem(i) for i in range(2)
+                   if dialog.list.topLevelItem(i).text(0) == "Investigation")
+        dialog.list.setCurrentItem(row)
+
+        def cancel(prompt):
+            self.assertIn('Delete saved session “Investigation”?', [label.text() for label in prompt.findChildren(QLabel)])
+            self.assertTrue(prompt.buttons.button(Button.Cancel).isDefault())
+            return self.click(Button.Cancel)(prompt)
+
+        with patch.object(CompactDialog, "exec", cancel):
+            dialog.delete_button.click()
+        self.assertTrue(target.exists())
+        self.assertIs(dialog.list.currentItem(), row)
+        with patch.object(CompactDialog, "exec", self.click(Button.Yes)), \
+                patch.object(Path, "unlink", side_effect=PermissionError("File in use")):
+            dialog.delete_button.click()
+        self.warning.assert_called_once_with(dialog, "Could not delete session", "File in use")
+        self.assertTrue(target.exists())
+        self.assertIs(dialog.list.currentItem(), row)
+
+        with patch.object(CompactDialog, "exec", self.click(Button.Yes)):
+            dialog.delete_button.click()
+            self.assertFalse(target.exists())
+            self.assertTrue(first.exists())
+            self.assertEqual(dialog.list.currentItem().text(0), "Keep")
+            self.assertTrue(dialog.isVisible())
+            dialog.delete_button.click()
+        self.assertTrue(dialog.isVisible())
+        self.assertFalse(first.exists())
+        self.assertEqual(dialog.list.topLevelItem(0).text(0), "No saved sessions")
+        self.assertFalse(dialog.delete_button.isEnabled())
+        self.assertFalse(dialog.buttons.button(Button.Open).isEnabled())
+        self.assertIs(self.window._document, page)
+        self.assertEqual(self.window.capture_session(), (tabs, selected))
+        self.assertTrue(self.original.exists())
 
     def test_browse_opens_external_session_from_an_empty_workspace(self):
         outside = SessionStore(self.root / "external")
