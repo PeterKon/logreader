@@ -13,6 +13,7 @@ from ..session_snapshot import SESSION_EXTENSION
 from ..sessions import SessionExistsError, SessionStore
 from .dialogs import CompactDialog, NameDialog, show_warning
 from .file_labels import file_label
+from .menu_icons import FOLDER_PATH, SAVE_PATH, menu_icon
 from .theme import THEME_COLORS as C
 
 
@@ -174,9 +175,10 @@ class SessionMenuController(QObject):
         self._recent_actions = []
         menu.clear()
         menu.setToolTipsVisible(True)
-        self.save_action = menu.addAction("Save session…")
+        menu.setStyleSheet("QMenu::icon { left: 6px; }")
+        self.save_action = menu.addAction(menu_icon(SAVE_PATH), "Save session…")
         self.save_action.triggered.connect(self.save_session)
-        menu.addAction("Open session…").triggered.connect(self.open_session)
+        menu.addAction(menu_icon(FOLDER_PATH), "Open session…").triggered.connect(self.open_session)
         menu.aboutToShow.connect(self.update_state)
         menu.aboutToShow.connect(self._refresh_recent_files)
         self.update_state()

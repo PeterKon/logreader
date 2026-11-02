@@ -1,16 +1,11 @@
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QIcon, QPainterPath
 
-from .theme import THEME_COLORS
+from .menu_icons import menu_icon, stroke
 
 
 def view_menu_icons() -> dict[str, QIcon]:
     paths = {}
-
-    def stroke(path, *points):
-        path.moveTo(QPointF(*points[0]))
-        for point in points[1:]:
-            path.lineTo(QPointF(*point))
 
     source = paths["source"] = QPainterPath()
     stroke(source, (8, 1), (2, 1), (2, 13), (12, 13), (12, 5), (8, 1), (8, 5), (12, 5))
@@ -45,24 +40,4 @@ def view_menu_icons() -> dict[str, QIcon]:
     reset.arcTo(circle, 150, -300)
     stroke(reset, (1.5, 1), (1.5, 4.5), (5, 4.5))
 
-    icons = {}
-    for name, path in paths.items():
-        icon = icons[name] = QIcon()
-        for enabled in (True, False):
-            color = QColor(THEME_COLORS["ui_muted" if enabled else "ui_disabled_text"])
-            for scale in (1, 2, 3):
-                pixmap = QPixmap(16 * scale, 16 * scale)
-                pixmap.setDevicePixelRatio(scale)
-                pixmap.fill(Qt.GlobalColor.transparent)
-                painter = QPainter(pixmap)
-                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                painter.translate(1, 1)
-                painter.setPen(QPen(color, 1.2, Qt.PenStyle.SolidLine,
-                                    Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawPath(path)
-                painter.end()
-                modes = (QIcon.Mode.Normal, QIcon.Mode.Active, QIcon.Mode.Selected) if enabled else (QIcon.Mode.Disabled,)
-                for mode in modes:
-                    icon.addPixmap(pixmap, mode)
-    return icons
+    return {name: menu_icon(path) for name, path in paths.items()}

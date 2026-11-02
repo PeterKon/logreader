@@ -12,6 +12,7 @@ from ..filter_snapshot import FilterSnapshot
 from ..profiles import Profile, ProfileError, ProfileStore
 from .dialogs import CompactDialog, NameDialog, show_warning
 from .document_page import DocumentPage
+from .menu_icons import FOLDER_PATH, SAVE_PATH
 from .theme import THEME_COLORS
 from .title_bar import TitleMenu
 from .widgets.menu_style import CONTEXT_MENU_STYLE_SHEET
@@ -77,17 +78,14 @@ def _paint_profile_symbol(painter: QPainter, symbol: str) -> None:
         painter.drawPath(path)
 
     if symbol == "save":
-        stroke((11, 1.5), (12.5, 3), (12.5, 12.5), (1.5, 12.5), (1.5, 1.5), (11, 1.5))
-        stroke((4, 1.5), (4, 5), (9.5, 5), (9.5, 1.5))
-        stroke((4, 12.5), (4, 8), (10, 8), (10, 12.5))
+        painter.drawPath(SAVE_PATH)
     elif symbol == "profile":
         for y, x in ((3, 9), (7, 4), (11, 8)):
             stroke((1, y), (x - 1.5, y))
             stroke((x + 1.5, y), (13, y))
             painter.drawEllipse(QPointF(x, y), 1.5, 1.5)
     elif symbol == "folder":
-        stroke((1.5, 11.5), (1.5, 2.5), (5, 2.5), (6.5, 4), (12, 4), (12, 6))
-        stroke((1.5, 11.5), (3.5, 6), (13, 6), (11, 11.5), (1.5, 11.5))
+        painter.drawPath(FOLDER_PATH)
     elif symbol == "overwrite":
         painter.drawArc(QRectF(1.5, 1.5, 11, 11), 30 * 16, 150 * 16)
         painter.drawArc(QRectF(1.5, 1.5, 11, 11), 210 * 16, 150 * 16)
