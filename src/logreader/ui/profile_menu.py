@@ -120,6 +120,7 @@ class _ProfileRowOptions(QObject):
         self._action = None
         self._context_target = False
         self.button = RowMenuButton(menu, hover_color=THEME_COLORS['ui_button_hover_on_selected'])
+        self.button.setFixedWidth(38)
         self.button.setObjectName("profileMenuButton")
         self.button.clicked.connect(self._request_from_button)
         self.button.installEventFilter(self)
@@ -155,8 +156,8 @@ class _ProfileRowOptions(QObject):
         if not visible:
             return
         bounds = self.menu.actionGeometry(action)
-        self.button.move(bounds.right() - self.button.width() - 6,
-                         bounds.center().y() - self.button.height() // 2)
+        self.button.setGeometry(bounds.right() + 1 - self.button.width(), bounds.top(),
+                                self.button.width(), bounds.height())
         self.button.setAccessibleName(f"Options for {action.property('profileName')}")
         self.outline.setGeometry(bounds)
         self.outline.raise_()

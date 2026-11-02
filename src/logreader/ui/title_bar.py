@@ -94,14 +94,14 @@ class _TitleMenus(QMenuBar):
         return super().event(event)
 
 
-def create_title_menus(parent: QWidget) -> QMenuBar:
-    menus = _TitleMenus(parent)
-    menus.setObjectName("titleMenus")
-    menus.setNativeMenuBar(False)
-    menus.setStyleSheet(f"""
+def _title_menu_style(padding: int = 6) -> str:
+    # Keep the text one pixel below center, as with the original 4px/2px padding.
+    top = min(padding, padding // 2 + 1)
+    bottom = padding - top
+    return f"""
         QMenuBar {{ background: transparent; color: {COLORS['ui_menu_text']}; border: none; }}
         QMenuBar::item {{
-            padding: 4px 10px 2px 10px; background: transparent; border-radius: 3px;
+            padding: {top}px 10px {bottom}px 10px; background: transparent; border-radius: 0;
         }}
         QMenuBar::item:selected {{
             background: {COLORS['ui_button_hover']}; color: {COLORS['ui_menu_text']};
@@ -109,7 +109,14 @@ def create_title_menus(parent: QWidget) -> QMenuBar:
         QMenuBar::item:pressed {{
             background: {COLORS['ui_button_hover']}; color: {COLORS['ui_text']};
         }}
-    """ + TITLE_MENU_STYLE_SHEET)
+    """ + TITLE_MENU_STYLE_SHEET
+
+
+def create_title_menus(parent: QWidget) -> QMenuBar:
+    menus = _TitleMenus(parent)
+    menus.setObjectName("titleMenus")
+    menus.setNativeMenuBar(False)
+    menus.setStyleSheet(_title_menu_style())
     for title in ("&File", "&View", "&Settings", "&Profiles", "&Help"):
         menu = TitleMenu(title, menus)
         menus.addMenu(menu)
@@ -154,7 +161,7 @@ class TitleBarWindow(QMainWindow):
         divider.setStyleSheet(f"background: {COLORS['ui_border']};")
         layout.addWidget(divider)
         layout.addSpacing(7)
-        layout.addWidget(self.title_menus, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.title_menus, 0, Qt.AlignmentFlag.AlignTop)
 
         self._caption_refresh = QTimer(self)
         self._caption_refresh.setSingleShot(True)
@@ -184,11 +191,24 @@ class TitleBarWindow(QMainWindow):
         # Keep the client origin at the frame top for native DWM hit testing.
         # Windows puts the maximized resize border above the screen.
         self.setContentsMargins(0, round((caption + border) / scale), 0, 0)
+        caption_top = round(border / scale) if maximized else 0
+        caption_height = round((caption + (0 if maximized else border)) / scale)
+        available_height = self.contentsMargins().top() - caption_top
+        # At fractional scale the rounded bounds can leave one extra row.
+        # Include it in the menu while keeping the title and icon centered as before.
+        extra_row = max(0, available_height - caption_height)
+        self._caption_bar.layout().setContentsMargins(0, 0, 0, extra_row)
         self._caption_bar.setGeometry(
-            8, round(border / scale) if maximized else 0,
+            8, caption_top,
             min(self._caption_bar.sizeHint().width(), max(0, self.width() - 166)),
-            round((caption + (0 if maximized else border)) / scale),
+            caption_height + extra_row,
         )
+        text_height = self.title_menus.fontMetrics().height()
+        menu_height = max(text_height, available_height)
+        style = _title_menu_style(menu_height - text_height)
+        if self.title_menus.styleSheet() != style:
+            self.title_menus.setStyleSheet(style)
+        self.title_menus.setFixedHeight(menu_height)
         self._caption_bar.show()
         self._caption_bar.raise_()
         self._caption_api.dwm.DwmExtendFrameIntoClientArea(

@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
     from qt_helpers import qt_application, trigger_pattern_action
     from PySide6.QtCore import QPoint, Qt
-    from PySide6.QtGui import QColor, QContextMenuEvent, QCursor
+    from PySide6.QtGui import QColor, QContextMenuEvent, QCursor, QEnterEvent
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import (
         QCheckBox,
@@ -257,7 +257,6 @@ class FilterPanelTests(unittest.TestCase):
             nonlocal expected_mode
             observed = []
             borders = []
-            border_ends = []
             accent = QColor(THEME_COLORS["ui_accent"])
             rows = [pattern_list.itemWidget(pattern_list.item(index))
                     for pattern_list in (self.panel._custom_pattern_list, self.panel._regex_pattern_list)
@@ -276,8 +275,7 @@ class FilterPanelTests(unittest.TestCase):
                 self.assertEqual([a.text() for a in menu.actions() if a.isChecked()], [expected_mode])
                 borders.append([candidate for candidate in rows if outlined(candidate)])
                 image = row.grab().toImage()
-                border_ends.append(max(x for x in range(image.width())
-                                       if image.pixelColor(x, 0) == accent))
+                self.assertEqual(image.pixelColor(image.width() - 1, 0), accent)
                 if activate:
                     action.trigger()
 
@@ -285,15 +283,17 @@ class FilterPanelTests(unittest.TestCase):
             event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, target.mapToGlobal(point))
             with patch("logreader.ui.filter_panel.SearchPatternMenu.exec", new=inspect):
                 if via_button:
-                    QTest.mouseMove(row, QPoint(row.width() // 2, row.height() // 2))
-                    QTest.mouseClick(row.menu_button, Qt.MouseButton.LeftButton)
+                    center = row.rect().center()
+                    self.app.sendEvent(row, QEnterEvent(center, row.mapTo(self.panel, center),
+                                                        row.mapToGlobal(center)))
+                    QTest.mouseClick(row.menu_button, Qt.MouseButton.LeftButton,
+                                     pos=row.menu_button.rect().topRight())
                 else:
                     self.app.sendEvent(target, event)
             tooltip = {"Normal": "Normal", "Exclusive": EXCLUSIVE_TOOLTIP, "Exclude": EXCLUDE_TOOLTIP}[action_name]
             self.assertEqual(observed, [(action_name, expected_checked, tooltip, True,
                                          ["Matching", "Normal", "Exclusive", "Exclude", "", "Case sensitive", "", "Edit…", "Disable"])])
             self.assertEqual(borders, [[row]])
-            self.assertEqual(border_ends, [row.width() - 1])
             self.assertFalse(any(outlined(candidate) for candidate in rows))
             if via_button:
                 self.assertTrue(row.menu_button.isVisible())
@@ -313,6 +313,7 @@ class FilterPanelTests(unittest.TestCase):
                 annotation = row.findChild(QLabel, "patternModeLabel")
                 remove = row.findChild(QPushButton, prefix + "RemoveButton")
                 self.assertLess(row.menu_button.geometry().right(), remove.x())
+                self.assertEqual(row.menu_button.height(), row.height())
                 self.assertEqual([button.text() for button in row.findChildren(QPushButton)],
                                  ["⋯", "-"])
                 choose_from(label, False, action_name="Exclude")
