@@ -35,6 +35,7 @@ class SessionMenuTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         env = patch.dict(os.environ, {"LOGREADER_SESSION_DIR": str(self.root / "sessions"),
+                                      "LOGREADER_HISTORY_DIR": str(self.root / "history"),
                                       "LOGREADER_PROFILE_DIR": str(self.root / "profiles")})
         env.start()
         self.addCleanup(env.stop)
@@ -201,6 +202,46 @@ class SessionMenuTests(unittest.TestCase):
         for action in (self.save, self.open):
             point = QPoint(menu.width() - 2, menu.actionGeometry(action).center().y())
             self.assertIs(menu.actionAt(point), action)
+
+    def test_recent_files_survive_restart_and_reopen_in_order(self):
+        paths = [self.root / f"server-{i}.log" for i in range(9)]
+        paths += [self.root / folder / "input&output.log" for folder in ("alpha", "beta")]
+        for path in paths:
+            path.parent.mkdir(exist_ok=True)
+            path.write_text("INFO: opened\n", encoding="utf-8")
+        self.window.load_files([*paths, self.root / "missing.log"])
+        for index in range(self.window._tabs.count()):
+            wait_for_load(self.window._pages.widget(index))
+        self.window.close()
+        self.new_window()
+        menu = self.window.title_menus.findChild(QMenu, "fileMenu")
+
+        def entries():
+            menu.popup(QPoint(100, 100))
+            self.app.processEvents()
+            actions = menu.actions()
+            self.assertEqual(actions[3].text(), "Recent files")
+            menu.close()
+            return actions[4:]
+
+        actions = entries()
+        self.assertEqual([action.toolTip() for action in actions], [str(p) for p in paths[:0:-1]])
+        self.assertEqual([a.text() for a in actions[:2]],
+                         ["1. input&&output.log - beta", "2. input&&output.log - alpha"])
+        self.assertEqual(actions[-1].text(), "10. server-1.log")
+        actions[-1].trigger()
+        page = self.window._document
+        wait_for_load(page)
+        self.assertEqual(page.session.path, paths[1])
+        most_recent = entries()[0]
+        self.window.load_file(paths[2])
+        loading = self.window._document
+        most_recent.trigger()
+        wait_for_load(loading)
+        self.assertIs(self.window._document, page)
+        self.assertEqual(self.window._tabs.count(), 2)
+        self.assertEqual([a.toolTip() for a in entries()],
+                         [str(paths[1]), str(paths[2]), *(str(p) for p in paths[:2:-1])])
 
     def test_file_actions_create_unique_snapshots_and_require_tabs_to_save(self):
         self.assertEqual((self.save.text(), self.open.text()), ("Save session…", "Open session…"))

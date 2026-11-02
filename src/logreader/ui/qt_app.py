@@ -7,6 +7,7 @@ import os
 import sys
 from dataclasses import replace
 from pathlib import Path
+from time import time_ns
 from typing import Sequence
 
 from PySide6.QtCore import (
@@ -45,9 +46,11 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import APP_VERSION, LogreaderConfig
+from ..recent_files import record_recent_file
 from ..session_snapshot import SavedSession, SessionTab
 from .app_icon import application_icon, application_logo, set_windows_app_id
 from .document_page import DocumentPage
+from .file_labels import file_label
 from .profile_menu import ProfileMenuController
 from .session_menu import SessionMenuController
 from .dialogs import show_warning
@@ -613,6 +616,8 @@ class LogreaderWindow(TitleBarWindow):
         self.setAcceptDrops(True)
         QApplication.instance().installEventFilter(self)
         self.install_title_bar()
+        self._pending_file_opens: dict[DocumentPage, int | None] = {}
+        self._last_open_time = 0
         self._session_menu = SessionMenuController(self, self.title_menus.findChild(QMenu, "fileMenu"))
         self._build_view_menu()
         self._profiles_menu = ProfileMenuController(
@@ -932,6 +937,7 @@ class LogreaderWindow(TitleBarWindow):
         page = self._pages.widget(index)
         key = os.path.normcase(str(page.session.path))
         self._documents_by_path.pop(key, None)
+        self._pending_file_opens.pop(page, None)
         close_button = self._tabs.tabButton(index, QTabBar.ButtonPosition.RightSide)
         self._tabs.setTabButton(index, QTabBar.ButtonPosition.RightSide, None)
         if close_button is not None:
@@ -1012,23 +1018,10 @@ class LogreaderWindow(TitleBarWindow):
 
     def _refresh_tab_labels(self) -> None:
         pages = [self._pages.widget(index) for index in range(self._tabs.count())]
+        paths = [page.session.path for page in pages]
         for index, page in enumerate(pages):
             path = page.session.path
-            peers = [
-                other.session.path
-                for other in pages
-                if other is not page
-                and other.session.path.name.casefold() == path.name.casefold()
-            ]
-            label = path.name
-            if peers:
-                # Show the shortest parent suffix that distinguishes this file.
-                # The tooltip always retains the full path.
-                for depth in range(1, len(path.parent.parts) + 1):
-                    suffix = Path(*path.parent.parts[-depth:])
-                    if all(suffix != Path(*peer.parent.parts[-depth:]) for peer in peers):
-                        break
-                label = f"{path.name} - {suffix}"
+            label = file_label(path, paths)
             if page.session.load_phase is LoadPhase.LOADING:
                 label += " (Queued)" if page.load_queued else " (Loading…)"
             elif page.session.load_phase is LoadPhase.FAILED:
@@ -1142,12 +1135,33 @@ class LogreaderWindow(TitleBarWindow):
         if existing is not None:
             if existing.session.load_phase is LoadPhase.FAILED:
                 existing.load_file(path)
+            self._note_file_open(existing)
             return existing
 
         page = self._new_document()
         page.load_file(path)
         self._add_document(page)
         return page
+
+    def _note_file_open(self, page: DocumentPage) -> None:
+        # Rank by the open request, even if a later file finishes loading first.
+        self._last_open_time = max(time_ns(), self._last_open_time + 1)
+        if page.session.has_document:
+            record_recent_file(page.session.path, self._last_open_time)
+        else:
+            self._pending_file_opens[page] = self._last_open_time
+
+    @Slot()
+    def _finish_file_open(self) -> None:
+        page = self.sender()
+        if page not in self._pending_file_opens:
+            return
+        if page.session.has_document:
+            opened = self._pending_file_opens.pop(page)
+            record_recent_file(page.session.path, opened if opened is not None else time_ns())
+        else:
+            # An unavailable file can be retried later from the same tab.
+            self._pending_file_opens[page] = None
 
     def _new_document(self) -> DocumentPage:
         page = DocumentPage(
@@ -1159,6 +1173,8 @@ class LogreaderWindow(TitleBarWindow):
 
     def _add_document(self, page: DocumentPage) -> None:
         path = page.session.path
+        page.load_finished.connect(self._finish_file_open)
+        self._note_file_open(page)
         page.status_changed.connect(self._present_document_status)
         page.results_view.loading_status_changed.connect(self._present_loading_status)
         page.results_view.maximized_changed.connect(self._update_view_menu)
@@ -1203,6 +1219,7 @@ class LogreaderWindow(TitleBarWindow):
             page.file_warning.set_detail(f"{path}\nThis file is already open in another tab.")
             return
         page.try_replacement(path)
+        self._note_file_open(page)
 
     def _claim_replacement(self, page: DocumentPage, path: Path) -> bool:
         """Rekey a successfully read file on the GUI thread, just before its page commits it."""

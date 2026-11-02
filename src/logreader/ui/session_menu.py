@@ -8,9 +8,11 @@ from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QLabel, QTreeWidget, QTreeWidgetItem,
 )
 
+from ..recent_files import recent_files
 from ..session_snapshot import SESSION_EXTENSION
 from ..sessions import SessionExistsError, SessionStore
 from .dialogs import CompactDialog, NameDialog, show_warning
+from .file_labels import file_label
 from .theme import THEME_COLORS as C
 
 
@@ -168,12 +170,35 @@ class SessionMenuController(QObject):
     def __init__(self, window, menu):
         super().__init__(window)
         self.window = window
+        self.menu = menu
+        self._recent_actions = []
         menu.clear()
+        menu.setToolTipsVisible(True)
         self.save_action = menu.addAction("Save session…")
         self.save_action.triggered.connect(self.save_session)
         menu.addAction("Open session…").triggered.connect(self.open_session)
         menu.aboutToShow.connect(self.update_state)
+        menu.aboutToShow.connect(self._refresh_recent_files)
         self.update_state()
+
+    def _refresh_recent_files(self):
+        for action in self._recent_actions:
+            self.menu.removeAction(action)
+            action.deleteLater()
+        self._recent_actions.clear()
+        paths = recent_files()
+        if not paths:
+            return
+        self._recent_actions.append(self.menu.addSeparator())
+        heading = self.menu.addAction("Recent files")
+        heading.setEnabled(False)
+        self._recent_actions.append(heading)
+        for number, path in enumerate(paths, 1):
+            label = file_label(path, paths).replace("&", "&&")
+            action = self.menu.addAction(f"{number}. {label}")
+            action.setToolTip(str(path))
+            action.triggered.connect(lambda checked=False, path=path: self.window.load_file(path))
+            self._recent_actions.append(action)
 
     def update_state(self):
         self.save_action.setEnabled(self.window._tabs.count() > 0)

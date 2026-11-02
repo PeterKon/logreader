@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QThreadPool
@@ -13,6 +14,11 @@ from PySide6.QtWidgets import QApplication
 from logreader.document_session import LoadPhase
 from logreader.workers.load_worker import LoadWorker
 from logreader.workers.work_queue import WorkQueue
+
+
+# Files opened by GUI tests must never enter the user's history.
+_history_dir = TemporaryDirectory()
+os.environ["LOGREADER_HISTORY_DIR"] = _history_dir.name
 
 
 def trigger_pattern_action(pattern_list, index, text):
