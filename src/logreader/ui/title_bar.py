@@ -28,6 +28,7 @@ TITLE_MENU_STYLE_SHEET = f"""
         min-width: 180px;
     }}
     QMenu::item {{ margin: 0; padding: 5px 10px; border-radius: 0; }}
+    QMenu#fileMenu::item {{ min-width: 160px; }}
     QMenu::item:selected:enabled {{ background: {COLORS['ui_button_hover']}; }}
     QMenu::item:disabled {{ color: {COLORS['ui_muted']}; }}
     QMenu::separator {{

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QMenu
 
 from qt_helpers import qt_application, retire_window, wait_for_load, wait_source, wait_until
@@ -191,6 +191,16 @@ class SessionMenuTests(unittest.TestCase):
         self.window.load_file(self.original)
         wait_for_load(self.window._document)
         return self.window._document
+
+    def test_file_menu_rows_reach_the_right_edge(self):
+        self.open_original()
+        menu = self.window.title_menus.findChild(QMenu, "fileMenu")
+        menu.popup(QPoint(100, 100))
+        self.addCleanup(menu.close)
+        self.app.processEvents()
+        for action in (self.save, self.open):
+            point = QPoint(menu.width() - 2, menu.actionGeometry(action).center().y())
+            self.assertIs(menu.actionAt(point), action)
 
     def test_file_actions_create_unique_snapshots_and_require_tabs_to_save(self):
         self.assertEqual((self.save.text(), self.open.text()), ("Save session…", "Open session…"))
