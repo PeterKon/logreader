@@ -10,7 +10,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QTextDocument
 from PySide6.QtWidgets import QApplication
 
-from qt_helpers import render_results, wait_for_load, wait_for_navigation, wait_for_search
+from qt_helpers import click_summary_count, render_results, wait_for_load, wait_for_navigation, wait_for_search
 from logreader.ui.qt_app import LogreaderWindow
 from logreader.ui.results.results_view import ResultsView
 
@@ -131,6 +131,19 @@ class IncrementalSearchTests(unittest.TestCase):
         wait_for_search(self.view)
         self.assertFalse(self.view.editor.ranges.contains(10000))
         self.assertTrue(self.view.editor.textCursor().block().layout().formats())
+
+    def test_previous_from_summary_reaches_an_unloaded_last_match(self):
+        view = self.view
+        editor = render_results(view, ("matched row",) * 6000, complete=False)
+        last_row = editor.presentation.display_row(view.model.row_count - 1)
+        self.assertFalse(editor.ranges.contains(last_row))
+        click_summary_count(view, ".* 6000")
+        view._search_navigation.stepUp()
+        wait_for_search(view)
+        self.assertEqual(view._search_count_label.text(), "6000 / 6000")
+        self.assertEqual(editor.caret.row, last_row)
+        self.assertTrue(editor.ranges.contains(last_row))
+        self.assertFalse(editor.ranges.contains(editor.presentation.display_row(3000)))
 
     def test_switch_and_close_during_dense_search_keep_other_tab_untouched(self):
         with tempfile.TemporaryDirectory() as directory:

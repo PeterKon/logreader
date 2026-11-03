@@ -4,6 +4,30 @@ from array import array
 from collections.abc import Iterator, Sequence
 
 
+SEARCH_CHUNK_CHARACTERS = 4096
+
+
+def utf16_length(text: str) -> int:
+    return len(text.encode("utf-16-le", errors="surrogatepass")) // 2
+
+
+class SourceMatches:
+    """Packed source indexes and UTF-16 columns without copying source text."""
+
+    def __init__(self) -> None:
+        self.lines = array("Q")
+        self.starts = array("Q")
+        self.ends = array("Q")
+
+    def __len__(self) -> int:
+        return len(self.lines)
+
+    def append(self, line: int, start: int, end: int) -> None:
+        self.lines.append(line)
+        self.starts.append(start)
+        self.ends.append(end)
+
+
 class SearchMatches(Sequence[tuple[int, int]]):
     """Ordered UTF-16 start/end positions, shared after scanning without copying.
 

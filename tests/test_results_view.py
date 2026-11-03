@@ -6,9 +6,11 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from qt_helpers import qt_application, retire_window, wait_source
-from PySide6.QtGui import QFont, QTextCursor
+from qt_helpers import painted_character, qt_application, retire_window, wait_source
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QContextMenuEvent, QFont, QTextCursor
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QToolButton
 
 from qt_helpers import wait_for_search, wait_for_navigation, retire_results
 from logreader.config import LogreaderConfig
@@ -55,6 +57,20 @@ class ResultsViewTests(unittest.TestCase):
         cursor = QTextCursor(block)
         cursor.setPosition(block.position() + column)
         return cursor
+
+    def painted_character(self, text, character=0, occurrence=0):
+        return painted_character(self.view.editor, text, character, occurrence)
+
+    def click_painted_point(self, point, *, active=True):
+        editor = self.view.editor
+        target = editor.childAt(point) or editor
+        global_point = editor.mapToGlobal(point)
+        local = target.mapFromGlobal(global_point)
+        # The QWidget overload moves the desktop cursor, which may hit an unrelated window.
+        QTest.mouseMove(self.view.windowHandle(), self.view.mapFromGlobal(global_point))
+        self.assertEqual(target.cursor().shape() == Qt.CursorShape.PointingHandCursor, active, point)
+        QTest.mouseClick(target, Qt.MouseButton.LeftButton, pos=local)
+        wait_for_search(self.view)
 
     def test_total_in_both_views_and_combined_results_follow_summary(self):
         for combined in (False, True):
@@ -117,6 +133,119 @@ class ResultsViewTests(unittest.TestCase):
                 self.assertIn(r"code=\d+", output)
                 if not combined:
                     self.assertIn("Email addresses (regex) - 1 matches", output)
+
+    def test_click_summary_names_and_counts_by_key_across_the_gutter(self):
+        email = dict(REGEX_PRESETS)["Email addresses"]
+        config = LogreaderConfig(context=0, combined_view=False, enabled_patterns=("error_colon", "fatal"),
+                                 custom_patterns=("needle",), custom_pattern_names=("Needle",),
+                                 regex_patterns=(email, r"id=\d+", r"code=\d+"),
+                                 regex_pattern_names=("", "Twin", "Twin"))
+        view = self.view
+        editor = self.render(("ERROR: needle alex@example.org id=17 code=503",) * 12, config)
+        self.assertIs(editor.childAt(self.painted_character("ERROR: 12")), editor.gutter)
+        for key, label, occurrence in (
+            ("error_colon", "ERROR:", 0), ("custom_1", "Needle (text match)", 0),
+            ("regex_1", "Email addresses (regex)", 0),
+            ("regex_2", "Twin (regex)", 0), ("regex_3", "Twin (regex)", 1),
+        ):
+            entry = label + " 12"
+            for character in (0, len(label), len(entry) - 2, len(entry) - 1):
+                with self.subTest(key=key, character=character):
+                    before = editor.top_point(), editor.anchor, editor.caret
+                    self.click_painted_point(self.painted_character(entry, character, occurrence))
+                    self.assertEqual((editor.top_point(), editor.anchor, editor.caret), before)
+                    self.assertEqual(view._results_query.key, key)
+                    self.assertTrue(view._search_input.hasFocus())
+                    self.assertEqual(view._search_input.selectedText(), label)
+                    self.assertTrue(view._pattern_indicator.isVisible())
+
+        view._search_input.clear()
+        for text in ("Matches (", "   ", "No matches:", "FATAL", "ERROR: - 12 matches"):
+            with self.subTest(inactive=text):
+                self.click_painted_point(self.painted_character(text), active=False)
+                self.assertEqual(view._search_input.text(), "")
+                self.assertFalse(view._pattern_indicator.isVisible())
+        last_digit = self.painted_character("Twin (regex) 12", -1, 1)
+        self.click_painted_point(last_digit + QPoint(18, 0), active=False)
+
+    def test_wrapped_and_zoomed_click_targets_follow_live_rename(self):
+        view = self.view
+        config = LogreaderConfig(context=0, enabled_patterns=(), regex_patterns=("a+", "b+"),
+                                 regex_pattern_names=("Twin", "Twin"))
+        editor = self.render(("aa bbb", "a bb"), config)
+        view.resize(640, 480)
+        view.set_line_wrapping(True)
+        self.app.processEvents()
+        entry = "Twin (regex) 2"
+        old_neighbor = self.painted_character(entry, 0, 1)
+        self.click_painted_point(self.painted_character(entry))
+        view.find_next()
+        wait_for_search(view)
+        hits, current = view._search_matches, view._current_search_match
+        name = "😀 " + "Long match name " * 6 + "(regex)"
+        view.rename_category("regex_1", name)
+        self.app.processEvents()
+        self.assertIs(view._search_matches, hits)
+        self.assertEqual(view._current_search_match, current)
+        self.assertEqual(view._search_input.text(), name)
+        self.click_painted_point(old_neighbor)
+        self.assertEqual(view._results_query.key, "regex_1")
+        for zoom in (0, 2):
+            with self.subTest(zoom=zoom):
+                if zoom:
+                    view.zoom(zoom)
+                self.app.processEvents()
+                first = self.painted_character(name + " 2")
+                count = self.painted_character(name + " 2", len(name) + 1)
+                self.assertGreater(count.y(), first.y())
+                self.click_painted_point(count)
+                self.assertIs(view._search_matches, hits)
+                self.assertEqual(view._current_search_match, current)
+        self.click_painted_point(self.painted_character(entry, len(entry) - 1))
+        self.assertEqual(view._results_query.key, "regex_2")
+        QTest.keyClicks(view._search_input, "literal")
+        self.assertEqual(view._search_input.text(), "literal")
+        self.assertFalse(view._pattern_indicator.isVisible())
+        self.assertEqual(view._search_input.textMargins().left(), 0)
+
+        view.set_line_wrapping(False)
+        self.app.processEvents()
+        point = self.painted_character(name + " 2", len(name) // 2)
+        editor.horizontalScrollBar().setValue(point.x() - editor.gutter.geometry().center().x())
+        self.app.processEvents()
+        point = self.painted_character(name + " 2", len(name) // 2)
+        self.assertIs(editor.childAt(point), editor.gutter)
+        before = editor.horizontalScrollBar().value()
+        self.assertGreater(before, 0)
+        self.click_painted_point(point)
+        self.assertEqual(view._results_query.key, "regex_1")
+        self.assertEqual(editor.horizontalScrollBar().value(), before)
+
+    def test_dragging_or_right_clicking_a_summary_entry_uses_the_editor(self):
+        view = self.view
+        config = LogreaderConfig(context=1, enabled_patterns=("error_colon",),
+                                 custom_patterns=("needle",), custom_pattern_names=("Needle",))
+        editor = self.render(("ERROR: needle first", "needle second", "last"), config)
+        viewport = editor.viewport()
+        point = self.painted_character("Needle (text match) 2", 5)
+        self.assertIs(editor.childAt(point), viewport)
+        start = viewport.mapFromGlobal(editor.mapToGlobal(point))
+        end = editor.cursorRect(self.cursor(2, 3)).center()
+        QTest.mousePress(viewport, Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(viewport, end)
+        QTest.mouseRelease(viewport, Qt.MouseButton.LeftButton, pos=end)
+        self.assertIn("needle second", editor.selected_text())
+        self.assertFalse(view._pattern_indicator.isVisible())
+
+        selected = editor.selected_text()
+        with patch.object(view, "_exec_line_context_menu") as menu:
+            QTest.mouseClick(viewport, Qt.MouseButton.RightButton, pos=start)
+            if not menu.called:  # Offscreen Qt can leave context-menu dispatch to the platform.
+                event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, start, viewport.mapToGlobal(start))
+                self.app.sendEvent(viewport, event)
+            menu.assert_called_once_with(editor, start, None, show_source=True)
+        self.assertEqual(editor.selected_text(), selected)
+        self.assertEqual(view._search_input.text(), "")
 
     def test_performance_status_keeps_text_mapping_and_selection_unchanged(self):
         editor = self.render(("ERROR: needle", "ERROR: second"))
@@ -372,6 +501,132 @@ class ResultsViewTests(unittest.TestCase):
         self.assertEqual(self.view.editor.gutter.width(), 0)
         self.assertEqual(self.view.editor.ranges.total, 0)
         self.assertFalse(self.view.show_result_location(location))
+
+    def test_pattern_search_shares_highlights_markers_and_viewport_navigation(self):
+        view = self.view
+        lines = tuple("row 😀 12! 34!" if i in (30, 150) else "row" for i in range(210))
+        for combined in (True, False):
+            with self.subTest(combined=combined):
+                config = LogreaderConfig(context=0, combined_view=combined, enabled_patterns=(),
+                                         custom_patterns=("row",), regex_patterns=(r"\d+(?=!)",),
+                                         regex_pattern_names=("IDs",))
+                editor = self.render(lines, config)
+                identity = editor.result_set_id
+                view.global_scroll.setValue(editor.presentation.display_row(143))
+                wait_for_navigation(view)
+                top = editor.top_point()
+                self.assertTrue(view.activate_pattern_search("regex_1", result_set_id=identity))
+                wait_for_search(view)
+                rows = [30, 150] if combined else [30, 150, 210, 211]
+                self.assertEqual(view._search_input.text(), "IDs (regex)")
+                self.assertEqual(view._search_count_label.text(), f"0 / {len(rows) * 2}")
+                self.assertEqual(editor.top_point(), top)
+                self.assertEqual(list(view.global_scroll.match_rows),
+                                 [editor.presentation.display_row(row) for row in rows])
+                formats = self.cursor(150).block().layout().formats()
+                self.assertEqual([(f.start, f.length) for f in formats], [(7, 2), (11, 2)])
+
+                view._search_input.returnPressed.emit()
+                wait_for_search(view)
+                self.assertEqual(editor.caret, TextPoint(editor.presentation.display_row(150), 7))
+                self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
+                                editor.fontMetrics().height())
+                hits = view._search_matches
+                current = view._current_search_match
+                self.assertTrue(view.activate_pattern_search("regex_1", result_set_id=identity))
+                self.assertIs(view._search_matches, hits)
+                self.assertEqual(view._current_search_match, current)
+                view._search_navigation.stepDown()
+                wait_for_navigation(view)
+                self.assertEqual(editor.caret.column, 11)
+                view.global_scroll.triggerAction(view.global_scroll.SliderAction.SliderToMinimum)
+                wait_for_navigation(view)
+                view._search_navigation.stepUp()
+                wait_for_navigation(view)
+                self.assertEqual(view._current_search_match, len(hits) - 1)
+                view._search_input.returnPressed.emit()
+                wait_for_navigation(view)
+                self.assertEqual(view._current_search_match, 0)
+
+    def test_switching_pending_patterns_with_identical_names_and_editing_the_label(self):
+        view = self.view
+        config = LogreaderConfig(context=0, enabled_patterns=(), regex_patterns=("x+", "y+", "z+"),
+                                 regex_pattern_names=("Same", "Same", "Missing"))
+        identity = self.render(("x xx yyy Same (regex)",), config).result_set_id
+        self.assertTrue(view.activate_pattern_search("regex_1", result_set_id=identity))
+        old_work, generation = view._search_work, view._search_generation
+        with patch("logreader.ui.results.results_view.perf_counter",
+                   side_effect=lambda: float(bool(view._pending_matches))):
+            view._search_next_batch()
+        self.assertEqual(list(view._pending_matches), [(0, 0, 1)])
+        view.find_next()  # A queued jump for the first regex must not affect the second.
+        self.assertTrue(view.activate_pattern_search("regex_1", result_set_id=identity))
+        self.assertIs(view._search_work, old_work)
+        self.assertTrue(view.activate_pattern_search("regex_2", result_set_id=identity))
+        view._advance_search(generation)
+        wait_for_search(view)
+        self.assertEqual(view._search_input.text(), "Same (regex)")
+        clear = view._search_input.findChild(QToolButton, "resultsSearchClearButton")
+        self.assertTrue(clear.isVisible())
+        self.assertEqual(list(view._search_matches), [(0, 5, 8)])
+        self.assertEqual(view._search_count_label.text(), "0 / 1")
+        self.assertFalse(view.activate_pattern_search("regex_3", result_set_id=identity))
+        self.assertFalse(view.activate_pattern_search("unknown", result_set_id=identity))
+        view._search_input.selectAll()
+        view._search_input.insert("Same (regex)")
+        self.assertFalse(view.global_scroll.match_rows)
+        view._search_input.returnPressed.emit()
+        wait_for_search(view)
+        self.assertEqual(list(view._search_matches), [(0, 9, 21)])
+        view.activate_pattern_search("regex_1", result_set_id=identity)
+        view._paint_decorations()
+        self.assertFalse(self.cursor(0).block().layout().formats())
+        QTest.mouseClick(clear, Qt.MouseButton.LeftButton)
+        wait_for_search(view)
+        self.assertFalse(view._search_matches)
+        self.assertTrue(view._search_count_label.isHidden())
+
+    def test_pattern_search_survives_source_view_and_expires_with_its_results(self):
+        view = self.view
+        lines = ("one two sourceflag", "one sourceflag")
+        config = LogreaderConfig(context=0, enabled_patterns=(), regex_patterns=("one",),
+                                 regex_pattern_names=("Selected",))
+        identity = self.render(lines, config).result_set_id
+        view.activate_pattern_search("regex_1", result_set_id=identity)
+        wait_for_search(view)
+        view.find_next()
+        wait_for_navigation(view)
+        hits = view._search_matches
+        view.set_source_active(True)
+        wait_source(view)
+        self.assertFalse(view._pattern_indicator.isVisible())
+        view._search_input.setText("sourceflag")
+        view.search_results()
+        wait_source(view)
+        view.set_source_active(False)
+        wait_for_navigation(view)
+        self.assertEqual(view._search_input.text(), "Selected (regex)")
+        self.assertTrue(view._pattern_indicator.isVisible())
+        self.assertIs(view._search_matches, hits)
+        self.assertEqual(view._search_count_label.text(), "1 / 2")
+
+        view.set_source_active(True)
+        view.begin_analysis()
+        replacement = self.render(lines, replace(config, regex_patterns=("two",)), new_snapshot=False)
+        self.assertEqual(view._search_input.text(), "sourceflag")
+        self.assertEqual(len(view.source_view.matches), 2)
+        view.set_source_active(False)
+        self.assertEqual(view._search_input.text(), "")
+        self.assertFalse(view._pattern_indicator.isVisible())
+        self.assertFalse(view.global_scroll.match_rows)
+        self.assertFalse(view.activate_pattern_search("regex_1", result_set_id=identity))
+        replacement_id = replacement.result_set_id
+        self.assertTrue(view.activate_pattern_search("regex_1", result_set_id=replacement_id))
+        wait_for_search(view)
+        self.assertEqual(list(view._search_matches), [(0, 4, 7)])
+        view.set_source(("another file",), 1, snapshot_id="replacement")
+        self.assertFalse(view.activate_pattern_search("regex_1", result_set_id=replacement_id))
+        self.assertEqual(view._search_input.text(), "")
 
     def test_cancelling_preparation_drops_stale_completion(self):
         from PySide6.QtCore import QThreadPool

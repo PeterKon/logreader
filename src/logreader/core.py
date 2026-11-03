@@ -7,14 +7,16 @@ already-decoded lines and decide how the structured results are rendered.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from typing import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from struct import Struct
+from typing import Callable, Iterable, Iterator, Mapping, Sequence
 
 from .cancellation import CancellationToken, checked
 
 
 MatchValidator = Callable[[str, int, int], bool]
 COMBINED_CATEGORY_KEY = "combined"
+_PACKED_MATCH = Struct("<QQQ")  # Scanned line index, start and end in Python characters.
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,9 +111,31 @@ class AnalysisResult:
     categories: Mapping[str, CategoryResult]
     pattern_count: int = 0
     category_match_counts: Mapping[str, int] | None = None
+    line_offset: int = field(default=0, kw_only=True)
+    _packed_matches: Mapping[str, bytes] | None = field(default=None, kw_only=True, repr=False)
 
     def category(self, key: str) -> CategoryResult:
         return self.categories[key]
+
+    def iter_pattern_matches(self, key: str) -> Iterator[tuple[int, int, int]]:
+        """Yield (1-based source line, start, end) in order, with half-open character ranges."""
+        for match in self.iter_pattern_match_steps(key):
+            if match is not None:
+                yield match
+
+    def iter_pattern_match_steps(self, key: str) -> Iterator[tuple[int, int, int] | None]:
+        """Like iter_pattern_matches, with checkpoints while traversing unmatched context."""
+        if self._packed_matches is not None:
+            for index, start, end in _PACKED_MATCH.iter_unpack(self._packed_matches[key]):
+                yield self.line_offset + index + 1, start, end
+            return
+
+        for excerpt in self.category(key).excerpts:
+            for line in excerpt.lines:
+                if not line.is_match:
+                    yield None
+                for span in line.match_spans:
+                    yield line.number, span.start, span.end
 
 
 @dataclass(slots=True)
@@ -186,15 +210,22 @@ def analyze_lines(
     if cancellation is not None:
         cancellation.check()
     counts = {state.pattern.key: len(state.match_spans_by_index) for state in states}
+    packed_matches = None
     if combined:
-        categories = {COMBINED_CATEGORY_KEY: _build_combined_category_result(
-            source, states, match_count=sum(counts.values()), line_offset=line_offset, cancellation=cancellation)}
+        category, packed_matches = _build_combined_results(
+            source, states, match_count=sum(counts.values()), line_offset=line_offset,
+            cancellation=cancellation,
+        )
+        categories = {COMBINED_CATEGORY_KEY: category}
     else:
         categories = {state.pattern.key: _build_category_result(source, state, cancellation, line_offset)
                       for state in states}
     if cancellation is not None:
         cancellation.check()
-    return AnalysisResult(len(source), categories, len(states), counts)
+    return AnalysisResult(
+        len(source), categories, len(states), counts,
+        line_offset=line_offset, _packed_matches=packed_matches,
+    )
 
 
 
@@ -360,20 +391,26 @@ def _build_category_result(
     )
 
 
-def _build_combined_category_result(
+def _build_combined_results(
     source_lines: tuple[str, ...],
     states: list[_PatternMatchState],
     *,
     match_count: int,
     line_offset: int = 0,
     cancellation: CancellationToken | None = None,
-) -> CategoryResult:
+) -> tuple[CategoryResult, dict[str, bytes]]:
     combined_spans: dict[int, list[MatchSpan]] = {}
+    packed_matches: dict[str, bytes] = {}
     ranges = []
 
     for state in checked(states, cancellation):
+        packed = bytearray()
         for line_index, spans in checked(state.match_spans_by_index.items(), cancellation):
             combined_spans.setdefault(line_index, []).extend(spans)
+            for span in checked(spans, cancellation):
+                packed.extend(_PACKED_MATCH.pack(line_index, span.start, span.end))
+        packed_matches[state.pattern.key] = bytes(packed)
+        del packed
         ranges.extend(
             _build_excerpt_ranges(
                 len(source_lines),
@@ -383,12 +420,15 @@ def _build_combined_category_result(
                 cancellation,
             )
         )
+        # The combined display lists now own the spans needed for merging.
+        state.match_spans_by_index.clear()
+        state.raw_only_match_indexes.clear()
 
     merged_spans = {
         line_index: _merge_match_spans(spans, cancellation)
         for line_index, spans in checked(combined_spans.items(), cancellation)
     }
-    return _build_result_from_ranges(
+    category = _build_result_from_ranges(
         source_lines,
         merged_spans,
         _merge_ranges(ranges, cancellation),
@@ -396,6 +436,7 @@ def _build_combined_category_result(
         line_offset=line_offset,
         cancellation=cancellation,
     )
+    return category, packed_matches
 
 
 def _build_excerpt_ranges(

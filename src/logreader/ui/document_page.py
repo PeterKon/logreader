@@ -105,13 +105,13 @@ class DocumentPage(QWidget):
 
     def _rename_result(self, key: str, name: str) -> None:
         if self.results_view.results_ready:
-            self.results_view.editor.rename_category(key, name)
+            self.results_view.rename_category(key, name)
         elif self.session.is_busy:
             self._pending_result_names[key] = name
 
     def _apply_pending_result_names(self) -> None:
         for key, name in self._pending_result_names.items():
-            self.results_view.editor.rename_category(key, name)
+            self.results_view.rename_category(key, name)
         self._pending_result_names.clear()
 
     @property

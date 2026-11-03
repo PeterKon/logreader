@@ -2,7 +2,15 @@
 from bisect import bisect_right
 from dataclasses import dataclass
 from logreader.core import COMBINED_CATEGORY_KEY, ResultLine
-from .result_formatting import CategoryLabel, summary_operations
+from .result_formatting import CategoryLabel, result_label, summary_operations
+
+@dataclass(frozen=True, slots=True)
+class Fragment:
+    text: str
+    role: str
+    bold: bool
+    pattern_key: str | None
+
 
 @dataclass
 class Decoration:
@@ -25,6 +33,7 @@ class PresentationModel:
         self.row_count = 0
         self.starts, self.runs = [], []
         self.source_starts, self.display_starts = [], []
+        self.match_labels: dict[str, str] = {}
         self._label_fragments = {}
         if not defer:
             for _ in self.prepare():
@@ -41,6 +50,7 @@ class PresentationModel:
         self.runs.clear()
         self.source_starts.clear()
         self.display_starts.clear()
+        self.match_labels.clear()
         self._label_fragments.clear()
         self._decorations(self.header_operations)
         summary_start = len(self.runs)
@@ -75,20 +85,27 @@ class PresentationModel:
     def _decorations(self, operations, kind="structure"):
         fragments = []
         for operation in operations:
+            key = None
             if isinstance(operation, CategoryLabel):
                 if operation.key.startswith(("custom_", "regex_")):
                     self._label_fragments.setdefault(operation.key, []).append(
                         (self.row_count, len(fragments), operation)
                     )
-                operation = operation.resolve(self.config)
-            text, role, bold = operation
-            parts = text.split("\n")
-            for index, part in enumerate(parts):
-                if part:
-                    fragments.append((part, role, bold))
-                if index < len(parts) - 1:
-                    self._append(Decoration(fragments, kind))
-                    fragments = []
+                name = result_label(operation.key, self.config)
+                if operation.count:
+                    key = operation.key
+                    self.match_labels[key] = name
+                pieces = operation.fragments(name)
+            else:
+                pieces = (operation,)
+            for text, role, bold in pieces:
+                parts = text.split("\n")
+                for index, part in enumerate(parts):
+                    if part:
+                        fragments.append(Fragment(part, role, bold, key))
+                    if index < len(parts) - 1:
+                        self._append(Decoration(fragments, kind))
+                        fragments = []
         if fragments:
             self._append(Decoration(fragments, kind))
 
@@ -96,8 +113,10 @@ class PresentationModel:
         # Keep display row addresses stable for selections, bookmarks and the sparse loader.
         changed = []
         for row, index, label in self._label_fragments.get(key, ()):
+            if label.role == "hit_count":
+                self.match_labels[key] = name
             fragments = self.entry(row).fragments
-            replacement = label.fragment(name)
+            replacement = Fragment(*label.fragment(name), fragments[index].pattern_key)
             if fragments[index] != replacement:
                 fragments[index] = replacement
                 changed.append(row)
@@ -116,7 +135,7 @@ class PresentationModel:
         entry = self.entry(row)
         if isinstance(entry, int):
             return self.logical.line(entry)
-        return ResultLine(0, "".join(text for text, _, _ in entry.fragments))
+        return ResultLine(0, "".join(fragment.text for fragment in entry.fragments))
 
     def resolve(self, location):
         row = self.logical.resolve(location)

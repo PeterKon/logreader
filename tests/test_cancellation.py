@@ -38,6 +38,20 @@ class CancellationTests(unittest.TestCase):
                 self.assertGreaterEqual(len(calls), 1)
                 self.assertLessEqual(len(calls), CANCELLATION_CHECK_INTERVAL)
 
+    def test_cancellation_while_packing_a_dense_combined_line(self):
+        token = CancellationToken()
+
+        def cancel_while_packing(*_args):
+            token.cancel()
+            return b""
+
+        with patch("logreader.core._PACKED_MATCH") as record:
+            record.pack.side_effect = cancel_while_packing
+            with self.assertRaises(AnalysisCancelled):
+                analyze_lines(("x" * 10000,), [SearchPattern("x", "x")],
+                              combined=True, cancellation=token)
+            self.assertLessEqual(record.pack.call_count, CANCELLATION_CHECK_INTERVAL)
+
     def test_cancellation_during_result_construction_returns_no_partial_result(self):
         for combined in (False, True):
             with self.subTest(combined=combined):

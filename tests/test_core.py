@@ -17,6 +17,8 @@ class AnalyzeLinesTests(unittest.TestCase):
                         SearchPattern("skip", "skip", exclude=True),
                     ), combined=combined, line_offset=100)
                     self.assertEqual(result.category_match_counts, {"error": 2})
+                    self.assertEqual(list(result.iter_pattern_matches("error")),
+                                     [(101, 6, 11), (102, 5, 10)])
                     self.assertEqual(result.pattern_count, 1)
                     self.assertEqual(set(result.categories), {"combined" if combined else "error"})
                     if combined:
@@ -96,6 +98,7 @@ class AnalyzeLinesTests(unittest.TestCase):
             ), combined=combined)
             self.assertEqual(result.pattern_count, 3)
             self.assertEqual(result.category_match_counts, {"error": 1, "custom": 1, "regex": 0})
+            self.assertEqual(list(result.iter_pattern_matches("regex")), [])
             category = result.category("combined" if combined else "error")
             context = category.excerpts[0].lines
             self.assertEqual([line.text for line in context], lines)
@@ -139,6 +142,25 @@ class AnalyzeLinesTests(unittest.TestCase):
                             [(span.start, span.end) for span in line.match_spans],
                             [(0, 8)],
                         )
+
+    def test_pattern_matches_preserve_overlapping_and_adjacent_ranges(self):
+        patterns = (
+            SearchPattern("literal", "retry", context=1),
+            SearchPattern("assignment", r"retry=\d+", is_regex=True, context=1),
+            SearchPattern("digit", r"\d", is_regex=True, context=1),
+        )
+        offset = 1 << 64
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                result = analyze_lines(("retry=42", "context", "42"), patterns,
+                                       combined=combined, line_offset=offset)
+                self.assertEqual(list(result.iter_pattern_matches("literal")),
+                                 [(offset + 1, 0, 5)])
+                self.assertEqual(list(result.iter_pattern_matches("assignment")),
+                                 [(offset + 1, 0, 8)])
+                self.assertEqual(list(result.iter_pattern_matches("digit")),
+                                 [(offset + 1, 6, 7), (offset + 1, 7, 8),
+                                  (offset + 3, 0, 1), (offset + 3, 1, 2)])
 
     def test_combined_analysis_builds_only_one_line_counted_category(self):
         result = analyze_lines(

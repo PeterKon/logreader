@@ -6,12 +6,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QThreadPool
-from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QThreadPool, Qt
+from PySide6.QtGui import QFont, QFontDatabase, QTextCursor, QTextLine
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from logreader.document_session import LoadPhase
+from logreader.search_storage import utf16_length
+from logreader.ui.results.results_editor import SummaryBlock
+from logreader.ui.widgets.line_number_editor import GUTTER_LEFT_PADDING
 from logreader.workers.load_worker import LoadWorker
 from logreader.workers.work_queue import WorkQueue
 
@@ -120,6 +123,33 @@ def capture_analysis(workers):
 
     with patch.object(WorkQueue, "submit", new=dispatch):
         yield
+
+
+def painted_character(editor, text, character=0, occurrence=0):
+    """Locate a rendered structural character in editor coordinates for a real mouse event."""
+    cursor = QTextCursor(editor.document())
+    for _ in range(occurrence + 1):
+        cursor = editor.document().find(text, cursor)
+        if cursor.isNull():
+            raise AssertionError(f"Could not find displayed text {text!r}")
+    block = cursor.block()
+    column = cursor.selectionStart() - block.position() + utf16_length(text[:character])
+    line = block.layout().lineForTextPosition(column)
+    left = line.cursorToX(column)[0]
+    right = line.cursorToX(column, QTextLine.Edge.Trailing)[0]
+    offset = editor.contentOffset()
+    x = editor.gutter.x() + offset.x() + GUTTER_LEFT_PADDING - editor.document().documentMargin()
+    if isinstance(block.userData(), SummaryBlock):
+        x += 6
+    y = editor.viewport().y() + editor.blockBoundingGeometry(block).top() + offset.y()
+    return QPoint(round(x + (left + right) / 2), round(y + line.naturalTextRect().center().y()))
+
+
+def click_summary_count(view, entry):
+    editor = view.editor
+    point = painted_character(editor, entry, -1)
+    target = editor.childAt(point) or editor
+    QTest.mouseClick(target, Qt.MouseButton.LeftButton, pos=target.mapFromGlobal(editor.mapToGlobal(point)))
 
 
 def wait_for_search(widget):

@@ -7,7 +7,7 @@ from uuid import uuid4
 from PySide6.QtCore import QPoint, QSignalBlocker, Qt, QTimer, Signal, QThreadPool, Slot
 from PySide6.QtGui import QColor, QKeySequence, QTextCharFormat, QTextCursor, QTextLayout
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit
-from .results_controls import ResultsControls
+from .results_controls import PatternSearch, ResultsControls
 from .result_coordinates import TextPoint
 from .retained_editor import SparseResultsEditor
 from .result_scrollbar import ScrollSurface
@@ -80,6 +80,7 @@ class ResultsView(ResultsControls):
         self._bookmark_projection = None
         self._selection_key = None
         self._revision = 0
+        self._syncing_search_input = False
         self._search_identity = self._search_request = None
         self._pending_sequence = self._source_destination = None
         self.format_updates = self.decoration_passes = self.search_steps = 0
@@ -163,6 +164,10 @@ class ResultsView(ResultsControls):
         self.logical = presentation.logical
         self._editor = DecoratedSparseEditor(presentation, self)
         editor = self._editor
+        if presentation.match_labels:
+            editor.structure_area.pattern_clicked.connect(
+                lambda key, identity: self.activate_pattern_search(key, result_set_id=identity))
+            editor.structure_area.enable_pattern_links()
         editor.request_wrapping(self._line_wrapping)
         editor.setFont(font)
         self.surface = ScrollSurface(editor, self)
@@ -203,6 +208,7 @@ class ResultsView(ResultsControls):
         target = (self.source_view if self.source_active else
                   self._analysis_message if self._results_hidden else self.surface)
         self._view_stack.setCurrentWidget(target)
+        self._editor.structure_area.setEnabled(not self._results_stale)
         available = self.source_active or not self._results_stale
         for control in (self._search_input, self._search_navigation, self._line_wrap_check):
             control.setEnabled(available)
@@ -210,7 +216,10 @@ class ResultsView(ResultsControls):
     def begin_analysis(self):
         # Retain the old document until replacement, without clearing or rebuilding it.
         self._results_stale = True
-        self.cancel_search()
+        if isinstance(self._results_query, PatternSearch):
+            self._clear_search_results(discard_pattern=True)
+        else:
+            self.cancel_search()
         self.loader.set_paused(True)
         self._editor.navigation.cancel()
         self._editor._cancel_wheel()
@@ -242,7 +251,7 @@ class ResultsView(ResultsControls):
         self._render_started = perf_counter()
         self._paused_at = None
         self._paused_seconds = 0.0
-        self._clear_search_results()
+        self._clear_search_results(discard_pattern=True)
         generation = self._preparation_generation
         headers = scan_limit_operations(*scan_limit) if scan_limit is not None else ()
         worker = PreparationWorker(generation, analysis, self._snapshot_id, config, header_operations=headers)
@@ -262,7 +271,7 @@ class ResultsView(ResultsControls):
         if self._rendering_paused:
             self._prepared_result = generation, prepared
             return
-        self._clear_search_results()
+        self._clear_search_results(discard_pattern=True)
         self._install_presentation(prepared.presentation)
         editor = self._editor
         total = editor.presentation.row_count
@@ -346,8 +355,7 @@ class ResultsView(ResultsControls):
         self._results_query = ""
         self._searched_query = None
         self.source_view.reset()
-        with QSignalBlocker(self._search_input):
-            self._search_input.clear()
+        self._sync_search_input()
         self._install_empty()
         self._clear_search_results()
 
@@ -384,10 +392,30 @@ class ResultsView(ResultsControls):
         if self.source_active:
             self.source_view.search()
         elif self.results_ready:
-            if self._searched_query != self._search_input.text():
+            if self._searched_query != self._results_query:
                 self._refresh_search_matches()
             else:
                 self.find_next()
+
+    def activate_pattern_search(self, key: str, *, result_set_id: object) -> bool:
+        """Submit a positive summary entry from the currently displayed results."""
+        if (self._closed or self.source_active or not self.results_ready or result_set_id is None
+                or self._editor.result_set_id is not result_set_id
+                or key not in self._editor.presentation.match_labels):
+            return False
+        self._results_query = PatternSearch(result_set_id, key)
+        self._sync_search_input()
+        self._search_input.setFocus()
+        self._search_input.selectAll()
+        if self._searched_query != self._results_query:
+            self._refresh_search_matches()
+        return True
+
+    def rename_category(self, key, name):
+        self._editor.rename_category(key, name)
+        if (not self.source_active and isinstance(self._results_query, PatternSearch)
+                and self._results_query.key == key):
+            self._sync_search_input()
 
     def result_location_at(self, point):
         if not self.results_ready:
@@ -471,7 +499,6 @@ class ResultsView(ResultsControls):
             return
         editor = self._editor
         if active:
-            self._results_query = self._search_input.text()
             self._return_position = (None if self._results_stale else
                                      (editor.result_set_id, editor.top_point(), editor.anchor,
                                       editor.caret, editor.horizontalScrollBar().value()))
@@ -491,8 +518,8 @@ class ResultsView(ResultsControls):
         self._source_button.style().unpolish(self._source_button)
         self._source_button.style().polish(self._source_button)
         self._source_button.update()
-        with QSignalBlocker(self._search_input), QSignalBlocker(self._line_wrap_check):
-            self._search_input.setText(self.source_view.query if active else self._results_query)
+        self._sync_search_input()
+        with QSignalBlocker(self._line_wrap_check):
             self._line_wrap_check.setChecked(self._line_wrapping)
         self._search_input.setAccessibleName("Search retained source" if active else "Search results")
         self._search_input.setToolTip("Search all loaded source lines" if active else "Search for matches in the results")
@@ -519,14 +546,44 @@ class ResultsView(ResultsControls):
         self.focus_editor()
         self.view_state_changed.emit()
 
+    def _update_pattern_indicator(self):
+        active = not self.source_active and isinstance(self._results_query, PatternSearch)
+        if self._pattern_indicator.isVisibleTo(self._search_input) == active:
+            return
+        self._pattern_indicator.setVisible(active)
+        inset = self._pattern_indicator.sizeHint().width() + 6 if active else 0
+        self._search_input.setTextMargins(inset, 0, 0, 0)
+
+    def _sync_search_input(self):
+        self._update_pattern_indicator()
+        if self.source_active:
+            text = self.source_view.query
+        elif isinstance(self._results_query, PatternSearch):
+            text = self._editor.presentation.match_labels[self._results_query.key]
+        else:
+            text = self._results_query
+        # Let the line edit update its clear button without submitting a literal edit.
+        self._syncing_search_input = True
+        try:
+            self._search_input.setText(text)
+        finally:
+            self._syncing_search_input = False
+
     def _invalidate_search_results(self, query):
+        if self._syncing_search_input:
+            return
         if self.source_active:
             self.source_view.set_query(query)
             return
         self._results_query = query
+        self._update_pattern_indicator()
         self._clear_search_results()
 
-    def _clear_search_results(self):
+    def _clear_search_results(self, *, discard_pattern=False):
+        if discard_pattern and isinstance(self._results_query, PatternSearch):
+            self._results_query = ""
+            if not self.source_active:
+                self._sync_search_input()
         self.cancel_search()
         self._search_matches = LogicalMatches()
         self._current_search_match = None
@@ -544,6 +601,7 @@ class ResultsView(ResultsControls):
         self._search_timer.stop()
         if self._search_work is not None:
             self._search_work.close()
+            self._searched_query = None
         self._search_work = None
         self._pending_matches = LogicalMatches()
         self._pending_blocks = array("Q")
@@ -559,7 +617,10 @@ class ResultsView(ResultsControls):
         if not self._searched_query or not self.results_ready:
             return
         self._search_identity = self._editor.result_set_id
-        self._search_work = iter_source_matches((line.text for line in self.model.iter_lines()), self._searched_query)
+        if isinstance(self._searched_query, PatternSearch):
+            self._search_work = self.model.iter_pattern_match_steps(self._searched_query.key)
+        else:
+            self._search_work = iter_source_matches((line.text for line in self.model.iter_lines()), self._searched_query)
         self._search_count_label.setText("Searching…")
         self._search_count_label.show()
         self._search_timer.start(0)
@@ -693,7 +754,7 @@ class ResultsView(ResultsControls):
             # Formats stay bounded by a viewport, not by visited or loaded rows.
             # Resolve each block again: filling an earlier gap changes numbers.
             for display in tuple(self._formats):
-                if display not in shown or not self._searched_query:
+                if display not in shown or not self._searched_query or self.is_searching:
                     block = editor._block(display)
                     if block.isValid() and block.layout().formats():
                         block.layout().setFormats([])

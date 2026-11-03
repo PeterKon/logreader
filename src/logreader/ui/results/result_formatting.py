@@ -18,10 +18,15 @@ RESULT_LABEL_OVERRIDES = {"http_4xx": "HTTP 4xx", "http_5xx": "HTTP 5xx"}
 RenderOperation = tuple[str, str, bool]
 
 
+def result_label(key: str, config: LogreaderConfig) -> str:
+    return RESULT_LABEL_OVERRIDES.get(key, config.label_for(key))
+
+
 @dataclass(frozen=True, slots=True)
 class CategoryLabel:
     key: str
     role: str
+    count: int = 0
 
     def fragment(self, name: str) -> RenderOperation:
         if self.role == "hit_count":
@@ -30,7 +35,12 @@ class CategoryLabel:
         return name, self.role, self.role == "heading"
 
     def resolve(self, config: LogreaderConfig) -> RenderOperation:
-        return self.fragment(RESULT_LABEL_OVERRIDES.get(self.key, config.label_for(self.key)))
+        return self.fragment(result_label(self.key, config))
+
+    def fragments(self, name: str) -> Iterator[RenderOperation]:
+        yield self.fragment(name)
+        if self.count:
+            yield str(self.count), "body", False
 
 
 def _iter_analysis_render_operations(
@@ -45,7 +55,10 @@ def _iter_analysis_render_operations(
     """Yield ordered formatting operations without touching Qt widgets."""
 
     for operation in summary_operations(analysis, config):
-        yield operation.resolve(config) if isinstance(operation, CategoryLabel) else operation
+        if isinstance(operation, CategoryLabel):
+            yield from operation.fragments(result_label(operation.key, config))
+        else:
+            yield operation
     if on_summary is not None:
         on_summary()
 
@@ -105,7 +118,7 @@ def _iter_summary_entries(
 ) -> Iterator[RenderOperation | CategoryLabel]:
     line_length = 0
     for key, count in entries:
-        label = CategoryLabel(key, "hit_count" if count else "muted")
+        label = CategoryLabel(key, "hit_count" if count else "muted", count)
         entry_length = len(label.resolve(config)[0]) + (len(str(count)) if count else 0)
         separator = " " * SUMMARY_ENTRY_GAP if count else ", "
         if line_length:
@@ -116,8 +129,6 @@ def _iter_summary_entries(
                 yield separator, "muted", False
                 line_length += len(separator)
         yield label
-        if count:
-            yield str(count), "body", False
         line_length += entry_length
 
 
@@ -130,7 +141,7 @@ def _iter_category_render_operations(
     if presentation.key == COMBINED_CATEGORY_KEY:
         yield "\n", "body", False
     else:
-        label = RESULT_LABEL_OVERRIDES.get(presentation.key, config.label_for(presentation.key))
+        label = result_label(presentation.key, config)
         yield f"\n{presentation.heading(label)}\n\n", "heading", True
 
     for excerpt_index, excerpt in enumerate(presentation.excerpts):

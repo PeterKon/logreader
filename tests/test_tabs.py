@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import qt_application, retire_window, wait_source, trigger_pattern_action
+    from qt_helpers import click_summary_count, qt_application, retire_window, wait_source, trigger_pattern_action
     from qt_helpers import wait_for_search, capture_analysis, wait_for_load
     from PySide6.QtCore import QPoint, QPointF, Qt
     from PySide6.QtGui import QKeySequence, QTextCursor, QWheelEvent
@@ -61,6 +61,52 @@ class TabTests(unittest.TestCase):
                 return
             QTest.qWait(10)
         self.fail("Analysis did not finish")
+
+    def test_http_summary_click_selects_the_status_and_literal_search_finds_both_numbers(self):
+        self.window.show()
+        line = "HTTP/1.1 503 response_size=503"
+        page = self.open_log("http.log", line + "\n")
+        panel, view = page.filter_panel, page.results_view
+        for key, box in panel._pattern_checkboxes.items():
+            box.setChecked(key == "http_5xx")
+        panel._tabs.setCurrentIndex(2)
+        QTest.keyClicks(panel._custom_pattern, "503")
+        QTest.keyClick(panel._custom_pattern, Qt.Key.Key_Return)
+        for combined, copies in ((True, 1), (False, 2)):
+            with self.subTest(combined=combined):
+                panel._combined_view.setChecked(combined)
+                done = QSignalSpy(page.analysis_finished)
+                QTest.mouseClick(self.window._analyze_button, Qt.MouseButton.LeftButton)
+                self.wait_for_completion(done)
+                editor = view.editor
+                top = editor.top_point()
+                click_summary_count(view, "HTTP 5xx 1")
+                wait_for_search(view)
+                self.assertEqual(view._search_count_label.text(), f"0 / {copies}")
+                self.assertEqual(editor.top_point(), top)
+                self.assertEqual(list(view._search_matches), [(row, 9, 12) for row in range(copies)])
+                QTest.keyClick(view._search_input, Qt.Key.Key_Return)
+                wait_for_search(view)
+                self.assertEqual(editor.caret.column, 9)
+                current = editor.extraSelections()[-1]
+                self.assertEqual(current.cursor.selectedText(), "503")
+
+                view._search_input.selectAll()
+                QTest.keyClicks(view._search_input, "503")
+                QTest.keyClick(view._search_input, Qt.Key.Key_Return)
+                wait_for_search(view)
+                self.assertEqual(list(view._search_matches), [
+                    (row, start, start + 3) for row in range(copies) for start in (9, line.rindex("503"))
+                ])
+
+        QTest.mouseClick(view._source_button, Qt.MouseButton.LeftButton)
+        wait_source(view)
+        QTest.keyClicks(view._search_input, "503")
+        QTest.keyClick(view._search_input, Qt.Key.Key_Return)
+        wait_source(view)
+        matches = view.source_view.matches
+        self.assertEqual(list(zip(matches.lines, matches.starts, matches.ends)),
+                         [(0, 9, 12), (0, line.rindex("503"), len(line))])
 
     def test_line_wrapping_is_shared_between_views_but_independent_between_tabs(self):
         self.window.show()

@@ -6,7 +6,8 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import capture_analysis, rename_pattern, trigger_pattern_action, wait_for_search, wait_source, wait_until
+    from qt_helpers import capture_analysis, click_summary_count, rename_pattern, trigger_pattern_action
+    from qt_helpers import wait_for_search, wait_source, wait_until
     from PySide6.QtCore import QThreadPool, Qt
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox
@@ -52,7 +53,12 @@ class DocumentPageTests(unittest.TestCase):
         self.fail("Document did not finish rendering")
 
     def test_exclusive_filters_are_omitted_from_request_and_result_counts(self):
+        self.first.stage_loaded_log(Path("filtered.log"), LoadedLog(
+            ("ERROR: skip first", "ERROR: first error", "ERROR: elsewhere"), "UTF-8",
+        ))
+        self.first.show()
         panel = self.first.filter_panel
+        panel._context_spin.setValue(1)
         for checkbox in panel._pattern_checkboxes.values():
             checkbox.setChecked(False)
         for pattern in ("first", "ERROR", "skip"):
@@ -69,7 +75,11 @@ class DocumentPageTests(unittest.TestCase):
         self.wait_for_completion(done)
         self.assertEqual(self.first.session.analysis.pattern_count, 1)
         self.assertEqual(self.first.session.analysis.category_match_counts, {"custom_2": 1})
-        self.assertIn("ERROR: first", self.first.results_view.editor.toPlainText())
+        view = self.first.results_view
+        self.assertEqual([line.number for line in view.model.iter_lines()], [1, 2, 3])
+        click_summary_count(view, "ERROR 1")
+        wait_for_search(view)
+        self.assertEqual(list(view._search_matches), [(1, 0, 5), (1, 13, 18)])
 
     def test_live_rename_follows_analyzed_row_across_duplicates_and_pending_edits(self):
         for page, combined in ((self.first, False), (self.second, True)):
@@ -95,6 +105,10 @@ class DocumentPageTests(unittest.TestCase):
                 editor = view.editor
                 analysis = page.session.analysis
                 self.assertIn("ERROR 1   Second duplicate (text match) 1", editor.toPlainText())
+                self.assertTrue(view.activate_pattern_search("custom_2", result_set_id=editor.result_set_id))
+                wait_for_search(view)
+                hits = view._search_matches
+                self.assertEqual(view._search_input.text(), "Second duplicate (text match)")
                 location = view.model.location(view.model.row_count - 1)
                 self.assertTrue(view.bookmarks.add(location, "Keep this line"))
                 editor.setTextCursor(editor.document().find("ERROR: "))
@@ -104,6 +118,8 @@ class DocumentPageTests(unittest.TestCase):
                 rename_pattern(items, 0, "Failure")
                 rename_pattern(panel._regex_pattern_list, 0, "Missing ID")
                 output = editor.toPlainText()
+                self.assertEqual(view._search_input.text(), "Failure (text match)")
+                self.assertIs(view._search_matches, hits)
                 self.assertIn("ERROR 1   Failure (text match) 1", output)
                 self.assertIn("No matches:\nMissing ID (regex)", output)
                 if not combined:

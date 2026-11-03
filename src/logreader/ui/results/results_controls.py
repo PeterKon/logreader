@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from array import array
+from dataclasses import dataclass
 from typing import Callable, Iterator
 from uuid import uuid4
 
@@ -23,6 +24,12 @@ from ..theme import THEME_COLORS, configure_action_button, configure_clear_butto
 
 CheckBoxFactory = Callable[[], QCheckBox]
 SpinBoxFactory = Callable[[], QSpinBox]
+
+
+@dataclass(frozen=True, slots=True)
+class PatternSearch:
+    result_set_id: object
+    key: str
 
 
 class ResultsControls(QWidget):
@@ -48,12 +55,12 @@ class ResultsControls(QWidget):
         self._results_stale = False
         self._results_hidden = False
         self._rendering_paused = False
-        self._results_query = ""
+        self._results_query: str | PatternSearch = ""
         self._snapshot_id = uuid4().hex
         self._return_position = None
         self._search_matches = None
         self._current_search_match: int | None = None
-        self._searched_query: str | None = None
+        self._searched_query: str | PatternSearch | None = None
         self._search_from_viewport = True
         self._search_generation = 0
         self._search_work: Iterator[tuple[int, int, int] | None] | None = None
@@ -145,6 +152,19 @@ class ResultsControls(QWidget):
             " border-bottom-right-radius: 0;"
             "}"
         )
+        self._pattern_indicator = QLabel("Pattern", self._search_input)
+        self._pattern_indicator.setObjectName("searchPatternIndicator")
+        self._pattern_indicator.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._pattern_indicator.setFixedHeight(16)
+        self._pattern_indicator.setStyleSheet(
+            f"background-color: {THEME_COLORS['ui_island']}; color: {THEME_COLORS['ui_accent']};"
+            "border: none; border-radius: 3px; padding: 0 4px; font-size: 10px; font-weight: 600;"
+        )
+        indicator_layout = QHBoxLayout(self._search_input)
+        indicator_layout.setContentsMargins(5, 0, 0, 0)
+        indicator_layout.addWidget(self._pattern_indicator, 0,
+                                   Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._pattern_indicator.hide()
         self._search_input.textChanged.connect(self._invalidate_search_results)
         self._search_input.returnPressed.connect(self.search_results)
         search_controls_layout.addWidget(self._search_input)

@@ -1,10 +1,12 @@
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
 from logreader.config import LogreaderConfig
 from logreader.core import analyze_lines
 from logreader.document_session import DocumentSession
 from logreader.file_loader import LoadedLog
+from logreader.search_storage import SEARCH_CHUNK_CHARACTERS, utf16_length
 from logreader.ui.results.results_model import ResultsModel, SourceLocation
 
 
@@ -48,6 +50,60 @@ class ResultsModelTests(unittest.TestCase):
         self.assertEqual(model.line(row).number, 10003)
         combined = self.model(lines, replace(changed, combined_view=True))
         self.assertEqual(combined.line(combined.resolve(location)).number, 10003)
+
+    def test_pattern_matches_project_every_accepted_copy_in_display_order(self):
+        lines = ("lead tail", "😀 r😀 r😀", "lead tail SKIP r😀", "😀r😀", "lead tail")
+        config = LogreaderConfig(context=1, enabled_patterns=(),
+                                 custom_patterns=("lead", "tail", "SKIP"),
+                                 custom_pattern_exclude=(False, False, True),
+                                 regex_patterns=("r😀",))
+        offset = 1 << 64
+        for combined, row_pairs in ((True, [(1, 3)]), (False, [(1, 2), (5, 6), (9, 11)])):
+            with self.subTest(combined=combined):
+                model = self.model(lines, replace(config, combined_view=combined), offset=offset)
+                self.assertTrue(model.rows_for_source(SourceLocation("snapshot", offset + 3)))
+                matches = list(model.iter_pattern_matches("regex_1"))
+                expected = []
+                for first, second in row_pairs:
+                    expected.extend([(first, 3, 6), (first, 7, 10), (second, 2, 5)])
+                self.assertEqual(matches, expected)
+
+    def test_long_unicode_projection_yields_and_converts_the_prefix_only_once(self):
+        prefix = "😀" + "a" * (SEARCH_CHUNK_CHARACTERS * 3)
+        text = prefix + "r😀" * 200
+        config = LogreaderConfig(context=0, enabled_patterns=(), custom_patterns=("r",),
+                                 regex_patterns=("r😀",), combined_view=False)
+        model = self.model((text,), config)
+        lengths = []
+
+        def measure(part):
+            lengths.append(len(part))
+            return utf16_length(part)
+
+        with patch("logreader.ui.results.results_model.utf16_length", side_effect=measure):
+            work = model.iter_pattern_match_steps("regex_1")
+            while not lengths:
+                self.assertIsNone(next(work))
+            self.assertLess(sum(lengths), len(prefix))
+            work.close()
+            self.assertEqual(list(work), [])
+
+            lengths.clear()
+            matches = list(model.iter_pattern_matches("regex_1"))
+        start = utf16_length(prefix)
+        self.assertEqual(matches, [(row, start + 3 * i, start + 3 * i + 3)
+                                   for row in (0, 1) for i in range(200)])
+        self.assertLessEqual(max(lengths), SEARCH_CHUNK_CHARACTERS)
+        self.assertLessEqual(sum(lengths), len(text))
+
+    def test_projection_can_pause_in_context_before_the_first_match(self):
+        context = 4096
+        model = self.model(("context",) * context + ("needle",),
+                           LogreaderConfig(context=context, enabled_patterns=(),
+                                           custom_patterns=("needle",), combined_view=False))
+        work = model.iter_pattern_match_steps("custom_1")
+        self.assertIsNone(next(work))
+        self.assertEqual([hit for hit in work if hit is not None], [(context, 0, 6)])
 
     def test_unavailable_lines_and_replaced_snapshots_never_resolve_to_nearby_text(self):
         config = LogreaderConfig(context=0, enabled_patterns=("error_colon",))

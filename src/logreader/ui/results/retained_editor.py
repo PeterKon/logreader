@@ -6,7 +6,7 @@ from time import perf_counter
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPixmap, QTextBlock, QTextBlockFormat, QTextCharFormat, QTextCursor
 from .result_coordinates import TextPoint, WindowedResultsEditor
-from .results_editor import ExcerptGapBlock, ResultsStructureArea, StructuralBlock, SummaryBlock, size_excerpt_gap
+from .results_editor import SUMMARY_PATTERN_PROPERTY, ExcerptGapBlock, ResultsStructureArea, StructuralBlock, SummaryBlock, size_excerpt_gap
 from .results_style import _results_editor_style_sheet
 from .range_loading import SparseNavigation
 from .loaded_ranges import RangeIndex, RetainedBoundary, Span, UnloadedGap
@@ -64,11 +64,13 @@ class StyledWindowEditor(WindowedResultsEditor):
         entry = self.model.entry(number)
         if isinstance(entry, int):
             return super()._write_row(cursor, number)
-        for text, role, bold in entry.fragments:
+        for fragment in entry.fragments:
             fmt = QTextCharFormat()
-            fmt.setForeground(QColor(THEME_COLORS[role]))
-            fmt.setFontWeight(QFont.Weight.Bold if bold else QFont.Weight.Normal)
-            cursor.insertText(text, fmt)
+            fmt.setForeground(QColor(THEME_COLORS[fragment.role]))
+            fmt.setFontWeight(QFont.Weight.Bold if fragment.bold else QFont.Weight.Normal)
+            if fragment.pattern_key is not None:
+                fmt.setProperty(SUMMARY_PATTERN_PROPERTY, fragment.pattern_key)
+            cursor.insertText(fragment.text, fmt)
         self._set_row_metadata(cursor.block(), number)
 
 
