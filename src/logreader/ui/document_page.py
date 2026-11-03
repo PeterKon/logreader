@@ -55,6 +55,7 @@ class DocumentPage(QWidget):
         self._workers: dict[int, AnalysisWorker | LoadWorker] = {}
         self._load_worker: LoadWorker | None = None
         self._pending_analysis: LogreaderConfig | None = None
+        self._pending_result_names: dict[str, str] = {}
         self._from_saved_session = False
         self._claim_replacement = claim_replacement
         self._pending_bookmarks: tuple[BookmarkSnapshot, ...] | None = None
@@ -99,6 +100,19 @@ class DocumentPage(QWidget):
         self.results_view.source_view.status_changed.connect(self._emit_active_status)
         root_layout.addWidget(self.results_view, 1)
         self.filter_panel.filters_changed.connect(self._update_profile_state)
+        self.filter_panel.result_label_changed.connect(self._rename_result)
+        self.results_view.results_prepared.connect(self._apply_pending_result_names)
+
+    def _rename_result(self, key: str, name: str) -> None:
+        if self.results_view.results_ready:
+            self.results_view.editor.rename_category(key, name)
+        elif self.session.is_busy:
+            self._pending_result_names[key] = name
+
+    def _apply_pending_result_names(self) -> None:
+        for key, name in self._pending_result_names.items():
+            self.results_view.editor.rename_category(key, name)
+        self._pending_result_names.clear()
 
     @property
     def applied_profile(self) -> Profile | None:
@@ -381,6 +395,8 @@ class DocumentPage(QWidget):
             self.analysis_failed.emit(str(error))
             return
 
+        self.filter_panel.bind_result_keys()
+        self._pending_result_names.clear()
         if (not self.session.has_document or
                 len(self.session.lines) < min(config.max_lines_scanned, self.session.total_line_count)):
             self.load_file(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable, Iterator
 
 from ...config import LogreaderConfig
@@ -17,6 +18,21 @@ RESULT_LABEL_OVERRIDES = {"http_4xx": "HTTP 4xx", "http_5xx": "HTTP 5xx"}
 RenderOperation = tuple[str, str, bool]
 
 
+@dataclass(frozen=True, slots=True)
+class CategoryLabel:
+    key: str
+    role: str
+
+    def fragment(self, name: str) -> RenderOperation:
+        if self.role == "hit_count":
+            # Keep the label and its count together when Qt wraps the line.
+            name = name.replace(" ", "\u00a0") + "\u00a0"
+        return name, self.role, self.role == "heading"
+
+    def resolve(self, config: LogreaderConfig) -> RenderOperation:
+        return self.fragment(RESULT_LABEL_OVERRIDES.get(self.key, config.label_for(self.key)))
+
+
 def _iter_analysis_render_operations(
     source_name: str,
     analysis: AnalysisResult,
@@ -28,6 +44,22 @@ def _iter_analysis_render_operations(
 ) -> Iterator[RenderOperation]:
     """Yield ordered formatting operations without touching Qt widgets."""
 
+    for operation in summary_operations(analysis, config):
+        yield operation.resolve(config) if isinstance(operation, CategoryLabel) else operation
+    if on_summary is not None:
+        on_summary()
+
+    presentations = (
+        (section.presentation for section in model.sections)
+        if model is not None else build_category_presentations(analysis)
+    )
+    for presentation in presentations:
+        yield from _iter_category_render_operations(
+            presentation, config, on_excerpt=on_excerpt,
+        )
+
+
+def summary_operations(analysis: AnalysisResult, config: LogreaderConfig) -> Iterator[RenderOperation | CategoryLabel]:
     if config.combined_view:
         summary_counts = (
             analysis.category_match_counts.items()
@@ -49,79 +81,43 @@ def _iter_analysis_render_operations(
         1 if item[0].startswith("custom_") else 0,
     )
     for key, match_count in ordered_counts:
-        label = RESULT_LABEL_OVERRIDES.get(key, config.label_for(key))
         if match_count == 0:
-            zero_entries.append((label, None))
+            zero_entries.append((key, match_count))
         else:
-            positive_entries.append((label, match_count))
+            positive_entries.append((key, match_count))
 
     total_matches = sum(result.match_count for result in analysis.categories.values())
     yield f"Matches ({total_matches:,} total):\n", "heading", True
     if positive_entries:
-        yield from _iter_positive_summary_entries(positive_entries)
+        yield from _iter_summary_entries(positive_entries, config)
     else:
         yield "0", "muted", False
     yield "\n", "body", False
 
     if zero_entries:
         yield "\nNo matches:\n", "heading", False
-        yield from _iter_summary_entries(zero_entries)
+        yield from _iter_summary_entries(zero_entries, config)
         yield "\n", "muted", False
-
-    if on_summary is not None:
-        on_summary()
-
-    presentations = (
-        (section.presentation for section in model.sections)
-        if model is not None else build_category_presentations(analysis)
-    )
-    for presentation in presentations:
-        yield from _iter_category_render_operations(
-            presentation, config, on_excerpt=on_excerpt,
-        )
-
-
-def _iter_positive_summary_entries(
-    entries: list[tuple[str, int]],
-) -> Iterator[RenderOperation]:
-    """Keep label/count pairs together, with wider gaps between entries."""
-    line_length = 0
-    for label, count in entries:
-        count_text = str(count)
-        entry_length = len(label) + 1 + len(count_text)
-        if line_length:
-            if line_length + SUMMARY_ENTRY_GAP + entry_length > SUMMARY_LINE_LENGTH:
-                yield "\n", "muted", False
-                line_length = 0
-            else:
-                yield " " * SUMMARY_ENTRY_GAP, "muted", False
-                line_length += SUMMARY_ENTRY_GAP
-        # Qt renders these as ordinary spaces but keeps each pair together when wrapping.
-        yield label.replace(" ", "\u00a0") + "\u00a0", _match_count_role(count), False
-        yield count_text, "body", False
-        line_length += entry_length
 
 
 def _iter_summary_entries(
-    entries: list[tuple[str, int | None]],
-) -> Iterator[RenderOperation]:
-    """Wrap plain-text lists at entry boundaries, preserving oversized entries."""
+    entries: list[tuple[str, int]], config: LogreaderConfig,
+) -> Iterator[RenderOperation | CategoryLabel]:
     line_length = 0
-    for label, count in entries:
-        count_text = "" if count is None else str(count)
-        entry_length = len(label) + (1 + len(count_text) if count is not None else 0)
+    for key, count in entries:
+        label = CategoryLabel(key, "hit_count" if count else "muted")
+        entry_length = len(label.resolve(config)[0]) + (len(str(count)) if count else 0)
+        separator = " " * SUMMARY_ENTRY_GAP if count else ", "
         if line_length:
-            if line_length + 2 + entry_length > SUMMARY_LINE_LENGTH:
+            if line_length + len(separator) + entry_length > SUMMARY_LINE_LENGTH:
                 yield "\n", "muted", False
                 line_length = 0
             else:
-                yield ", ", "muted", False
-                line_length += 2
-        if count is None:
-            yield label, "muted", False
-        else:
-            yield f"{label} ", _match_count_role(count), False
-            yield count_text, "body", False
+                yield separator, "muted", False
+                line_length += len(separator)
+        yield label
+        if count:
+            yield str(count), "body", False
         line_length += entry_length
 
 
@@ -165,7 +161,3 @@ def _iter_result_line_render_operations(
         yield line.text[span.start : span.end], "match", True
         position = span.end
     yield f"{line.text[position:]}\n", "matched_text", False
-
-
-def _match_count_role(match_count: int) -> str:
-    return "hit_count" if match_count else "muted"

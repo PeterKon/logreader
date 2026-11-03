@@ -540,6 +540,29 @@ class SparseResultsEditor(ProgressiveResultsEditor):
                 inserted += b - a
         return inserted
 
+    def rename_category(self, key, name):
+        rows = self.presentation.rename_category(key, name)
+        if not rows:
+            return
+        with self.preserving_reading_position():
+            self._retained_frame = self._end_screen = None
+            for row in rows:
+                block = self._block(row)
+                if not block.isValid():
+                    continue  # The loader will use the new fragments when it reaches this row.
+                self._cached_units -= self._cached_rows.pop(row, 0)
+                cursor = QTextCursor(block)
+                cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+                cursor.removeSelectedText()
+                self._write_row(cursor, row)
+            for attr in ("anchor", "caret"):
+                point = getattr(self, attr)
+                if point.row in rows:
+                    setattr(self, attr, TextPoint(point.row, min(point.column, self._units(point.row))))
+            self._project_selection()
+            self._update_ranges()
+        self.window_changed.emit()
+
     def _block_count_changed(self, *_args):
         if not self._covered_edit:
             self.update_gutter()

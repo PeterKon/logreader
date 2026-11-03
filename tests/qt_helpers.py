@@ -37,6 +37,18 @@ def trigger_pattern_action(pattern_list, index, text):
         raise AssertionError(f"Pattern menu did not offer {text!r}")
 
 
+def rename_pattern(pattern_list, index, name):
+    from logreader.ui.dialogs import NameDialog
+
+    def rename(dialog):
+        dialog.name_input.setText(name)
+        dialog.accept()
+        return dialog.result()
+
+    with patch.object(NameDialog, "exec", new=rename):
+        trigger_pattern_action(pattern_list, index, "Rename…")
+
+
 def qt_application():
     app = QApplication.instance() or QApplication([])
     if os.name == "nt" and app.platformName() == "offscreen" and not app.property("testFontsLoaded"):

@@ -49,9 +49,11 @@ from ..config import (
     SYSTEM_RUNTIME_PATTERN_KEYS,
     TEXT_PATTERN_KEYS,
     LogreaderConfig,
+    pattern_result_label,
+    validate_pattern_name,
 )
 from .theme import THEME_COLORS, configure_action_button, configure_clear_button, paint_checkmark
-from .dialogs import CompactDialog
+from .dialogs import CompactDialog, NameDialog
 from .title_bar import TITLE_MENU_STYLE_SHEET, TitleMenu
 from ..file_loader import DEFAULT_MAX_LINES_SCANNED
 from ..filter_snapshot import FilterSnapshot, PatternSnapshot
@@ -64,6 +66,8 @@ MATCH_CASE_ROLE = Qt.ItemDataRole.UserRole + 1
 EXCLUDE_ROLE = Qt.ItemDataRole.UserRole + 2
 EXCLUSIVE_ROLE = Qt.ItemDataRole.UserRole + 3
 DISABLED_ROLE = Qt.ItemDataRole.UserRole + 4
+NAME_ROLE = Qt.ItemDataRole.UserRole + 5
+RESULT_KEY_ROLE = Qt.ItemDataRole.UserRole + 6
 EXCLUSIVE_TOOLTIP = 'Only lines that match an "exclusive" item will qualify.'
 EXCLUDE_TOOLTIP = "Lines that match this item will not qualify."
 
@@ -274,6 +278,9 @@ class SearchPatternMenu(TitleMenu):
                 pencil.closeSubpath()
                 painter.drawPath(pencil)
                 painter.drawLine(QPointF(8.3, 3.1), QPointF(10.9, 5.7))
+            elif action.objectName() == "renamePattern":
+                painter.drawRoundedRect(QRectF(1, 3, 12, 8), 1.5, 1.5)
+                painter.drawLine(QPointF(5, 5), QPointF(5, 9))
             elif action.objectName() in ("enablePattern", "disablePattern"):
                 painter.drawEllipse(QRectF(1, 1, 12, 12))
                 if action.objectName() == "enablePattern":
@@ -647,6 +654,7 @@ class FilterPanel(QGroupBox):
     """Own all filter controls and build their shared configuration."""
 
     filters_changed = Signal()
+    result_label_changed = Signal(str, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1266,6 +1274,7 @@ class FilterPanel(QGroupBox):
                     match_case=bool(item.data(MATCH_CASE_ROLE)),
                     exclude=bool(item.data(EXCLUDE_ROLE)),
                     exclusive=bool(item.data(EXCLUSIVE_ROLE)),
+                    name=item.data(NAME_ROLE) or "",
                 )
                 for index in range(pattern_list.count())
                 for item in (pattern_list.item(index),)
@@ -1309,6 +1318,7 @@ class FilterPanel(QGroupBox):
                         pattern_list, button_name, remove_handler, entry.text,
                         enabled=entry.enabled, match_case=entry.match_case,
                         exclude=entry.exclude, exclusive=entry.exclusive,
+                        name=entry.name,
                     )
         finally:
             for blocker in blockers:
@@ -1330,6 +1340,7 @@ class FilterPanel(QGroupBox):
                 if self._pattern_checkboxes[key].isChecked()
             ),
             custom_patterns=tuple(str(item.data(Qt.ItemDataRole.UserRole)) for item in custom_items),
+            custom_pattern_names=tuple(item.data(NAME_ROLE) or "" for item in custom_items),
             custom_pattern_match_case=tuple(
                 bool(item.data(MATCH_CASE_ROLE)) for item in custom_items
             ),
@@ -1340,6 +1351,7 @@ class FilterPanel(QGroupBox):
                 bool(item.data(EXCLUSIVE_ROLE)) for item in custom_items
             ),
             regex_patterns=tuple(str(item.data(Qt.ItemDataRole.UserRole)) for item in regex_items),
+            regex_pattern_names=tuple(item.data(NAME_ROLE) or "" for item in regex_items),
             regex_pattern_match_case=tuple(
                 bool(item.data(MATCH_CASE_ROLE)) for item in regex_items
             ),
@@ -1352,6 +1364,19 @@ class FilterPanel(QGroupBox):
             separate_entries=self._separate_entries.isChecked(),
             combined_view=self._combined_view.isChecked(),
         )
+
+    def bind_result_keys(self) -> None:
+        """Keep the analysis category attached to its row across later list changes."""
+        for kind, items in (("custom", self._custom_pattern_list), ("regex", self._regex_pattern_list)):
+            with QSignalBlocker(items):
+                enabled_count = 0
+                for index in range(items.count()):
+                    item = items.item(index)
+                    key = None
+                    if not item.data(DISABLED_ROLE):
+                        enabled_count += 1
+                        key = f"{kind}_{enabled_count}"
+                    item.setData(RESULT_KEY_ROLE, key)
 
     @staticmethod
     def _enabled_list_items(pattern_list: QListWidget) -> tuple[QListWidgetItem, ...]:
@@ -1415,9 +1440,11 @@ class FilterPanel(QGroupBox):
         self, pattern_list: QListWidget, remove_button_object_name: str,
         remove_handler: Callable[[QListWidgetItem], None], pattern: str, *,
         enabled: bool = True, match_case: bool = False, exclude: bool = False, exclusive: bool = False,
+        name: str = "",
     ) -> None:
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, pattern)
+        item.setData(NAME_ROLE, name)
         item.setData(EXCLUSIVE_ROLE, exclusive)
         item.setData(EXCLUDE_ROLE, exclude)
         item.setData(MATCH_CASE_ROLE, match_case)
@@ -1433,7 +1460,8 @@ class FilterPanel(QGroupBox):
         pattern = str(item.data(Qt.ItemDataRole.UserRole))
         is_custom = pattern_list is self._custom_pattern_list
         preset_name = None if is_custom else REGEX_PRESET_NAMES.get(pattern)
-        label = preset_name or pattern
+        name = item.data(NAME_ROLE)
+        label = preset_name or name or pattern
 
         item_row = SearchPatternRow()
         item_row.setFixedHeight(18)
@@ -1457,11 +1485,12 @@ class FilterPanel(QGroupBox):
         item_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         item_label.setMinimumWidth(1)
         item_label.setToolTip(pattern)
-        if preset_name:
-            preset_label = QLabel("(preset)")
-            preset_label.setObjectName("regexPresetLabel")
-            preset_label.setToolTip(pattern)
-            text_layout.addWidget(preset_label)
+        tag = None
+        if preset_name or name:
+            tag = QLabel("(preset)" if preset_name else "(renamed)")
+            tag.setObjectName("regexPresetLabel" if preset_name else "renamedPatternLabel")
+            tag.setToolTip(pattern)
+            text_layout.addWidget(tag)
         mode_label = QLabel()
         mode_label.setObjectName("patternModeLabel")
         text_layout.addWidget(mode_label)
@@ -1488,16 +1517,18 @@ class FilterPanel(QGroupBox):
             mode_label.setToolTip("" if disabled else EXCLUSIVE_TOOLTIP if exclusive else EXCLUDE_TOOLTIP)
             mode_label.setVisible(bool(annotation))
             item_label.setStyleSheet(f"color: {THEME_COLORS['ui_muted']};" if disabled else "")
-            if preset_name:
-                preset_label.setVisible(not disabled)
+            visible_tag = tag is not None and not disabled
+            if tag is not None:
+                tag.setVisible(visible_tag)
             match_case = bool(item.data(MATCH_CASE_ROLE))
             case_label.setVisible(match_case)
             item.setData(Qt.ItemDataRole.AccessibleTextRole, " ".join(
-                part for part in (label, annotation, "(case)" if match_case else "") if part
+                part for part in (label, tag.text() if visible_tag else "", annotation,
+                                  "(case)" if match_case else "") if part
             ))
             text_row.setMaximumWidth(
                 item_label.sizeHint().width()
-                + (preset_label.sizeHint().width() + 4 if preset_name and not disabled else 0)
+                + (tag.sizeHint().width() + 4 if visible_tag else 0)
                 + (mode_label.sizeHint().width() + 4 if annotation else 0)
                 + (case_label.sizeHint().width() + 4 if match_case else 0)
             )
@@ -1508,6 +1539,9 @@ class FilterPanel(QGroupBox):
             dialog = PatternEditDialog(pattern, is_regex=not is_custom, parent=self)
             try:
                 if dialog.exec() == QDialog.DialogCode.Accepted and dialog.pattern() != pattern:
+                    item.setData(RESULT_KEY_ROLE, None)
+                    if not is_custom and dialog.pattern() in REGEX_PRESET_NAMES:
+                        item.setData(NAME_ROLE, "")
                     item.setData(Qt.ItemDataRole.UserRole, dialog.pattern())
                     self._set_search_list_item_widget(
                         pattern_list, item, remove_button_object_name, remove_handler,
@@ -1515,17 +1549,35 @@ class FilterPanel(QGroupBox):
             finally:
                 dialog.deleteLater()
 
+        def rename_pattern() -> None:
+            def save(name: str) -> None:
+                name = "" if name == pattern else name
+                validate_pattern_name(name)
+                if name == (item.data(NAME_ROLE) or ""):
+                    return
+                item.setData(NAME_ROLE, name)
+                self._set_search_list_item_widget(pattern_list, item, remove_button_object_name, remove_handler)
+                if key := item.data(RESULT_KEY_ROLE):
+                    self.result_label_changed.emit(key, pattern_result_label(pattern, name, is_regex=not is_custom))
+
+            dialog = NameDialog(self, "Rename pattern", "pattern", save, initial_name=label, allow_empty=True)
+            dialog.name_input.setPlaceholderText(pattern)
+            dialog.buttons.button(QDialogButtonBox.StandardButton.Save).setText("Rename")
+            try:
+                dialog.exec()
+            finally:
+                dialog.deleteLater()
+
+        def show_menu(position: QPoint) -> None:
+            self._show_pattern_menu(item_row, item, position, update_mode, edit_pattern,
+                                    None if preset_name else rename_pattern)
+
         update_mode(EXCLUSIVE_ROLE, bool(item.data(EXCLUSIVE_ROLE)))
         item_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        item_row.customContextMenuRequested.connect(
-            lambda position: self._show_pattern_menu(item_row, item, position, update_mode, edit_pattern)
-        )
+        item_row.customContextMenuRequested.connect(show_menu)
         item_row.menu_button.setAccessibleName(f"Options for {label}")
         item_row.menu_button.clicked.connect(
-            lambda: self._show_pattern_menu(
-                item_row, item,
-                item_row.menu_button.geometry().bottomLeft() + QPoint(0, 1), update_mode, edit_pattern,
-            )
+            lambda: show_menu(item_row.menu_button.geometry().bottomLeft() + QPoint(0, 1))
         )
 
         remove_button = item_row.remove_button
@@ -1537,12 +1589,16 @@ class FilterPanel(QGroupBox):
             lambda _checked=False, list_item=item: remove_handler(list_item)
         )
         item_layout.addWidget(remove_button)
+        previous = pattern_list.itemWidget(item)
+        if previous is not None:
+            previous.hide()
         pattern_list.setItemWidget(item, item_row)
 
     def _show_pattern_menu(
         self, row: SearchPatternRow, item: QListWidgetItem, position: QPoint,
         update_mode: Callable[[int | None, bool], None],
         edit_pattern: Callable[[], None],
+        rename_pattern: Callable[[], None] | None,
     ) -> None:
         menu = SearchPatternMenu(row)
         disabled = bool(item.data(DISABLED_ROLE))
@@ -1570,15 +1626,19 @@ class FilterPanel(QGroupBox):
         case_action.setEnabled(not disabled)
         case_action.toggled.connect(lambda checked: update_mode(MATCH_CASE_ROLE, checked))
         menu.addSeparator()
-        edit_requested = False
+        requested = None
 
-        def request_edit() -> None:
-            nonlocal edit_requested
-            edit_requested = True
+        def request(callback) -> None:
+            nonlocal requested
+            requested = callback
 
         edit_action = menu.addAction("Edit…")
         edit_action.setObjectName("editPattern")
-        edit_action.triggered.connect(request_edit)
+        edit_action.triggered.connect(lambda: request(edit_pattern))
+        if rename_pattern is not None:
+            rename_action = menu.addAction("Rename…")
+            rename_action.setObjectName("renamePattern")
+            rename_action.triggered.connect(lambda: request(rename_pattern))
         enabled_action = menu.addAction("Enable" if disabled else "Disable")
         enabled_action.setObjectName("enablePattern" if disabled else "disablePattern")
 
@@ -1597,8 +1657,8 @@ class FilterPanel(QGroupBox):
         finally:
             row.set_context_target(False)
             menu.deleteLater()
-        if edit_requested:
-            edit_pattern()
+        if requested is not None:
+            requested()
 
     def _update_regex_preset_menu(self, menu: QMenu) -> None:
         expressions = set(self._list_values(self._regex_pattern_list))

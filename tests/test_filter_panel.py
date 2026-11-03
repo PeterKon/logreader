@@ -11,7 +11,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import qt_application, trigger_pattern_action
+    from qt_helpers import qt_application, rename_pattern, trigger_pattern_action
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtGui import QColor, QContextMenuEvent, QCursor, QEnterEvent
     from PySide6.QtTest import QTest
@@ -119,6 +119,8 @@ class FilterPanelTests(unittest.TestCase):
                 trigger_pattern_action(pattern_list, index, "Case sensitive")
             for index in (3, 4):
                 trigger_pattern_action(pattern_list, index, "Disable")
+            rename_pattern(pattern_list, 0, "Nordic text")
+            rename_pattern(pattern_list, 4, "Disabled duplicate")
         preset = panel.findChild(QPushButton, "regexPresetButton").menu().actions()[0]
         preset.trigger()
         trigger_pattern_action(panel._regex_pattern_list, 5, "Disable")
@@ -133,10 +135,10 @@ class FilterPanelTests(unittest.TestCase):
         self.assertEqual(snapshot.context, 37)
         self.assertEqual(snapshot.max_lines_scanned, 123456)
         self.assertEqual(snapshot.custom_patterns, (
-            PatternSnapshot("blå", match_case=True), PatternSnapshot("Skip", exclude=True),
+            PatternSnapshot("blå", match_case=True, name="Nordic text"), PatternSnapshot("Skip", exclude=True),
             PatternSnapshot("Tenant", exclusive=True, match_case=True),
             PatternSnapshot("disabled", enabled=False, exclude=True),
-            PatternSnapshot("Tenant", enabled=False, exclusive=True, match_case=True),
+            PatternSnapshot("Tenant", enabled=False, exclusive=True, match_case=True, name="Disabled duplicate"),
         ))
         self.assertEqual(snapshot.regex_patterns[:5], snapshot.custom_patterns)
         self.assertEqual(snapshot.regex_patterns[5].text, preset.data())
@@ -155,6 +157,8 @@ class FilterPanelTests(unittest.TestCase):
                 target.restore_snapshot(loaded.filters)
             self.assertEqual(target.capture_snapshot(), snapshot)
             self.assertEqual(target.build_config(), expected_config)
+            self.assertEqual(expected_config.label_for("custom_1"), "Nordic text (text match)")
+            self.assertEqual(expected_config.label_for("regex_1"), "Nordic text (regex)")
             self.assertEqual(target._custom_pattern.text(), "keep text draft")
             self.assertEqual(target._regex_pattern.text(), "keep regex draft")
             self.assertEqual(target._pages.currentIndex(), 3)
@@ -165,9 +169,15 @@ class FilterPanelTests(unittest.TestCase):
             for pattern_list in (target._custom_pattern_list, target._regex_pattern_list):
                 item = pattern_list.item(4)
                 row = pattern_list.itemWidget(item)
+                self.assertEqual(row.findChild(QLabel).text(), "Disabled duplicate")
+                self.assertEqual(row.findChild(QLabel).toolTip(), "Tenant")
+                tag = row.findChild(QLabel, "renamedPatternLabel")
+                self.assertTrue(tag.isHidden())
                 self.assertEqual(row.findChild(QLabel, "patternModeLabel").text(), "(disabled)")
                 self.assertFalse(row.findChild(QLabel, "patternCaseLabel").isHidden())
                 trigger_pattern_action(pattern_list, 4, "Enable")
+                self.assertFalse(tag.isHidden())
+                self.assertEqual(tag.text(), "(renamed)")
                 self.assertEqual(row.findChild(QLabel, "patternModeLabel").text(), "(exclusive)")
             config = target.build_config()
             self.assertEqual(config.custom_pattern_exclusive, (False, False, True, True))
@@ -291,8 +301,10 @@ class FilterPanelTests(unittest.TestCase):
                 else:
                     self.app.sendEvent(target, event)
             tooltip = {"Normal": "Normal", "Exclusive": EXCLUSIVE_TOOLTIP, "Exclude": EXCLUDE_TOOLTIP}[action_name]
-            self.assertEqual(observed, [(action_name, expected_checked, tooltip, True,
-                                         ["Matching", "Normal", "Exclusive", "Exclude", "", "Case sensitive", "", "Edit…", "Disable"])])
+            actions = ["Matching", "Normal", "Exclusive", "Exclude", "", "Case sensitive", "", "Edit…"]
+            if kind == "custom":  # The regex row in this test is a preset.
+                actions.append("Rename…")
+            self.assertEqual(observed, [(action_name, expected_checked, tooltip, True, actions + ["Disable"])])
             self.assertEqual(borders, [[row]])
             self.assertFalse(any(outlined(candidate) for candidate in rows))
             if via_button:
@@ -1308,7 +1320,7 @@ class FilterPanelTests(unittest.TestCase):
 
         item = self.panel._regex_pattern_list.item(1)
         self.assertEqual(item.data(Qt.ItemDataRole.UserRole), expressions[1])
-        self.assertEqual(item.data(Qt.ItemDataRole.AccessibleTextRole), "Email addresses")
+        self.assertEqual(item.data(Qt.ItemDataRole.AccessibleTextRole), "Email addresses (preset)")
         label = self.panel._regex_pattern_list.itemWidget(item).findChild(QLabel)
         self.assertEqual(label.text(), "Email addresses")
         self.assertEqual(label.toolTip(), expressions[1])

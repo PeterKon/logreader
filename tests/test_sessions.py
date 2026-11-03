@@ -29,7 +29,7 @@ class SessionStoreTests(unittest.TestCase):
         digest = hashlib.sha256(line.encode("utf-8")).hexdigest()
         self.tabs = (
             SessionTab(self.log, FilterSnapshot(
-                custom_patterns=(PatternSnapshot("hide", enabled=False, exclude=True),),
+                custom_patterns=(PatternSnapshot("hide", enabled=False, exclude=True, name="Ignored messages"),),
                 regex_patterns=(PatternSnapshot("["),), max_lines_scanned=15,
             ), custom_draft="  uncommitted  ", regex_draft="(?", bookmarks=(
                 BookmarkSnapshot(9, digest, "Preferred result", "line one\n\nblå\t ",

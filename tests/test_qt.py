@@ -1809,28 +1809,34 @@ class LogreaderQtTests(unittest.TestCase):
 
 
     def test_summary_inline_groups_wrap_between_entries_and_preserve_long_labels(self):
-        from logreader.ui.results.result_formatting import _iter_positive_summary_entries, _iter_summary_entries
+        from logreader.config import LogreaderConfig
+        from logreader.core import AnalysisResult
+        from logreader.ui.results.result_formatting import _iter_analysis_render_operations
 
         def text(entries):
-            return "".join(value for value, _, _ in _iter_summary_entries(entries))
+            config = LogreaderConfig(custom_patterns=tuple(label for label, _ in entries))
+            counts = {f"custom_{i}": count for i, (_, count) in enumerate(entries, 1)}
+            analysis = AnalysisResult(0, {}, len(entries), counts)
+            output = "".join(value for value, _, _ in _iter_analysis_render_operations("", analysis, config))
+            return output.split(":\n")[-1].rstrip("\n").replace("\u00a0", " ")
 
         oversized = "Z" * 101
         self.assertEqual(
-            "".join(value for value, _, _ in _iter_positive_summary_entries([
+            text([
                 ("ERROR:", 13), ("ERROR", 206), ("EXCEPTION", 4), ("HTTP 5xx", 12),
                 (oversized, 3), ("FATAL", 4),
-            ])).replace("\u00a0", " "),
+            ]),
             "ERROR: 13   ERROR 206   EXCEPTION 4   HTTP 5xx 12\n"
             f"{oversized} 3\nFATAL 4",
         )
         self.assertEqual(
-            "".join(value for value, _, _ in _iter_positive_summary_entries([
+            text([
                 ("A" * 90, 1), ("END", 2), ("NEXT", 3),
-            ])).replace("\u00a0", " "),
+            ]),
             f"{'A' * 90} 1   END 2\nNEXT 3",
         )
         self.assertEqual(
-            text([("A" * 100, None), ("FAILED", None), (oversized, None), ("FATAL", None)]),
+            text([("A" * 100, 0), ("FAILED", 0), (oversized, 0), ("FATAL", 0)]),
             f"{'A' * 100}\nFAILED\n{oversized}\nFATAL",
         )
 

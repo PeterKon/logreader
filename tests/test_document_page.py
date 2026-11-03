@@ -6,7 +6,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from qt_helpers import capture_analysis, trigger_pattern_action, wait_for_search, wait_source, wait_until
+    from qt_helpers import capture_analysis, rename_pattern, trigger_pattern_action, wait_for_search, wait_source, wait_until
     from PySide6.QtCore import QThreadPool, Qt
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox
@@ -70,6 +70,56 @@ class DocumentPageTests(unittest.TestCase):
         self.assertEqual(self.first.session.analysis.pattern_count, 1)
         self.assertEqual(self.first.session.analysis.category_match_counts, {"custom_2": 1})
         self.assertIn("ERROR: first", self.first.results_view.editor.toPlainText())
+
+    def test_live_rename_follows_analyzed_row_across_duplicates_and_pending_edits(self):
+        for page, combined in ((self.first, False), (self.second, True)):
+            with self.subTest(combined=combined):
+                panel, view = page.filter_panel, page.results_view
+                panel._combined_view.setChecked(combined)
+                for checkbox in panel._pattern_checkboxes.values():
+                    checkbox.setChecked(False)
+                for _ in range(2):
+                    panel._custom_pattern.setText("ERROR")
+                    panel.add_custom_pattern()
+                panel._regex_pattern.setText(r"missing\d+")
+                panel.add_regex_pattern()
+                workers = []
+                done = QSignalSpy(page.analysis_finished)
+                with capture_analysis(workers):
+                    page.analyze()
+                items = panel._custom_pattern_list
+                trigger_pattern_action(items, 0, "Disable")
+                rename_pattern(items, 1, "Second duplicate")
+                workers[0].run()
+                self.wait_for_completion(done)
+                editor = view.editor
+                analysis = page.session.analysis
+                self.assertIn("ERROR 1   Second duplicate (text match) 1", editor.toPlainText())
+                location = view.model.location(view.model.row_count - 1)
+                self.assertTrue(view.bookmarks.add(location, "Keep this line"))
+                editor.setTextCursor(editor.document().find("ERROR: "))
+                selected = editor.selected_text()
+                self.assertEqual(selected, "ERROR: ")
+                panel.remove_custom_pattern(items.item(0))
+                rename_pattern(items, 0, "Failure")
+                rename_pattern(panel._regex_pattern_list, 0, "Missing ID")
+                output = editor.toPlainText()
+                self.assertIn("ERROR 1   Failure (text match) 1", output)
+                self.assertIn("No matches:\nMissing ID (regex)", output)
+                if not combined:
+                    self.assertIn("Failure (text match) - 1 matches", output)
+                self.assertIs(page.session.analysis, analysis)
+                self.assertIs(view.editor, editor)
+                self.assertEqual(editor.selected_text(), selected)
+                self.assertEqual(view.model.resolve(location), view.model.row_count - 1)
+                # A new row with the same expression has no result in this analysis.
+                panel._custom_pattern.setText("ERROR")
+                panel.add_custom_pattern()
+                rename_pattern(items, 1, "New duplicate")
+                self.assertEqual(editor.toPlainText(), output)
+                rename_pattern(items, 0, "")
+                self.assertEqual(items.item(0).data(Qt.ItemDataRole.AccessibleTextRole), "ERROR")
+                self.assertIn("ERROR 1   ERROR 1", editor.toPlainText())
 
     def test_equal_request_numbers_complete_in_their_own_pages(self):
         first_done = QSignalSpy(self.first.analysis_finished)

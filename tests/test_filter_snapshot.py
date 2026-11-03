@@ -71,6 +71,7 @@ class FilterSnapshotTests(unittest.TestCase):
             ("text", "a\nb", "one line"), ("enabled", "false", "true or false"),
             ("match_case", 1, "true or false"), ("exclude", None, "true or false"),
             ("exclusive", [], "true or false"),
+            ("name", 7, "name"), ("name", "x\u2029y", "one line"),
         ):
             with self.subTest(field=field, value=value):
                 data = PatternSnapshot("valid").to_dict()

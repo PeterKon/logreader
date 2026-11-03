@@ -264,6 +264,19 @@ DEFAULT_ENABLED_PATTERNS = (
 )
 
 
+def validate_pattern_name(name: str) -> None:
+    if not isinstance(name, str) or name != name.strip():
+        raise ValueError("Pattern name must be trimmed text")
+    if any(ord(character) < 32 or character in "\u2028\u2029" for character in name):
+        raise ValueError("Pattern name must be on one line without control characters")
+
+
+def pattern_result_label(pattern: str, name: str, *, is_regex: bool) -> str:
+    if not name:
+        return pattern
+    return f"{name} (regex)" if is_regex else f"{name} (text match)"
+
+
 @dataclass(frozen=True, slots=True)
 class LogreaderConfig:
     """Analysis and presentation options used by the desktop application."""
@@ -281,6 +294,8 @@ class LogreaderConfig:
     regex_pattern_match_case: tuple[bool, ...] = ()
     custom_pattern_exclusive: tuple[bool, ...] = ()
     regex_pattern_exclusive: tuple[bool, ...] = ()
+    custom_pattern_names: tuple[str, ...] = ()
+    regex_pattern_names: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.context < 0:
@@ -343,6 +358,13 @@ class LogreaderConfig:
             ("custom", custom_patterns, exclude),
             ("regex", regex_patterns, regex_exclude),
         ):
+            names_field = f"{kind}_pattern_names"
+            names = tuple(getattr(self, names_field))
+            if names and len(names) != len(values):
+                raise ValueError(f"Expected one name per {kind} pattern")
+            for name in names:
+                validate_pattern_name(name)
+            object.__setattr__(self, names_field, names if any(names) else ())
             field = f"{kind}_pattern_exclusive"
             exclusive = tuple(getattr(self, field)) or (False,) * len(values)
             if len(exclusive) != len(values) or any(
@@ -415,10 +437,11 @@ class LogreaderConfig:
 
         if key.startswith("custom_"):
             index = int(key.removeprefix("custom_")) - 1
-            return self.custom_patterns[index]
+            name = self.custom_pattern_names[index] if self.custom_pattern_names else ""
+            return pattern_result_label(self.custom_patterns[index], name, is_regex=False)
         if key.startswith("regex_"):
             index = int(key.removeprefix("regex_")) - 1
             expression = self.regex_patterns[index]
-            name = REGEX_PRESET_NAMES.get(expression)
-            return f"{name} (regex)" if name is not None else expression
+            name = self.regex_pattern_names[index] if self.regex_pattern_names else ""
+            return pattern_result_label(expression, REGEX_PRESET_NAMES.get(expression, name), is_regex=True)
         raise KeyError(key)

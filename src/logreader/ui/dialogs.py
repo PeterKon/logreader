@@ -204,10 +204,12 @@ class CompactDialog(QDialog):
 class NameDialog(CompactDialog):
     def __init__(
         self, parent: QWidget, title: str, subject: str, save: Callable[[str], bool | None], *, initial_name: str = "",
+        allow_empty: bool = False,
     ) -> None:
         super().__init__(title, parent)
         self._subject = subject
         self._save = save
+        self._allow_empty = allow_empty
         self.setObjectName(f"{subject}NameDialog")
         self.setFixedWidth(420)
         self.body_layout.setContentsMargins(14, 12, 14, 12)
@@ -240,7 +242,7 @@ class NameDialog(CompactDialog):
     def accept(self) -> None:
         try:
             name = self.name_input.text().strip()
-            if not name:
+            if not name and not self._allow_empty:
                 raise ValueError(f"Enter a {self._subject} name.")
             if self._save(name) is False:
                 return

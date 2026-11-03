@@ -2,7 +2,7 @@
 from bisect import bisect_right
 from dataclasses import dataclass
 from logreader.core import COMBINED_CATEGORY_KEY, ResultLine
-from .result_formatting import RESULT_LABEL_OVERRIDES, _iter_analysis_render_operations
+from .result_formatting import CategoryLabel, summary_operations
 
 @dataclass
 class Decoration:
@@ -25,6 +25,7 @@ class PresentationModel:
         self.row_count = 0
         self.starts, self.runs = [], []
         self.source_starts, self.display_starts = [], []
+        self._label_fragments = {}
         if not defer:
             for _ in self.prepare():
                 pass
@@ -40,21 +41,10 @@ class PresentationModel:
         self.runs.clear()
         self.source_starts.clear()
         self.display_starts.clear()
-        done = False
-
-        def summary_done():
-            nonlocal done
-            done = True
-
-        summary = []
-        for operation in _iter_analysis_render_operations(
-                "preview.log", model.analysis, config, model=model, on_summary=summary_done):
-            if done:
-                break
-            summary.append(operation)
+        self._label_fragments.clear()
         self._decorations(self.header_operations)
         summary_start = len(self.runs)
-        self._decorations(summary, "summary")
+        self._decorations(summary_operations(model.analysis, config), "summary")
         if len(self.runs) > summary_start:
             self.runs[summary_start].first = True
             self.runs[-1].last = True
@@ -63,8 +53,8 @@ class PresentationModel:
             if presentation.key == COMBINED_CATEGORY_KEY:
                 self._decorations([("\n", "body", False)])
             else:
-                label = RESULT_LABEL_OVERRIDES.get(presentation.key, config.label_for(presentation.key))
-                self._decorations([(f"\n{presentation.heading(label)}\n\n", "heading", True)])
+                self._decorations([("\n", "heading", True), CategoryLabel(presentation.key, "heading"),
+                                   (presentation.heading("") + "\n\n", "heading", True)])
             for index, excerpt in enumerate(presentation.excerpts):
                 self.source_starts.append(section.row_starts[index])
                 self.display_starts.append(self.row_count)
@@ -84,7 +74,14 @@ class PresentationModel:
 
     def _decorations(self, operations, kind="structure"):
         fragments = []
-        for text, role, bold in operations:
+        for operation in operations:
+            if isinstance(operation, CategoryLabel):
+                if operation.key.startswith(("custom_", "regex_")):
+                    self._label_fragments.setdefault(operation.key, []).append(
+                        (self.row_count, len(fragments), operation)
+                    )
+                operation = operation.resolve(self.config)
+            text, role, bold = operation
             parts = text.split("\n")
             for index, part in enumerate(parts):
                 if part:
@@ -94,6 +91,17 @@ class PresentationModel:
                     fragments = []
         if fragments:
             self._append(Decoration(fragments, kind))
+
+    def rename_category(self, key, name):
+        # Keep display row addresses stable for selections, bookmarks and the sparse loader.
+        changed = []
+        for row, index, label in self._label_fragments.get(key, ()):
+            fragments = self.entry(row).fragments
+            replacement = label.fragment(name)
+            if fragments[index] != replacement:
+                fragments[index] = replacement
+                changed.append(row)
+        return changed
 
     def entry(self, row):
         index = bisect_right(self.starts, row) - 1

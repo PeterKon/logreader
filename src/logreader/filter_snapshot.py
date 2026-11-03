@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 
 from .config import (
     DEFAULT_CONTEXT, DEFAULT_ENABLED_PATTERNS, MAX_CONTEXT, MAX_LINES_SCANNED, PATTERN_KEYS,
+    validate_pattern_name,
 )
 from .file_loader import DEFAULT_MAX_LINES_SCANNED
 
@@ -37,8 +38,10 @@ class PatternSnapshot:
     match_case: bool = False
     exclude: bool = False
     exclusive: bool = False
+    name: str = ""
 
     def __post_init__(self) -> None:
+        validate_pattern_name(self.name)
         if not isinstance(self.text, str) or not self.text.strip():
             raise ValueError("Pattern text must be a non-empty string")
         if any(character in self.text for character in "\r\n\u2028\u2029"):
@@ -49,12 +52,17 @@ class PatternSnapshot:
             raise ValueError("A pattern cannot be both excluded and exclusive")
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        if not self.name:
+            del data["name"]
+        return data
 
     @classmethod
     def from_dict(cls, value: object) -> PatternSnapshot:
+        if isinstance(value, dict):
+            value = {"name": "", **value}
         data = object_fields(
-            value, {"text", "enabled", "match_case", "exclude", "exclusive"}, "Pattern",
+            value, {"text", "enabled", "match_case", "exclude", "exclusive", "name"}, "Pattern",
         )
         return cls(**data)
 
