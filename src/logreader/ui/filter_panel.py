@@ -815,17 +815,23 @@ class FilterPanel(QGroupBox):
             count.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             self._tabs.setTabButton(index, QTabBar.ButtonPosition.RightSide, count)
             self._tab_counts.append(count)
-        header_layout.addWidget(self._tabs)
-        header_layout.addSpacing(5)
+        tab_controls = QHBoxLayout()
+        tab_controls.setSpacing(9)
+        header_layout.addLayout(tab_controls)
+        tab_controls.addWidget(self._tabs)
+        toggle_layout = QHBoxLayout()
+        toggle_layout.setContentsMargins(0, 0, 0, 2)
+        tab_controls.addLayout(toggle_layout)
         self._tab_pattern_toggles = []
         for index, (keys, name, scope) in enumerate((
             (PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, "toggleCommonButton", "common"),
             (ADVANCED_PATTERN_KEYS, "toggleAdvancedButton", "advanced"),
         )):
             button = self._build_pattern_toggle(keys, name)
+            button.setProperty("patternTabToggle", True)
             button.setToolTip(f"Select or clear all {scope} patterns.")
-            button.setMinimumWidth(button.fontMetrics().horizontalAdvance("Select all"))
-            header_layout.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+            button.setFixedWidth(max(72, button.fontMetrics().horizontalAdvance("Select all") + 16))
+            toggle_layout.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
             button.setVisible(index == self._tabs.currentIndex())
             self._tab_pattern_toggles.append(button)
         header_layout.addStretch(1)
@@ -1170,7 +1176,6 @@ class FilterPanel(QGroupBox):
         button = QPushButton("Select all")
         configure_action_button(button)
         button.setObjectName(object_name)
-        button.setProperty("patternGroupToggle", True)
         button.clicked.connect(
             lambda _checked=False, keys=pattern_keys: self.toggle_patterns(keys)
         )
@@ -1207,6 +1212,7 @@ class FilterPanel(QGroupBox):
         header.addStretch(1)
         if toggle_object_name is not None:
             toggle_button = self._build_pattern_toggle(pattern_keys, toggle_object_name)
+            toggle_button.setProperty("patternGroupToggle", True)
             header.addWidget(toggle_button, 0, Qt.AlignmentFlag.AlignVCenter)
             group.set_border_widgets(heading, toggle_button)
         outer_layout.addLayout(header)

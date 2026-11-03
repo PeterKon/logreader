@@ -1014,6 +1014,7 @@ class FilterPanelTests(unittest.TestCase):
         self.app.processEvents()
         tabs = self.panel._tabs
         widths = [tabs.tabRect(index).width() for index in (0, 1)]
+        toggle_width = self.panel._tab_pattern_toggles[0].width()
         for index, keys in enumerate((PAIRED_PATTERN_KEYS + TEXT_PATTERN_KEYS, ADVANCED_PATTERN_KEYS)):
             tabs.setCurrentIndex(index)
             for key in keys:
@@ -1024,6 +1025,7 @@ class FilterPanelTests(unittest.TestCase):
                         self.panel._pattern_checkboxes[keys[selected - 1]].setChecked(True)
                     self.app.processEvents()
                     self.assertEqual([tabs.tabRect(i).width() for i in (0, 1)], widths)
+                    self.assertEqual(self.panel._tab_pattern_toggles[index].width(), toggle_width)
                     count = self.panel._tab_counts[index]
                     self.assertEqual(count.text(), f"({selected}/{len(keys)})")
                     self.assertGreaterEqual(count.width(), count.sizeHint().width())

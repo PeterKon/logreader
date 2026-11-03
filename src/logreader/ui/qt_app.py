@@ -129,6 +129,25 @@ QTabBar#filterTabs[optionsActive="true"]::tab:selected {{
 QTabBar#filterTabs[optionsActive="true"]::tab:selected:hover {{
     background-color: {THEME_COLORS['ui_button_hover']};
 }}
+QPushButton[patternTabToggle="true"] {{
+    background-color: {THEME_COLORS['ui_button']};
+    color: {THEME_COLORS['ui_muted']};
+    border: 1px solid {THEME_COLORS['ui_button']};
+    border-radius: 0;
+    min-height: 18px;
+    padding: 3px 0;
+}}
+QPushButton[patternTabToggle="true"]:hover {{
+    background-color: {THEME_COLORS['ui_button_hover']};
+    border-color: {THEME_COLORS['ui_border_strong']};
+    color: {THEME_COLORS['ui_menu_text']};
+}}
+QPushButton[patternTabToggle="true"]:focus {{
+    border-color: {THEME_COLORS['ui_accent']};
+}}
+QPushButton[patternTabToggle="true"]:pressed {{
+    background-color: {THEME_COLORS['ui_button_pressed']};
+}}
 QPushButton#optionsTab {{
     background-color: {THEME_COLORS['ui_button']};
     color: {THEME_COLORS['ui_muted']};

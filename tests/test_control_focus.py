@@ -107,6 +107,10 @@ class ControlFocusTests(unittest.TestCase):
                 for y in range(image.height()) for x in range(image.width())
             ))
             return
+        if button.property("patternTabToggle"):
+            fill = "ui_button_hover" if hovered else "ui_button"
+            self.assertEqual(image.pixelColor(3, image.height() // 2), QColor(THEME_COLORS[fill]))
+            return
         normal_border = "ui_border" if button.objectName() == "openButton" else "ui_border_strong"
         expected = QColor(THEME_COLORS["ui_accent" if hovered else normal_border])
         self.assertEqual(image.pixelColor(0, image.height() // 2), expected)
