@@ -131,7 +131,7 @@ QTabBar#filterTabs[optionsActive="true"]::tab:selected:hover {{
 }}
 QPushButton[patternTabToggle="true"] {{
     background-color: {THEME_COLORS['ui_button']};
-    color: {THEME_COLORS['ui_muted']};
+    color: {THEME_COLORS['ui_text']};
     border: 1px solid {THEME_COLORS['ui_button']};
     border-radius: 0;
     min-height: 18px;
