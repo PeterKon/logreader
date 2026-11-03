@@ -279,8 +279,16 @@ class SearchPatternMenu(TitleMenu):
                 painter.drawPath(pencil)
                 painter.drawLine(QPointF(8.3, 3.1), QPointF(10.9, 5.7))
             elif action.objectName() == "renamePattern":
-                painter.drawRoundedRect(QRectF(1, 3, 12, 8), 1.5, 1.5)
-                painter.drawLine(QPointF(5, 5), QPointF(5, 9))
+                tag = QPainterPath(QPointF(1.5, 1.5))
+                tag.lineTo(6.9, 1.5)
+                tag.lineTo(12.3, 6.9)
+                tag.quadTo(13.1, 7.7, 12.3, 8.5)
+                tag.lineTo(8.5, 12.3)
+                tag.quadTo(7.7, 13.1, 6.9, 12.3)
+                tag.lineTo(1.5, 6.9)
+                tag.closeSubpath()
+                painter.drawPath(tag)
+                painter.drawEllipse(QPointF(4.1, 4.1), 0.65, 0.65)
             elif action.objectName() in ("enablePattern", "disablePattern"):
                 painter.drawEllipse(QRectF(1, 1, 12, 12))
                 if action.objectName() == "enablePattern":
