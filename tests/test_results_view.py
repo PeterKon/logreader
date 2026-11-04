@@ -61,6 +61,32 @@ class ResultsViewTests(unittest.TestCase):
     def painted_character(self, text, character=0, occurrence=0):
         return painted_character(self.view.editor, text, character, occurrence)
 
+    def assert_search_scroll_settles_once(self, action):
+        viewer = self.view.source_view if self.view.source_active else self.view
+        bar = viewer.global_scroll
+        before = bar.value()
+        positions = [before]
+        paint = bar._paint_bar
+
+        def record_paint(event):
+            option = paint(event)
+            if option.sliderPosition != positions[-1]:
+                positions.append(option.sliderPosition)
+            return option
+
+        with patch.object(bar, "_paint_bar", side_effect=record_paint):
+            action()
+            # Expose the pending frame even if navigation could finish before
+            # the next screen refresh on a fast machine.
+            bar.repaint()
+            wait_for_navigation(self.view)
+            wait_for_search(self.view)
+            wait_source(self.view)
+            bar.repaint()
+        after = bar.value()
+        self.assertEqual(positions, [before, after] if after != before else [before])
+        self.assertEqual(after, viewer.editor.top_point().row)
+
     def click_painted_point(self, point, *, active=True):
         editor = self.view.editor
         target = editor.childAt(point) or editor
@@ -616,10 +642,7 @@ class ResultsViewTests(unittest.TestCase):
                             (self.view._search_navigation.stepUp, 120),
                             (self.view._search_input.returnPressed.emit, 220),
                         ):
-                            action()
-                            wait_for_navigation(self.view)
-                            wait_for_search(self.view)
-                            wait_source(self.view)
+                            self.assert_search_scroll_settles_once(action)
                             self.assertEqual(editor.source_number(editor.textCursor().blockNumber()),
                                              10000001 + row)
                             self.assertEqual(editor.caret.column, utf16_length(prefix))
@@ -663,8 +686,7 @@ class ResultsViewTests(unittest.TestCase):
                 formats = self.cursor(150).block().layout().formats()
                 self.assertEqual([(f.start, f.length) for f in formats], [(7, 2), (11, 2)])
 
-                view._search_input.returnPressed.emit()
-                wait_for_search(view)
+                self.assert_search_scroll_settles_once(view._search_input.returnPressed.emit)
                 self.assertEqual(editor.caret, TextPoint(editor.presentation.display_row(150), 7))
                 self.assertLess(abs(editor.cursorRect().center().y() - editor.viewport().height() / 2),
                                 editor.fontMetrics().height())
@@ -673,16 +695,13 @@ class ResultsViewTests(unittest.TestCase):
                 self.assertTrue(view.activate_pattern_search("regex_1", result_set_id=identity))
                 self.assertIs(view._search_matches, hits)
                 self.assertEqual(view._current_search_match, current)
-                view._search_navigation.stepDown()
-                wait_for_navigation(view)
+                self.assert_search_scroll_settles_once(view._search_navigation.stepDown)
                 self.assertEqual(editor.caret.column, 11)
                 view.global_scroll.triggerAction(view.global_scroll.SliderAction.SliderToMinimum)
                 wait_for_navigation(view)
-                view._search_navigation.stepUp()
-                wait_for_navigation(view)
+                self.assert_search_scroll_settles_once(view._search_navigation.stepUp)
                 self.assertEqual(view._current_search_match, len(hits) - 1)
-                view._search_input.returnPressed.emit()
-                wait_for_navigation(view)
+                self.assert_search_scroll_settles_once(view._search_input.returnPressed.emit)
                 self.assertEqual(view._current_search_match, 0)
 
     def test_switching_pending_patterns_with_identical_names_and_editing_the_label(self):

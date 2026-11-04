@@ -223,6 +223,11 @@ class SparsePositionScrollBar(ProgressivePositionScrollBar):
         if self.isSliderDown() or self._navigating:
             return
         editor = self.editor
+        request = editor.navigation.pending
+        # A centered request names the match, not the viewport's top row.
+        # Keep the settled thumb until navigation publishes the actual top.
+        if request is not None and request.center:
+            return
         end = editor.end_top()
         maximum = editor.end_scroll_maximum()
         # Keep the measured thumb geometry while a resize is being measured.
@@ -231,7 +236,6 @@ class SparsePositionScrollBar(ProgressivePositionScrollBar):
             return
         with QSignalBlocker(self):
             self.setRange(0, maximum if maximum is not None else max(0, editor.presentation.row_count - 1))
-            request = editor.navigation.pending
             point = request.point if request else editor.top_point()
             value = point.row
             if end is not None and point.row == end.row:
