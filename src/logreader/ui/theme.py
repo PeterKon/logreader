@@ -59,7 +59,7 @@ THEME_COLORS = {
     "match": "#ff7b72",
     "matched_text": "#7ee787",
     "line_number": "#79c0ff",
-    "hit_count": "#ff7b72",
+    "hit_count": "#97bdd8",
     "limit_notice": "#79c0ff",
     "warning": "#c47c7c",
 }
