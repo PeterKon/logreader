@@ -548,6 +548,9 @@ class ResultsView(ResultsControls):
 
     def _update_pattern_indicator(self):
         active = not self.source_active and isinstance(self._results_query, PatternSearch)
+        key = (self._results_query.key if active
+               and self._results_query.result_set_id is self._editor.result_set_id else None)
+        self._editor.structure_area.set_active_pattern(key)
         if self._pattern_indicator.isVisibleTo(self._search_input) == active:
             return
         self._pattern_indicator.setVisible(active)

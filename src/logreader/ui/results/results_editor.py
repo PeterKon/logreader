@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
-    QColor, QCursor, QFont, QFontMetricsF, QMouseEvent, QPainter, QTextBlockUserData,
-    QTextCharFormat, QTextCursor, QTextFormat, QTextLine,
+    QColor, QFont, QFontMetricsF, QMouseEvent, QPainter, QTextBlockUserData,
+    QTextCharFormat, QTextCursor, QTextFormat, QTextLayout, QTextLine,
 )
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -66,6 +66,8 @@ class ResultsStructureArea(QWidget):
         self._replaying_press = False
         self._mouse_surface = self._hand_surface = None
         self._original_cursor = None
+        self._mouse_position = None
+        self._hovered_key = self._active_key = None
 
     def enable_pattern_links(self):
         editor = self.parent()
@@ -127,16 +129,36 @@ class ResultsStructureArea(QWidget):
             self._original_cursor = surface.cursor() if surface.testAttribute(Qt.WidgetAttribute.WA_SetCursor) else None
             surface.setCursor(Qt.CursorShape.PointingHandCursor)
 
+    def _update_hover(self, surface, position=None):
+        self._mouse_surface, self._mouse_position = surface, position
+        key = self._pattern_at(self.mapFromGlobal(position)) if position is not None else None
+        self._show_hand(surface if key is not None else None)
+        if key != self._hovered_key:
+            self._hovered_key = key
+            self.update()
+
+    def set_active_pattern(self, key):
+        if key != self._active_key:
+            self._active_key = key
+            self.update()
+
+    def changeEvent(self, event):  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.EnabledChange and not self.isEnabled():
+            self._pressed = None
+            self._update_hover(None)
+            self.update()
+
     def eventFilter(self, surface, event):  # noqa: N802
         if self._replaying_press:
             return False
         kind = event.type()
         if kind in (QEvent.Type.Leave, QEvent.Type.Hide):
             if surface is self._mouse_surface:
-                self._mouse_surface = None
-                self._show_hand(None)
-            if kind == QEvent.Type.Hide:
+                self._update_hover(None)
+            if kind == QEvent.Type.Hide and self._pressed is not None:
                 self._pressed = None
+                self.update()
             return False
         if kind not in (QEvent.Type.Enter, QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress,
                         QEvent.Type.MouseButtonRelease, QEvent.Type.MouseButtonDblClick):
@@ -148,8 +170,10 @@ class ResultsStructureArea(QWidget):
                 and editor.childAt(self.mapToParent(point).toPoint()) is not None):
             return False  # A gutter or viewport event propagated to its parent.
         key = self._pattern_at(point)
-        self._mouse_surface = surface
-        self._show_hand(surface if key is not None else None)
+        if kind == QEvent.Type.MouseMove and event.buttons() & Qt.MouseButton.LeftButton and press is None:
+            self._update_hover(None)
+        else:
+            self._update_hover(surface, event.globalPosition())
         if kind == QEvent.Type.Enter:
             return False
         if press is not None:
@@ -158,6 +182,7 @@ class ResultsStructureArea(QWidget):
             if kind == QEvent.Type.MouseMove and click and event.buttons() == Qt.MouseButton.LeftButton:
                 return True
             self._pressed = None
+            self.update()
             if kind == QEvent.Type.MouseMove and not event.buttons() & Qt.MouseButton.LeftButton:
                 return False
             if press.result_set_id is editor.result_set_id and self.isEnabled():
@@ -166,6 +191,7 @@ class ResultsStructureArea(QWidget):
                     self.pattern_clicked.emit(key, press.result_set_id)
                     return True
                 # Hand the original press back before Qt handles the drag or modified release.
+                self._update_hover(None)
                 self._replaying_press = True
                 try:
                     QApplication.sendEvent(press.surface, press.event)
@@ -174,10 +200,41 @@ class ResultsStructureArea(QWidget):
         if (kind == QEvent.Type.MouseButtonPress and event.buttons() == Qt.MouseButton.LeftButton
                 and not event.modifiers() and key is not None):
             self._pressed = _SummaryPress(key, editor.result_set_id, surface, event.clone())
+            self.update()
             return True
         return False
 
+    def _summary_formats(self, block):
+        if not self.isEnabled() or (self._hovered_key is None and self._active_key is None):
+            return []
+        formats = []
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            key = fragment.charFormat().property(SUMMARY_PATTERN_PROPERTY)
+            if key is not None and key in (self._hovered_key, self._active_key):
+                hovered, active = key == self._hovered_key, key == self._active_key
+                pressed = (hovered and self._pressed is not None and self._pressed.key == key
+                           and self._pressed.result_set_id is self.parent().result_set_id)
+                color = "summary_pressed" if pressed else "summary_hover" if hovered else "summary_active"
+                fmt = QTextCharFormat()
+                fmt.setBackground(QColor(THEME_COLORS[color]))
+                if active:
+                    fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+                    fmt.setUnderlineColor(QColor(THEME_COLORS["ui_accent"]))
+                selection = QTextLayout.FormatRange()
+                selection.start = fragment.position() - block.position()
+                selection.length = fragment.length()
+                selection.format = fmt
+                formats.append(selection)
+            iterator += 1
+        return formats
+
     def paintEvent(self, event) -> None:  # noqa: N802
+        # Re-hit-test the last pointer position when scrolling, zooming or renaming
+        # moves the text underneath it. Formatting stays local to this paint.
+        if self._mouse_surface is not None:
+            self._update_hover(self._mouse_surface, self._mouse_position)
         painter = QPainter(self)
         painter.setClipRect(event.rect())
         painter.setPen(QColor(THEME_COLORS["body"]))
@@ -187,13 +244,10 @@ class ResultsStructureArea(QWidget):
                 QRectF(0, background_top, self.width(), rect.bottom() - background_top),
                 QColor(THEME_COLORS["summary_background" if summary else "background"]),
             )
-            block.layout().draw(painter, origin)
+            block.layout().draw(painter, origin, self._summary_formats(block) if summary else [])
             previous = block.previous()
             previous_summary = previous.userData() if previous.isValid() else None
             if isinstance(previous_summary, SummaryBlock) and previous_summary.last:
                 # Extend the summary into the blank separator below it.
                 painter.fillRect(QRectF(0, rect.top(), self.width(), min(6, rect.height())),
                                  QColor(THEME_COLORS["summary_background"]))
-        if self._mouse_surface is not None:
-            key = self._pattern_at(QPointF(self.mapFromGlobal(QCursor.pos())))
-            self._show_hand(self._mouse_surface if key is not None else None)

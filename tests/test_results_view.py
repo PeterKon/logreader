@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from qt_helpers import painted_character, qt_application, retire_window, wait_source
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QContextMenuEvent, QFont, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QToolButton
@@ -71,6 +71,24 @@ class ResultsViewTests(unittest.TestCase):
         self.assertEqual(target.cursor().shape() == Qt.CursorShape.PointingHandCursor, active, point)
         QTest.mouseClick(target, Qt.MouseButton.LeftButton, pos=local)
         wait_for_search(self.view)
+
+    def hover_painted_point(self, point):
+        global_point = self.view.editor.mapToGlobal(point)
+        # QTest suppresses moves to the previous global position, even across windows.
+        QTest.mouseMove(self.view.windowHandle(), QPoint(1, 1))
+        QTest.mouseMove(self.view.windowHandle(), self.view.mapFromGlobal(global_point))
+        self.app.processEvents()
+
+    def assert_summary_background(self, entry, color, *, character=0, occurrence=0):
+        point = self.painted_character(entry, character, occurrence)
+        image = self.view.editor.grab().toImage()
+        scale = image.devicePixelRatio()
+        region = QRect(round((point.x() - 2) * scale), round((point.y() - 5) * scale),
+                       round(5 * scale), round(11 * scale)).intersected(image.rect())
+        colors = {image.pixelColor(x, y).name()
+                  for y in range(region.top(), region.bottom() + 1)
+                  for x in range(region.left(), region.right() + 1)}
+        self.assertIn(THEME_COLORS[color], colors, (entry, character, occurrence, color))
 
     def test_total_in_both_views_and_combined_results_follow_summary(self):
         for combined in (False, True):
@@ -220,6 +238,125 @@ class ResultsViewTests(unittest.TestCase):
         self.click_painted_point(point)
         self.assertEqual(view._results_query.key, "regex_1")
         self.assertEqual(editor.horizontalScrollBar().value(), before)
+
+    def test_summary_hover_press_and_active_search_are_paint_only(self):
+        view = self.view
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                config = LogreaderConfig(context=0, combined_view=combined,
+                                         enabled_patterns=("error_colon", "fatal"), custom_patterns=("needle",))
+                editor = self.render(("ERROR: needle",) * 12, config)
+                entry = "ERROR: 12"
+                point = self.painted_character(entry)
+                self.assertIs(editor.childAt(point), editor.gutter)
+                self.hover_painted_point(self.painted_character("Matches ("))
+                editor.selectAll()
+                before = (editor.document().revision(), editor.top_point(), editor.anchor, editor.caret,
+                          editor.selected_text(), view._results_query, view._search_generation)
+                self.hover_painted_point(point)
+                for character in (0, len(entry) - 1):
+                    self.assert_summary_background(entry, "summary_hover", character=character)
+                self.assert_summary_background("needle 12", "summary_background")
+                self.assertEqual((editor.document().revision(), editor.top_point(), editor.anchor, editor.caret,
+                                  editor.selected_text(), view._results_query, view._search_generation), before)
+
+                target = editor.childAt(point)
+                local = target.mapFromGlobal(editor.mapToGlobal(point))
+                QTest.mousePress(target, Qt.MouseButton.LeftButton, pos=local)
+                for character in (0, len(entry) - 1):
+                    self.assert_summary_background(entry, "summary_pressed", character=character)
+                QTest.mouseRelease(target, Qt.MouseButton.LeftButton, pos=local)
+                wait_for_search(view)
+                self.hover_painted_point(self.painted_character("Matches ("))
+                self.assert_summary_background(entry, "summary_active")
+                self.assert_summary_background(entry, "summary_active", character=-1)
+
+                query, matches, generation = view._results_query, view._search_matches, view._search_generation
+                self.hover_painted_point(self.painted_character("needle 12"))
+                self.assert_summary_background("needle 12", "summary_hover")
+                self.assert_summary_background(entry, "summary_active")
+                self.assertEqual(view._results_query, query)
+                self.assertIs(view._search_matches, matches)
+                self.assertEqual(view._search_generation, generation)
+                self.click_painted_point(self.painted_character("needle 12", -1))
+                self.hover_painted_point(self.painted_character("FATAL"))
+                self.assert_summary_background("FATAL", "summary_background")
+                self.assert_summary_background(entry, "summary_background")
+                self.assert_summary_background("needle 12", "summary_active")
+                view._search_input.clear()
+                self.assert_summary_background("needle 12", "summary_background")
+
+    def test_summary_feedback_follows_wrapping_zoom_rename_and_pointer_leave(self):
+        view = self.view
+        config = LogreaderConfig(context=0, enabled_patterns=(), regex_patterns=("a+", "b+"),
+                                 regex_pattern_names=("Twin", "Twin"))
+        editor = self.render(("aa bbb", "a bb"), config)
+        entry = "Twin (regex) 2"
+        self.hover_painted_point(self.painted_character(entry))
+        self.assert_summary_background(entry, "summary_hover")
+        self.assert_summary_background(entry, "summary_background", occurrence=1)
+        # The pointer stays still while a rename moves the second entry beneath it.
+        self.hover_painted_point(self.painted_character(entry, 0, 1))
+        view.rename_category("regex_1", "Long name for the first pattern (regex)")
+        self.app.processEvents()
+        self.assert_summary_background("Long name", "summary_hover")
+        self.assert_summary_background(entry, "summary_background")
+        self.click_painted_point(self.painted_character("Long name"))
+
+        name = "😀 " + "Long match name " * 6 + "(regex)"
+        view.rename_category("regex_1", name)
+        view.resize(640, 480)
+        view.set_line_wrapping(True)
+        view.zoom(2)
+        self.app.processEvents()
+        self.hover_painted_point(self.painted_character(name + " 2", -1))
+        self.assert_summary_background(name + " 2", "summary_hover", character=2)
+        self.assert_summary_background(name + " 2", "summary_hover", character=-1)
+        # Leaving the editor removes hover but preserves the selected pattern.
+        QTest.mouseMove(view.windowHandle(), view._search_input.mapTo(view, QPoint(10, 10)))
+        self.app.processEvents()
+        self.assert_summary_background(name + " 2", "summary_active", character=2)
+        self.assert_summary_background(name + " 2", "summary_active", character=-1)
+        QTest.keyClicks(view._search_input, "literal")
+        self.assert_summary_background(name + " 2", "summary_background", character=2)
+
+        view.set_line_wrapping(False)
+        self.app.processEvents()
+        point = self.painted_character(entry)
+        editor.horizontalScrollBar().setValue(point.x() - 30)
+        self.app.processEvents()
+        self.hover_painted_point(self.painted_character(entry))
+        self.assert_summary_background(entry, "summary_hover")
+        editor.horizontalScrollBar().setValue(0)
+        self.app.processEvents()
+        self.assert_summary_background(name + " 2", "summary_hover", character=2)
+
+    def test_summary_feedback_clears_for_stale_and_replaced_results(self):
+        view = self.view
+        config = LogreaderConfig(context=0, enabled_patterns=("error_colon",), custom_patterns=("needle",))
+        editor = self.render(("ERROR: needle",) * 12, config)
+        self.click_painted_point(self.painted_character("ERROR: 12"))
+        view.set_source_active(True)
+        wait_source(view)
+        view.set_source_active(False)
+        wait_for_navigation(view)
+        self.hover_painted_point(self.painted_character("Matches ("))
+        self.assert_summary_background("ERROR: 12", "summary_active")
+        point = self.painted_character("needle 12")
+        self.hover_painted_point(point)
+        target = editor.childAt(point)
+        local = target.mapFromGlobal(editor.mapToGlobal(point))
+        QTest.mousePress(target, Qt.MouseButton.LeftButton, pos=local)
+        self.assert_summary_background("needle 12", "summary_pressed")
+        view.begin_analysis()
+        self.assert_summary_background("ERROR: 12", "summary_background")
+        self.assert_summary_background("needle 12", "summary_background")
+        QTest.mouseRelease(target, Qt.MouseButton.LeftButton, pos=local)
+        self.assertEqual(view._results_query, "")
+        self.render(("ERROR: needle",) * 12, config, new_snapshot=False)
+        self.hover_painted_point(self.painted_character("Matches ("))
+        self.assert_summary_background("ERROR: 12", "summary_background")
+        self.assert_summary_background("needle 12", "summary_background")
 
     def test_dragging_or_right_clicking_a_summary_entry_uses_the_editor(self):
         view = self.view
