@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox
 from qt_helpers import capture_analysis, qt_application, retire_window, trigger_pattern_action, wait_for_load, wait_until
 from logreader.filter_snapshot import FilterSnapshot, PatternSnapshot
 from logreader.profiles import Profile, ProfileError
-from logreader.ui.profile_menu import ProfileDeletionDialog, ProfileNameDialog
+from logreader.ui.profile_menu import ProfileDeletionDialog, ProfileNameDialog, ProfileOverwriteDialog
 from logreader.ui.qt_app import LogreaderWindow
 
 
@@ -72,7 +72,7 @@ class ProfileMenuTests(unittest.TestCase):
             try:
                 self.assertIsNotNone(menu)
                 self.assertEqual(menu.objectName(), "profileOptionsMenu")
-                self.assertEqual([action.text() for action in menu.actions()], ["Overwrite with current settings", "Rename…", "Delete…"])
+                self.assertEqual([action.text() for action in menu.actions()], ["Overwrite with current settings…", "Rename…", "Delete…"])
                 page = self.window._document
                 self.assertEqual(menu.actions()[0].isEnabled(), page is not None and not page.session.is_busy)
                 for action in menu.actions():
@@ -419,10 +419,11 @@ class ProfileMenuTests(unittest.TestCase):
         self.assertFalse(self.profile_action(profile).isChecked())
         menu = self.show_menu()
         action = self.profile_action(profile)
-        self.use_profile_options(
-            lambda: QTest.mouseClick(menu, Qt.MouseButton.RightButton, pos=menu.actionGeometry(action).center()),
-            "Overwrite with current settings",
-        )
+        with patch.object(ProfileOverwriteDialog, "exec", return_value=QDialog.DialogCode.Accepted):
+            self.use_profile_options(
+                lambda: QTest.mouseClick(menu, Qt.MouseButton.RightButton, pos=menu.actionGeometry(action).center()),
+                "Overwrite with current settings…",
+            )
         updated = self.controller.store.get(profile.profile_id)
         self.assertEqual(updated.filters.context, 42)
         self.assertFalse(first.profile_modified)
@@ -502,11 +503,13 @@ class ProfileMenuTests(unittest.TestCase):
         self.assertTrue(has_accent(check))
         menu.close()
 
-    def test_overwrite_targets_context_profile_using_current_tab_settings(self):
+    def test_overwrite_requires_confirmation_for_context_profile_using_current_tab_settings(self):
         original = Profile("Original", FilterSnapshot(context=2))
-        target = Profile("Target", FilterSnapshot(context=9))
+        target = Profile("Target <name> & label", FilterSnapshot(context=9))
         for profile in (original, target):
             self.controller.store.create(profile)
+        path = self.controller.store.directory / f"{target.profile_id}.lrprof"
+        before = path.read_bytes()
         other = self.open_log("other.log")
         self.controller.apply(target)
         other_snapshot = other.filter_panel.capture_snapshot()
@@ -515,13 +518,44 @@ class ProfileMenuTests(unittest.TestCase):
         page.filter_panel._context_spin.setValue(42)
         page.filter_panel._custom_pattern.setText("unfinished draft")
         snapshot = page.filter_panel.capture_snapshot()
-        menu = self.show_menu()
-        action = self.profile_action(target)
-        QTest.mouseMove(menu, menu.actionGeometry(action).center())
-        self.use_profile_options(
-            lambda: QTest.mouseClick(self.controller._row_options.button, Qt.MouseButton.LeftButton),
-            "Overwrite with current settings",
-        )
+        status = page.status_message
+        for response in ("enter", "escape", "cancel", "close", "overwrite"):
+            class RespondingDialog(ProfileOverwriteDialog):
+                def exec(dialog):
+                    self.assertEqual(dialog.windowTitle(), "Overwrite profile")
+                    self.assertEqual(dialog.target.text(), target.name)
+                    self.assertEqual(dialog.target.textFormat(), Qt.TextFormat.PlainText)
+                    self.assertIn("current tab's settings", dialog.message.text())
+                    self.assertTrue(dialog.buttons.button(QDialogButtonBox.StandardButton.No).isDefault())
+                    self.assertEqual(path.read_bytes(), before)
+
+                    def respond():
+                        if response in ("enter", "escape"):
+                            QTest.keyClick(dialog, Qt.Key.Key_Return if response == "enter" else Qt.Key.Key_Escape)
+                        elif response == "close":
+                            dialog.close_button.click()
+                        else:
+                            button = QDialogButtonBox.StandardButton.Yes if response == "overwrite" else QDialogButtonBox.StandardButton.No
+                            dialog.buttons.button(button).click()
+
+                    QTimer.singleShot(0, respond)
+                    return super().exec()
+
+            with self.subTest(response=response), patch("logreader.ui.profile_menu.ProfileOverwriteDialog", RespondingDialog):
+                menu = self.show_menu()
+                action = self.profile_action(target)
+                QTest.mouseMove(menu, menu.actionGeometry(action).center())
+                self.use_profile_options(
+                    lambda: QTest.mouseClick(self.controller._row_options.button, Qt.MouseButton.LeftButton),
+                    "Overwrite with current settings…",
+                )
+                self.assertEqual(page.filter_panel.capture_snapshot(), snapshot)
+                if response != "overwrite":
+                    self.assertEqual(path.read_bytes(), before)
+                    self.assertEqual(page.applied_profile, original)
+                    self.assertEqual(page.status_message, status)
+                    self.assertEqual(other.applied_profile, target)
+                    self.assertFalse(other.profile_modified)
         updated = self.controller.store.get(target.profile_id)
         self.assertEqual(updated.filters, snapshot)
         self.assertEqual(updated.name, target.name)
@@ -611,7 +645,8 @@ class ProfileMenuTests(unittest.TestCase):
         self.assertIsNone(second.applied_profile)
         self.assertEqual(self.controller.store.load_all().profiles, ())
 
-    def test_update_and_delete_failures_do_not_change_saved_or_tab_state(self):
+    @patch.object(ProfileOverwriteDialog, "exec", return_value=QDialog.DialogCode.Accepted)
+    def test_update_and_delete_failures_do_not_change_saved_or_tab_state(self, _confirm):
         profile = Profile("Saved", FilterSnapshot())
         path = self.controller.store.save(profile)
         page = self.open_log("active.log")
@@ -643,7 +678,7 @@ class ProfileMenuTests(unittest.TestCase):
         self.controller.refresh()
         self.assertFalse(page.profile_available)
 
-    def test_profile_changed_during_rename_or_delete_is_not_overwritten(self):
+    def test_profile_changed_during_rename_delete_or_overwrite_is_not_overwritten(self):
         profile = Profile("Saved", FilterSnapshot())
         path = self.controller.store.save(profile)
         external = replace(profile, filters=FilterSnapshot(context=23))
@@ -667,6 +702,19 @@ class ProfileMenuTests(unittest.TestCase):
             self.controller.delete(external)
         self.assertIn("has changed", self.warning.call_args.args[2])
         self.assertEqual(self.controller.store.load(path), profile)
+
+        page = self.open_log("active.log")
+        page.filter_panel._context_spin.setValue(77)
+
+        def overwrite(dialog):
+            self.controller.store.save(external)
+            return QDialog.DialogCode.Accepted
+
+        with patch.object(ProfileOverwriteDialog, "exec", overwrite):
+            self.controller.update_profile(profile)
+        self.assertIn("has changed", self.warning.call_args.args[2])
+        self.assertEqual(self.controller.store.load(path), external)
+        self.assertIsNone(page.applied_profile)
 
     def test_complete_workflow_survives_window_restart_and_allows_management_without_tabs(self):
         page = self.open_log("restart.log")
@@ -692,7 +740,8 @@ class ProfileMenuTests(unittest.TestCase):
             controller.apply(saved)
             self.assertEqual(restored.filter_panel.capture_snapshot(), saved.filters)
             restored.filter_panel._context_spin.setValue(61)
-            controller.update_profile(saved)
+            with patch.object(ProfileOverwriteDialog, "exec", return_value=QDialog.DialogCode.Accepted):
+                controller.update_profile(saved)
             updated = controller.store.get(saved.profile_id)
             self.assertEqual(updated.filters.context, 61)
             restarted.close_tab(0)

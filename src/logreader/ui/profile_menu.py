@@ -219,15 +219,15 @@ class ProfileNameDialog(NameDialog):
             self.buttons.button(QDialogButtonBox.StandardButton.Save).setText("Rename")
 
 
-class ProfileDeletionDialog(CompactDialog):
-    def __init__(self, parent: QWidget, name: str) -> None:
-        super().__init__("Delete profile", parent)
+class _ProfileConfirmationDialog(CompactDialog):
+    def __init__(self, parent: QWidget, name: str, action: str, message: str) -> None:
+        super().__init__(f"{action} profile", parent)
         self.setFixedWidth(420)
         self.body_layout.setContentsMargins(14, 12, 14, 12)
         self.buttons.setContentsMargins(14, 0, 14, 12)
         self.target = QLabel(name)
         self.target.setStyleSheet("font-weight: 600;")
-        self.message = QLabel("Delete this saved profile? Settings already applied to open tabs will be kept.")
+        self.message = QLabel(message)
         for label in (self.target, self.message):
             label.setTextFormat(Qt.TextFormat.PlainText)
             label.setWordWrap(True)
@@ -237,11 +237,23 @@ class ProfileDeletionDialog(CompactDialog):
             default=QDialogButtonBox.StandardButton.No,
             destructive=QDialogButtonBox.StandardButton.Yes,
         )
-        self.buttons.button(QDialogButtonBox.StandardButton.Yes).setText("Delete")
+        self.buttons.button(QDialogButtonBox.StandardButton.Yes).setText(action)
         cancel = self.buttons.button(QDialogButtonBox.StandardButton.No)
         cancel.setText("Cancel")
         cancel.setFocus()
         self.fit_content()
+
+
+class ProfileDeletionDialog(_ProfileConfirmationDialog):
+    def __init__(self, parent: QWidget, name: str) -> None:
+        super().__init__(parent, name, "Delete",
+                         "Delete this saved profile? Settings already applied to open tabs will be kept.")
+
+
+class ProfileOverwriteDialog(_ProfileConfirmationDialog):
+    def __init__(self, parent: QWidget, name: str) -> None:
+        super().__init__(parent, name, "Overwrite",
+                         "Overwrite this saved profile with the current tab's settings?")
 
 
 class ProfileMenuController(QObject):
@@ -326,7 +338,7 @@ class ProfileMenuController(QObject):
             QMenu#profileOptionsMenu::item { padding-left: 30px; }
         """)
         _ProfileMenuSymbols(options)
-        overwrite = options.addAction("Overwrite with current settings")
+        overwrite = options.addAction("Overwrite with current settings…")
         overwrite.setProperty("profileSymbol", "overwrite")
         overwrite.setEnabled(self._editable_page() is not None and self._folder_available)
         rename = options.addAction("Rename…")
@@ -401,6 +413,12 @@ class ProfileMenuController(QObject):
             return
         try:
             snapshot = page.filter_panel.capture_snapshot()
+            dialog = ProfileOverwriteDialog(self.window, selected.name)
+            try:
+                if dialog.exec() != QDialog.DialogCode.Accepted:
+                    return
+            finally:
+                dialog.deleteLater()
             updated = self.store.update(selected, snapshot)
             page.applied_profile = updated
             page._set_status(f"Profile updated: {updated.name}")
