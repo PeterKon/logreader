@@ -2,20 +2,22 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from threading import Event
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from qt_helpers import click_summary_count, qt_application, retire_window, wait_source, trigger_pattern_action
-    from qt_helpers import wait_for_search, capture_analysis, wait_for_load
-    from PySide6.QtCore import QPoint, QPointF, Qt
+    from qt_helpers import wait_for_search, capture_analysis, wait_for_load, wait_until
+    from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt
     from PySide6.QtGui import QKeySequence, QTextCursor, QWheelEvent
     from PySide6.QtTest import QSignalSpy, QTest
     from PySide6.QtWidgets import QCheckBox, QLineEdit, QPushButton, QSpinBox, QTabBar
 
     from logreader.config import APP_VERSION, LogreaderConfig
     from logreader.document_session import AnalysisPhase
+    from logreader.file_loader import load_log
     from logreader.ui.qt_app import LogreaderWindow
 except ModuleNotFoundError:
     PYSIDE_AVAILABLE = False
@@ -61,6 +63,42 @@ class TabTests(unittest.TestCase):
                 return
             QTest.qWait(10)
         self.fail("Analysis did not finish")
+
+    def test_first_file_controls_keep_their_geometry_from_the_first_paint(self):
+        self.window.show()
+        self.app.processEvents()
+        path = self.make_log("slow.log")
+        release = Event()
+        frames = []
+
+        def slow_load(*args, **kwargs):
+            if not release.wait(5):
+                raise TimeoutError("Test load was not released")
+            return load_log(*args, **kwargs)
+
+        class PaintGeometry(QObject):
+            def eventFilter(self, obj, event):
+                if event.type() == QEvent.Type.Paint:
+                    frames.append([widget.geometry() for widget in widgets])
+                return False
+
+        observer = PaintGeometry()
+        with patch("logreader.workers.load_worker.load_log", side_effect=slow_load):
+            self.assertTrue(self.window.load_file(path))
+            page = self.window._document
+            widgets = (page.controls_container, page.filter_panel, page.results_view)
+            page.filter_panel.installEventFilter(observer)
+            try:
+                wait_until(lambda: bool(frames))
+            finally:
+                release.set()
+                wait_for_load(page)
+                page.filter_panel.removeEventFilter(observer)
+
+        self.assertTrue(frames)
+        settled = [widget.geometry() for widget in widgets]
+        for frame in frames:
+            self.assertEqual(frame, settled)
 
     def test_http_summary_click_selects_the_status_and_literal_search_finds_both_numbers(self):
         self.window.show()

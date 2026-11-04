@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QMenu,
     QPushButton,
     QSizePolicy,
@@ -1188,6 +1189,12 @@ class LogreaderWindow(TitleBarWindow):
             show_performance=self._show_performance, claim_replacement=self._claim_replacement,
         )
         page.set_render_active(False)
+        # Discard measurements cached before the filters inherited the window style.
+        # A slow load can otherwise expose the taller layout on the first paint.
+        for layout in reversed(page.filter_panel.findChildren(QLayout)):
+            layout.invalidate()
+        page.controls_layout.invalidate()
+        page.layout().invalidate()
         return page
 
     def _add_document(self, page: DocumentPage) -> None:
