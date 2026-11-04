@@ -100,7 +100,7 @@ def summary_operations(analysis: AnalysisResult, config: LogreaderConfig) -> Ite
             positive_entries.append((key, match_count))
 
     total_matches = sum(result.match_count for result in analysis.categories.values())
-    yield f"Matches ({total_matches:,} total):\n", "heading", True
+    yield f"Matches ({total_matches:,} total):\n", "summary_heading", True
     if positive_entries:
         yield from _iter_summary_entries(positive_entries, config)
     else:
@@ -108,7 +108,7 @@ def summary_operations(analysis: AnalysisResult, config: LogreaderConfig) -> Ite
     yield "\n", "body", False
 
     if zero_entries:
-        yield "\nNo matches:\n", "heading", False
+        yield "\nNo matches:\n", "summary_heading", False
         yield from _iter_summary_entries(zero_entries, config)
         yield "\n", "muted", False
 

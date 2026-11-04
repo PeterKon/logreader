@@ -35,6 +35,7 @@ THEME_COLORS = {
     "border": "#30363d",
     "summary_background": "#161d27",
     "summary_border": "#344255",
+    "summary_heading": "#c5cdd5",
     "summary_hover": "#263445",
     "summary_pressed": "#3d526b",
     "summary_active": "#203c55",
